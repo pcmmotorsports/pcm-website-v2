@@ -3212,7 +3212,9 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       //      而 `shipment_items` 本身 2026-09-02 就進來了。
       //   🛑 **而那條界線本身以前沒有機制** —— 板列 `⟦b9-SHIPUI⟧` 逐字
       //      「今天沒有機制擋它, 只有人的拍板擋它」⇒ **本片把它寫進下面那格 forbidden-token。**
-      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipped_quantity, shipments(shipped_at, deleted_at)))',
+      //
+      // 09-27 Sean 甲:放寬 09-06 Q6,單號與物流商可給客人看 ⇒ `shipments(...)` 多 `carrier_code, tracking_number`。
+      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipped_quantity, shipments(shipped_at, deleted_at, carrier_code, tracking_number)))',
     );
   });
 
@@ -3262,9 +3264,11 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
    *    本格守的是**出貨身分**。合成一個清單 ⇒ 哪天有人為了別的理由放寬其中一族,
    *    另一族會跟著鬆掉而沒有人發現。📌 **兩條不同的理由, 兩個分母。**
    */
-  it('🔴 ⟦b9-SHIPUI⟧ 出貨身分:件數可看, 而追蹤號 / 箱身分 / 收件人 / 內部備註一個都不可看', () => {
+  it('🔴 ⟦b9-SHIPUI⟧ 出貨身分:件數、單號、物流商可看(09-27 Sean 甲), 而箱身分 / 收件人 / 內部備註一個都不可看', () => {
+    // 09-27 Sean 甲:放寬 09-06 Q6,單號與物流商可給客人看 ⇒ `tracking_number`、`carrier_code` 移出本清單。
+    //   其餘(箱號、收件人、新竹回傳、內部備註、作廢理由、更正時點)照舊禁止。
     const RHYTHM_FORBIDDEN = [
-      'tracking_number', 'carrier_code', 'shipment_reference',
+      'shipment_reference',
       'recipient_snapshot', 'hct_',
       // 🔴 **這三欄是 code-reviewer 2026-09-06 補的, 而它們各自漏在不同的地方**:
       //    `carrier_note` = 內部備註(給司機/倉的字, 不是給客人的)
@@ -3284,7 +3288,7 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     //    (code-reviewer 2026-09-06:⛔ ~~`'shipments(id'`~~ 只擋 `id` 排第一的寫法
     //     ⇒ `shipments(shipped_at, id)` 一個都不紅)。
     //    ⇒ 📌 **一個綁在【欄位順序】上的禁令, 換個順序就消失了。**
-    expect(MEMBER_ORDER_DETAIL_SELECT).toContain('shipments(shipped_at, deleted_at)');
+    expect(MEMBER_ORDER_DETAIL_SELECT).toContain('shipments(shipped_at, deleted_at, carrier_code, tracking_number)');
     // 而它**只能出現一次** —— 多一處 `shipments(` 就是另一條沒被審過的路。
     expect(MEMBER_ORDER_DETAIL_SELECT.split('shipments(').length - 1).toBe(1);
 
@@ -3292,14 +3296,14 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     //    沒有這一發, 上面那六個 `not.toContain` 在「這把尺根本沒接上」時也會全綠。
     const VIOLATING =
       MEMBER_ORDER_DETAIL_SELECT.replace(
-        'shipments(shipped_at, deleted_at)',
-        'shipments(shipped_at, deleted_at, tracking_number)',
+        'shipments(shipped_at, deleted_at, carrier_code, tracking_number)',
+        'shipments(shipped_at, deleted_at, carrier_code, tracking_number, shipment_reference)',
       );
     expect(VIOLATING, '世界二必須與世界一不同, 否則這一發沒有換到任何東西').not.toBe(
       MEMBER_ORDER_DETAIL_SELECT,
     );
     const caught = RHYTHM_FORBIDDEN.filter((t) => VIOLATING.includes(t));
-    expect(caught, '同一把尺在違規世界必須抓到東西').toEqual(['tracking_number']);
+    expect(caught, '同一把尺在違規世界必須抓到東西').toEqual(['shipment_reference']);
   });
 
   it('查詢鏈:display_id 為鍵 + 兩層歸屬 + 🔴【不再有 #249 那道 neq】+ 內嵌 order/limit 成對', async () => {
@@ -3338,6 +3342,7 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       //    「全部出完」對它不成立。`[].every()` 回 `true` 那個陷阱在 mapper 已擋。
       shippedAt: null,
       allItemsShipped: false,
+      parcels: [], // 同上:沒有箱 ⇒ 沒有物流資訊
       subtotal: { amount: 12000, currency: 'TWD' },
       shippingFee: { amount: 100, currency: 'TWD' },
       discountTotal: { amount: 0, currency: 'TWD' },
@@ -3451,6 +3456,47 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(d?.items[0]?.shippedQuantity).toBe(0); // 🔴 箱作廢 ⇒ 件數歸零, 不是 2
     expect(d?.items[0]?.shipped).toBe(false);
     expect(d?.allItemsShipped).toBe(false);
+  });
+
+  // ── 09-27 Sean 甲:客人訂單頁看得到每箱的物流商與單號(放寬 09-06 Q6)。箱號 / 出貨時間仍不給。
+  const parcelBox = (
+    carrier: string,
+    tracking: string | null,
+    shippedAt: string | null = '2099-05-01T00:00:00Z',
+    deletedAt: string | null = null,
+  ) => ({
+    shipped_quantity: 1,
+    shipments: { shipped_at: shippedAt, deleted_at: deletedAt, carrier_code: carrier, tracking_number: tracking },
+  });
+  const HCT_URL = 'https://www.hct.com.tw/Search/SearchGoods_n.aspx';
+
+  it('🔴 parcels:新竹 / 順豐 / 自取各一箱 ⇒ 物流商、單號、查詢頁;依出貨先後排', async () => {
+    const d = await detailOf(
+      rowWithBoxes([
+        [parcelBox('sf', 'SF123', '2099-05-02T00:00:00Z')],
+        [parcelBox('hct', '6012345678', '2099-05-01T00:00:00Z'), parcelBox('other', null, '2099-05-03T00:00:00Z')],
+      ]),
+    );
+    expect(d?.parcels).toEqual([
+      { carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL },
+      { carrierName: '順豐', trackingNumber: 'SF123', trackingPageUrl: null },
+      { carrierName: null, trackingNumber: null, trackingPageUrl: null },
+    ]);
+  });
+
+  it('🔴 parcels:同一箱裝兩個品項只算一次;作廢與未出貨的箱不列', async () => {
+    const d = await detailOf(
+      rowWithBoxes([
+        [parcelBox('hct', '6012345678'), parcelBox('hct', '6099999999', '2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z')],
+        [parcelBox('hct', '6012345678'), parcelBox('hct', '6088888888', null)],
+      ]),
+    );
+    expect(d?.parcels).toEqual([{ carrierName: '新竹物流', trackingNumber: '6012345678', trackingPageUrl: HCT_URL }]);
+  });
+
+  it('🟢 parcels:沒有出貨紀錄 ⇒ 空陣列(不是 undefined)', async () => {
+    const d = await detailOf(MEMBER_DETAIL_ROW);
+    expect(d?.parcels).toEqual([]);
   });
 
   /**

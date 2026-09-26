@@ -27,6 +27,7 @@ const ORDER = {
   paidAt: '2099-04-18T03:00:00Z',
   shippedAt: null,
   allItemsShipped: false,
+  parcels: [],
   subtotal: twd(18000),
   shippingFee: twd(100),
   discountTotal: twd(0),

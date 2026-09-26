@@ -190,6 +190,23 @@
   min-height: 1.4em;
 }
 
+/* ---- 物流資訊(09-27 Sean Q1 甲)----
+   每箱一列:左邊物流商 + 單號,右邊「複製單號」與查詢鈕(沿用 .od-track 那顆主鈕)。
+   單號 user-select: all ⇒ 剪貼簿不能用時,客人點一下就整串選起來。 */
+.od-parcel {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px 20px; flex-wrap: wrap;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 14px;
+  color: var(--c-text-2);
+}
+.od-parcel-carrier { font-weight: 600; color: var(--c-text); margin-right: 10px; }
+.od-parcel-num { font-family: var(--f-mono); color: var(--c-text); user-select: all; }
+.od-parcel-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.od-parcel-copy { min-height: 46px; justify-content: center; }
+.od-parcel-hint { margin-top: 10px; font-size: 12px; line-height: 1.6; color: var(--c-text-3); }
+
 /* ---- 完整物流歷程 ----
    Baymard 物流六要素的第 5 項。四步進度條回答「走到哪一階段」,
    歷程回答「這兩天實際發生什麼事」—— 客人在等貨的時候看的是後者。
@@ -326,6 +343,9 @@
   .od-head { padding-bottom: 20px; margin-bottom: 24px; }
   .od-head h1 { font-size: 22px; word-break: break-all; }
   .od-track { width: 100%; justify-content: center; }
+  /* 物流資訊:手機上兩顆鈕各佔一半、排在單號下面(.od-track 的 width:100% 在這裡讓給 flex 分)。 */
+  .od-parcel-actions { width: 100%; }
+  .od-parcel-actions > * { flex: 1 1 0; }
   /* 四步橫排在 390px 下每格只剩 ~85px,「訂單成立」四個字就滿了、日期一定被截。改直式。 */
   /* 進度軸在 390px 仍然橫排 —— 四個標籤各 3–4 字,一格約 82px 放得下。
      原本這裡是「改成直式一格一列」,那是方格版的補丁;細軸不需要,

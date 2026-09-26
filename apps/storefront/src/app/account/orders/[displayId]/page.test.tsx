@@ -80,6 +80,7 @@ const OWN_ORDER: MemberOrderDetail = {
   paidAt: '2099-04-18T03:00:00Z',
   shippedAt: null,
   allItemsShipped: false,
+  parcels: [],
   subtotal: money(12000),
   shippingFee: money(100),
   discountTotal: money(0),

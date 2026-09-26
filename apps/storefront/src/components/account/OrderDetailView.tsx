@@ -68,6 +68,7 @@ import {
   PCM_REMITTANCE_MEMO_INSTRUCTION,
 } from '@pcm/domain';
 import { ProductImage } from '@/components/ProductImage';
+import { CopyTrackingButton } from './copy-tracking-button';
 import {
   formatOrderDate,
   orderStatusLabel,
@@ -545,6 +546,41 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         <p className="acc-order-note" data-od-id="order-partial-shipment-note">
           {ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE}
         </p>
+      )}
+
+      {/* 09-27 Sean Q1 甲 / Q2 甲:每箱列物流商、單號、「複製單號」;有公開查詢頁(只有新竹)才給查詢鈕。
+          放寬 09-06 Q6 的只有單號與物流商;箱號、每箱出貨時間仍不給(`MemberOrderDetail.parcels`)。 */}
+      {order.parcels.length > 0 && (
+        <div className="acc-section" data-od-id="order-parcels">
+          <div className="acc-section-head">
+            <h2>物流資訊</h2>
+          </div>
+          {order.parcels.map((p, i) => (
+            <div className="od-parcel" key={`${p.carrierName ?? ''}:${p.trackingNumber ?? i}`}>
+              {p.trackingNumber === null ? (
+                '本批為自取／自送，無追蹤碼'
+              ) : (
+                <>
+                  <span className="od-parcel-no">
+                    {p.carrierName !== null && <span className="od-parcel-carrier">{p.carrierName}</span>}
+                    追蹤碼 <span className="od-parcel-num">{p.trackingNumber}</span>
+                  </span>
+                  <span className="od-parcel-actions">
+                    <CopyTrackingButton value={p.trackingNumber} />
+                    {p.trackingPageUrl !== null && (
+                      <a className="od-track" href={p.trackingPageUrl} target="_blank" rel="noopener noreferrer">
+                        到{p.carrierName ?? '物流商'}查詢
+                      </a>
+                    )}
+                  </span>
+                </>
+              )}
+            </div>
+          ))}
+          {order.parcels.some((p) => p.trackingPageUrl !== null) && (
+            <p className="od-parcel-hint">新竹物流查詢頁會另開分頁，請貼上單號並輸入驗證碼後查詢。</p>
+          )}
+        </div>
       )}
 
       <div className="acc-section" data-od-id="order-items">
