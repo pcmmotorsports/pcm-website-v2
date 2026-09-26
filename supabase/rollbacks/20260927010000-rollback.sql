@@ -9,9 +9,11 @@ SET LOCAL lock_timeout = '5s';
 
 DO $pre$
 BEGIN
-  IF pg_catalog.to_regclass('public.order_returns') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM public.order_returns) THEN
-    RAISE EXCEPTION '退回前置閘:order_returns 裡已經有資料 ⇒ 停(先匯出留底, 再決定要不要刪)。';
+  -- 巢狀 IF:表不存在時內層那句不會被規劃, 重跑退回檔不會撞 42P01(審查 C3)。
+  IF pg_catalog.to_regclass('public.order_returns') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM public.order_returns) THEN
+      RAISE EXCEPTION '退回前置閘:order_returns 裡已經有資料 ⇒ 停(先匯出留底, 再決定要不要刪)。';
+    END IF;
   END IF;
 END
 $pre$;
