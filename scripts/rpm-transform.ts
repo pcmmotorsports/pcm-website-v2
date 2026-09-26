@@ -396,34 +396,45 @@ export interface GroupTransformContext {
   descriptionPerVariant?: boolean;
 }
 
-const DESCRIPTION_TAIL = '適用車款與年式以本頁標示為準';
+// 報價單 Arrow 說明的兩種固定結尾句(2026-09-27 量 1501 列:1378 列 / 122 列, 其餘 1 列只有一段)。
+const DESCRIPTION_TAILS = ['適用車款與年式以本頁標示為準', '適用範圍與安裝方式請見本頁說明'];
 
 /**
  * 卡片說明。預設 = 料號排最前、有說明的那一款(variants 由 rpm-fetch `order('sku')` 來)。
  * perVariant(Sean 2026-09-27 Q1 甲,Arrow):各款說明不同時,每段前面加【款式名稱】(spec.style,沒有就用料號);
- *   說明相同的款合成一段、名稱用「、」接;結尾那句「適用車款與年式以本頁標示為準」只在最後留一次。
- *   順序沿用料號順序 ⇒ 每天同步結果一樣。商品頁以空行分段(ProductTabs.tsx),所以名稱放在段首同一行。
+ *   說明相同的款合成一段、名稱用「、」接;固定結尾句(DESCRIPTION_TAILS)不標款式, 只在最後各留一次。
+ *   順序沿用料號順序 ⇒ 每天同步結果一樣。商品頁以空行分段(ProductTabs.tsx),所以名稱放在段首同一行;
+ *   某款說明本身有好幾段時, 每一段都標(審查 C1:第二段起沒標就分不出是哪一款;不能改成單換行, .pd-body 會壓成空格)。
+ *   比「各款是否相同」時不看結尾那句(審查 C2)。
  *   計畫:docs/plans/2026-09-27-arrow-mixed-card-description.md
  */
 export function groupDescription(variants: SourceProductRow[], perVariant: boolean): string | null {
   const described = variants.filter((v) => (v.description ?? '').trim() !== '');
   const first = described[0]?.description ?? null;
-  if (!perVariant || new Set(described.map((v) => v.description!.trim())).size <= 1) return first;
-  let hasTail = false;
+  const tailOf = (d: string) => DESCRIPTION_TAILS.find((t) => d.trim().endsWith(t)) ?? null;
+  const bodyOf = (d: string) => {
+    const tail = tailOf(d);
+    return tail ? d.trim().slice(0, -tail.length).trim() : d.trim();
+  };
+  if (!perVariant || new Set(described.map((v) => bodyOf(v.description!))).size <= 1) return first;
+  const tails = [...new Set(described.map((v) => tailOf(v.description!)).filter((t): t is string => t !== null))];
   const sections = new Map<string, string[]>(); // 說明本文 → 款式名稱(保持第一次出現的順序)
   for (const v of described) {
-    let body = v.description!.trim();
-    if (body.endsWith(DESCRIPTION_TAIL)) {
-      hasTail = true;
-      body = body.slice(0, -DESCRIPTION_TAIL.length).trim();
-    }
+    const body = bodyOf(v.description!);
     if (body === '') continue; // 只有結尾那句的款不另開一段
     const style = typeof v.spec?.style === 'string' && v.spec.style.trim() !== '' ? v.spec.style.trim() : v.sku;
     const labels = sections.get(body) ?? sections.set(body, []).get(body)!;
     if (!labels.includes(style)) labels.push(style);
   }
-  const parts = [...sections].map(([body, labels]) => `【${labels.join('、')}】${body}`);
-  if (hasTail) parts.push(DESCRIPTION_TAIL);
+  const parts = [...sections].flatMap(([body, labels]) =>
+    body
+      .replace(/\r\n/g, '\n')
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => `【${labels.join('、')}】${p}`),
+  );
+  parts.push(...tails);
   return parts.join('\n\n');
 }
 

@@ -1157,4 +1157,44 @@ describe('混合卡說明分款列出(descriptionPerVariant)', () => {
     const { product } = runGroup('ARROW-71556-SILENCERS', MIXED, null, CTX);
     expect(product.description).toBe(MIXED[0]!.description);
   });
+
+  // C1(審查建議):說明本身多段時, 每一段都要標款式 —— 商品頁以空行分段, 第二段起沒標就分不出是哪一款。
+  it('某款說明有好幾段:每一段前面都標款式名稱', () => {
+    const multi = [
+      arrowRow('71556GP', 'GP2', `鈦合金尾段。\n\n附消音塞。\n\n${TAIL}`),
+      arrowRow('71556GPI', 'GP2 Dark', `黑鋼罐身。\n\n${TAIL}`),
+    ];
+    const { product } = runGroup('ARROW-71556-SILENCERS', multi, null, { ...CTX, descriptionPerVariant: true });
+    expect(product.description).toBe(`【GP2】鈦合金尾段。\n\n【GP2】附消音塞。\n\n【GP2 Dark】黑鋼罐身。\n\n${TAIL}`);
+  });
+
+  // C2(審查建議):本文一樣、只差有沒有結尾那句 ⇒ 算同一段說明, 不分款。
+  it('兩款本文相同、只有一款帶結尾句:照舊只放一段', () => {
+    const same = [
+      arrowRow('71556GP', 'GP2', `鈦合金尾段。\n\n${TAIL}`),
+      arrowRow('71556GPI', 'GP2 Dark', '鈦合金尾段。'),
+    ];
+    const { product } = runGroup('ARROW-71556-SILENCERS', same, null, { ...CTX, descriptionPerVariant: true });
+    expect(product.description).toBe(same[0]!.description);
+  });
+
+  // 第二種固定結尾句(2026-09-27 量到 122 列):一樣不標款式、只在最後留一次。
+  it('結尾是「適用範圍與安裝方式請見本頁說明」:當成結尾句, 只留一次', () => {
+    const TAIL2 = '適用範圍與安裝方式請見本頁說明';
+    const rows = [
+      arrowRow('52013AKN', 'Thunder Dark 碳尾蓋', `鋁合金 Dark 尾段。\n\n${TAIL2}`),
+      arrowRow('52013AON', 'Thunder Dark', `鋁合金尾段本體。\n\n${TAIL2}`),
+    ];
+    const { product } = runGroup('ARROW-52013-SILENCERS', rows, null, { ...CTX, descriptionPerVariant: true });
+    expect(product.description).toBe(`【Thunder Dark 碳尾蓋】鋁合金 Dark 尾段。\n\n【Thunder Dark】鋁合金尾段本體。\n\n${TAIL2}`);
+  });
+
+  // N2(審查建議):料號排最前的那款說明空白 ⇒ 跳過它, 兩種模式都一樣。
+  it('料號排最前的那款說明空白:取下一款有說明的', () => {
+    const blankFirst = [arrowRow('71556GA', 'GP2 Raw', '   '), ...MIXED.slice(1)];
+    expect(runGroup('ARROW-71556-SILENCERS', blankFirst, null, CTX).product.description).toBe(MIXED[1]!.description);
+    expect(runGroup('ARROW-71556-SILENCERS', blankFirst, null, { ...CTX, descriptionPerVariant: true }).product.description).toBe(
+      `【GP2 Dark】黑鋼罐身搭配不鏽鋼尾蓋。\n\n【71556GPX】不鏽鋼版本。\n\n${TAIL}`,
+    );
+  });
 });
