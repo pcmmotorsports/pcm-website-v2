@@ -1,6 +1,7 @@
 // lib/auth/site-login-copy.ts —— 站別登入被擋時,登入頁顯示的話與另一站的連結(B2B 計畫第四版 F 節 Q3,文字逐字照計畫)。
 // 伺服器端(site-login-gate.ts 產生錯誤碼)與登入頁(LoginPage.tsx 顯示)共用,所以不放 server-only。
 import type { SiteMode } from '@/lib/site-mode';
+import { LINE_ADD_URL, LINE_OA_ID } from '@/lib/line-cta';
 
 export type SiteLoginError =
   | 'site-member-on-b2b'
@@ -46,7 +47,11 @@ export function siteLoginMessage(code: string | undefined, mode: SiteMode): Site
         links: [APPLY_LINK, { href: `${RETAIL_SITE_URL}/login`, label: '前往 www.pcmmotorsports.com' }],
       };
     case 'site-disabled':
-      return { text: '此帳號已停用。如有疑問，請聯絡 PCM 客服。' };
+      // Sean 2026-09-26 Q30 甲:只有密碼正確的人會看到這一句(密碼錯的在 Supabase 那一步就擋下, 看到的是「Email 或密碼錯誤」)
+      return {
+        text: `此帳號已停用，如有疑問請加 LINE ${LINE_OA_ID} 聯絡我們。`,
+        links: [{ href: LINE_ADD_URL, label: `加 LINE ${LINE_OA_ID}` }],
+      };
     case 'site-unknown':
       return {
         text:

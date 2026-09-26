@@ -229,6 +229,15 @@ describe('loginAction · 登入限次', () => {
     expect(order).toEqual(['settle', 'site', 'redirect']);
   });
 
+  // Sean 2026-09-26 Q30 甲:停用的帳號用正確密碼登入 ⇒ 看到停用說明, 而且【不算】登入失敗次數
+  it('🔴 密碼正確但帳號已停用 ⇒ 回 site-disabled, 結算 success(不是 failed)、不導頁', async () => {
+    siteCheckSpy.mockResolvedValue('site-disabled');
+    expect(await loginAction(VALID)).toEqual({ siteError: 'site-disabled' });
+    expect(settleSpy).toHaveBeenCalledWith('r1', 'success');
+    expect(settleSpy).not.toHaveBeenCalledWith('r1', 'failed');
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
   it('🔴 導頁丟出 NEXT_REDIRECT 也不會把成功改算成 release', async () => {
     redirectSpy.mockImplementation(() => {
       throw new Error('NEXT_REDIRECT');

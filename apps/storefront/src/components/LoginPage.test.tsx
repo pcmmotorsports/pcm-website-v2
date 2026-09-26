@@ -241,10 +241,10 @@ describe('LoginPage', () => {
   });
 
   // 20260926100000:後台停用的會員,登入當下與每次請求都導回這裡
-  it('停用 ⇒「此帳號已停用」,不附任何連結', () => {
+  it('停用 ⇒「此帳號已停用」,附加 LINE 的連結(Sean 2026-09-26 Q30 甲)', () => {
     renderPage('site-disabled');
-    expect(document.querySelector('.auth-err')!.textContent).toContain('此帳號已停用。如有疑問，請聯絡 PCM 客服。');
-    expect(document.querySelectorAll('.auth-err a')).toHaveLength(0);
+    expect(document.querySelector('.auth-err')!.textContent).toContain('此帳號已停用，如有疑問請加 LINE @pcmmoto 聯絡我們。');
+    expect([...document.querySelectorAll('.auth-err a')].map((a) => a.getAttribute('href'))).toEqual(['https://lin.ee/R6QZUH2']);
   });
 
   // 🔴 Codex L2a R1 必修:帳密登入被擋時是【同一頁】收到結果,不是全新掛載。

@@ -21,7 +21,10 @@
 //    ⇒ **本檔這個注入是過渡形狀,不是終局。**
 //    (另:packages 不可反向 import app,故不論如何都不會由 app 端提供規則本體。)
 
+// 🔵 2026-09-26(Sean Q30 甲):getDisabledAccountNoticeDeps 另外用 service_role 讀 customers 的 email / disabled_at
+//    (忘記密碼時判斷是不是停用帳號;只讀、不寫), 寄信同一個 Resend 寄信器。見檔尾那支函式的說明。
 import 'server-only';
+import type { DisabledNoticeDeps } from '@/lib/auth/disabled-account-notice';
 import type {
   ApplyOrderIneligibleGateDeps,
   EnqueueOrderCreatedEmailsDeps,
@@ -445,5 +448,38 @@ export function getApplyOrderIneligibleGateDeps(): ApplyOrderIneligibleGateDeps 
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseIneligibleOrderEmailScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * 停用帳號按「忘記密碼」時寄停用通知要用的 deps(2026-09-26 Sean Q30 / Q31 / Q32 甲;
+ * 判斷順序在 `lib/auth/disabled-account-notice.ts`)。
+ * - 查帳號:service_role 讀 customers 的 disabled_at(會員自己的連線在這一步還沒登入, 讀不到)。
+ *   ilike 先撈候選(Email 裡的 _ % 會被當萬用字元 ⇒ 先逃逸), 再逐字比小寫。
+ * - 寄信:同一個 Resend 寄信器、同一個寄件人(ORDER_EMAIL_FROM), 不進 email_outbox。
+ *   env 在呼叫時才讀(lazy);缺 key ⇒ 那一封寄不出, 由呼叫端當成 send_failed, 畫面照常。
+ */
+export function getDisabledAccountNoticeDeps(): Omit<DisabledNoticeDeps, 'verifyCaptcha' | 'now'> {
+  return {
+    findDisabledUserId: async (email) => {
+      const want = email.toLowerCase();
+      const pattern = want.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const { data, error } = await createSupabaseServiceClient()
+        .from('customers')
+        .select('user_id, email, disabled_at')
+        .ilike('email', pattern)
+        .limit(5)
+        // 資料庫卡住時不要讓忘記密碼一直等:逾時 ⇒ 丟例外 ⇒ 呼叫端走 lookup_failed(照原本流程交給 Supabase)
+        .abortSignal(AbortSignal.timeout(3000));
+      if (error) throw error;
+      const hit = (data ?? []).find((r) => typeof r.email === 'string' && r.email.toLowerCase() === want);
+      return hit && hit.disabled_at !== null ? hit.user_id : null;
+    },
+    isSyntheticEmail: isSyntheticEmailDomain,
+    send: (input) =>
+      new ResendEmailSenderAdapter({
+        apiKey: requireEnv('RESEND_API_KEY'),
+        from: requireEnv('ORDER_EMAIL_FROM'),
+      }).send(input),
   };
 }

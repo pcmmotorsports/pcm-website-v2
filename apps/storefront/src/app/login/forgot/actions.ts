@@ -16,6 +16,8 @@ import { getAuthService } from '@/lib/auth/composition';
 import { validateForgot, type ForgotFieldErrors } from '@/lib/auth/field-validation';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { AUTH_ERR_CAPTCHA_FAILED, sanitizeCaptchaToken } from '@/lib/auth/auth-copy';
+import { handleForgotForDisabledAccount, verifyTurnstileToken } from '@/lib/auth/disabled-account-notice';
+import { getDisabledAccountNoticeDeps } from '@/lib/email/composition';
 
 export type ForgotActionResult = {
   fieldErrors?: ForgotFieldErrors;
@@ -55,9 +57,25 @@ export async function requestPasswordResetAction(
   //   🔴 **而網域那一格我刻意【不記網域本身,只記它的長度】**:
   //     `gmail.com` 這種公開網域無妨,而**公司網域會把範圍縮到一間公司**
   //     ⇒ 兩者在程式裡長得一樣,所以一律只記長度。
+  const token = sanitizeCaptchaToken(captchaToken);
+
+  // Sean 2026-09-26 Q30 甲:停用的帳號不寄重設連結, 改寄停用通知;畫面回應與一般帳號完全相同(判斷順序見該檔檔頭)
+  const disabled = await handleForgotForDisabledAccount(
+    { ...getDisabledAccountNoticeDeps(), verifyCaptcha: verifyTurnstileToken, now: () => new Date() },
+    v.data.email,
+    token,
+  );
+  if (disabled.kind === 'done') {
+    console.info('[auth/forgot] 停用帳號:不寄重設信', { outcome: disabled.reason });
+    return {};
+  }
+  if (disabled.reason !== 'not_disabled') {
+    // 停用帳號但驗證碼沒過 / 查詢失敗:照原本流程交給 Supabase(驗證碼已用過或沒帶 ⇒ Supabase 會判失敗, 不寄信)
+    console.info('[auth/forgot] 停用帳號檢查交回原流程', { reason: disabled.reason });
+  }
+
   let outcome: 'requested' | 'provider_error' = 'requested';
   let errorCode: string | undefined;
-  const token = sanitizeCaptchaToken(captchaToken);
   try {
     await requestPasswordReset(await getAuthService(), {
       email: v.data.email,

@@ -121,7 +121,11 @@ export type SendEmailInput = {
    * `sent` 狀態不可省。
    */
   idempotency: {
-    eventType: EmailOutboxEventType;
+    /**
+     * `account_disabled_notice`(2026-09-26 Sean Q30 / Q32 甲):停用帳號按「忘記密碼」時寄的通知。
+     * 它【不走 email_outbox】, outboxId 放的是「會員 id + 小時」, 靠 Resend 的防重複鍵讓同一帳號每小時最多一封。
+     */
+    eventType: EmailOutboxEventType | 'account_disabled_notice';
     outboxId: string;
   };
 };

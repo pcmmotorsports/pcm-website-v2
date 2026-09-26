@@ -9,9 +9,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError } from '@pcm/domain';
 
-const { sendResetSpy, resolveSiteUrlSpy } = vi.hoisted(() => ({
+vi.mock('server-only', () => ({}));
+const { sendResetSpy, resolveSiteUrlSpy, findDisabledSpy, sendNoticeSpy, verifySpy } = vi.hoisted(() => ({
   sendResetSpy: vi.fn(),
   resolveSiteUrlSpy: vi.fn(),
+  findDisabledSpy: vi.fn(),
+  sendNoticeSpy: vi.fn(),
+  verifySpy: vi.fn(),
+}));
+// 20260926 Q30 甲:停用帳號的判斷(查帳號、寄信器、驗證碼)全部換成假的;預設「不是停用帳號」
+vi.mock('@/lib/email/composition', () => ({
+  getDisabledAccountNoticeDeps: () => ({
+    findDisabledUserId: findDisabledSpy,
+    isSyntheticEmail: () => false,
+    send: sendNoticeSpy,
+  }),
+}));
+vi.mock('@/lib/auth/disabled-account-notice', async (orig) => ({
+  ...(await orig<typeof import('@/lib/auth/disabled-account-notice')>()),
+  verifyTurnstileToken: verifySpy,
 }));
 
 vi.mock('@/lib/auth/composition', () => ({
@@ -33,6 +49,9 @@ import { requestPasswordResetAction } from './actions';
 beforeEach(() => {
   sendResetSpy.mockReset();
   resolveSiteUrlSpy.mockReset();
+  findDisabledSpy.mockReset().mockResolvedValue(null);
+  sendNoticeSpy.mockReset().mockResolvedValue({ kind: 'sent', providerMessageId: 'm1' });
+  verifySpy.mockReset().mockResolvedValue('ok');
   resolveSiteUrlSpy.mockReturnValue('https://shop.pcmmotorsports.com');
 });
 afterEach(() => vi.clearAllMocks());
@@ -171,5 +190,53 @@ describe('requestPasswordResetAction — 人機驗證碼', () => {
     sendResetSpy.mockRejectedValue(new AuthError('rate_limited', '429'));
     const r = await requestPasswordResetAction({ email: 'a@b.com' }, 'tok');
     expect(r).toEqual({});
+  });
+});
+
+// Sean 2026-09-26 Q30 甲:停用帳號按忘記密碼 ⇒ 不寄重設連結, 改寄停用通知;畫面回應與一般帳號完全相同
+describe('停用帳號的忘記密碼', () => {
+  const EMAIL = { email: 'off@shop.tw' };
+
+  it('🔴 驗證碼通過 ⇒ 寄停用通知、不呼叫 Supabase、回一般畫面', async () => {
+    findDisabledSpy.mockResolvedValue('u-off');
+    const r = await requestPasswordResetAction(EMAIL, 'tok');
+    expect(r).toEqual({});
+    expect(sendResetSpy).not.toHaveBeenCalled();
+    expect(sendNoticeSpy).toHaveBeenCalledTimes(1);
+    expect(sendNoticeSpy.mock.calls[0]?.[0]).toMatchObject({ to: 'off@shop.tw', subject: 'PCM 帳號已停用通知' });
+  });
+
+  it('🔴 驗證碼不對 ⇒ 交回 Supabase(驗證碼已用過, Supabase 判失敗);回應與一般帳號帶錯驗證碼時相同、不寄通知', async () => {
+    findDisabledSpy.mockResolvedValue('u-off');
+    verifySpy.mockResolvedValue('invalid');
+    sendResetSpy.mockRejectedValue(new AuthError('captcha_failed', 'x'));
+    const disabledResult = await requestPasswordResetAction(EMAIL, 'bad');
+    findDisabledSpy.mockResolvedValue(null);
+    const normalResult = await requestPasswordResetAction({ email: 'on@shop.tw' }, 'bad');
+    expect(disabledResult).toEqual(normalResult);
+    expect(sendNoticeSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 沒帶驗證碼 ⇒ 交回 Supabase, 不自己驗、不寄通知', async () => {
+    findDisabledSpy.mockResolvedValue('u-off');
+    await requestPasswordResetAction(EMAIL);
+    expect(verifySpy).not.toHaveBeenCalled();
+    expect(sendResetSpy).toHaveBeenCalledTimes(1);
+    expect(sendNoticeSpy).not.toHaveBeenCalled();
+  });
+
+  it('還沒設 TURNSTILE_SECRET_KEY ⇒ 不寄任何信、回一般畫面', async () => {
+    findDisabledSpy.mockResolvedValue('u-off');
+    verifySpy.mockResolvedValue('unconfigured');
+    expect(await requestPasswordResetAction(EMAIL, 'tok')).toEqual({});
+    expect(sendResetSpy).not.toHaveBeenCalled();
+    expect(sendNoticeSpy).not.toHaveBeenCalled();
+  });
+
+  it('查帳號失敗 ⇒ 照原本流程交給 Supabase', async () => {
+    findDisabledSpy.mockRejectedValue(new Error('db down'));
+    await requestPasswordResetAction(EMAIL, 'tok');
+    expect(sendResetSpy).toHaveBeenCalledTimes(1);
+    expect(sendNoticeSpy).not.toHaveBeenCalled();
   });
 });
