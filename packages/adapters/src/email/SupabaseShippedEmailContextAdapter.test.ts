@@ -366,6 +366,33 @@ describe('SupabaseShippedEmailContextAdapter — 正常路徑', () => {
   });
 });
 
+// Sean 2026-09-27 Q1 甲 / Q2 甲:只有新竹物流給查詢頁網址;順豐只列單號;沒有單號就不給。
+describe('SupabaseShippedEmailContextAdapter — 物流查詢頁網址', () => {
+  const HCT_URL = 'https://www.hct.com.tw/Search/SearchGoods_n.aspx';
+  const urlOf = async (over: Record<string, unknown>) =>
+    expectOk(
+      await load(
+        client([
+          { data: [box(over)], error: null },
+          { data: [line('後照鏡')], error: null },
+        ]),
+      ),
+    ).trackingPageUrl;
+
+  it('新竹物流 + 有單號 ⇒ 新竹查詢頁', async () => {
+    expect(await urlOf({})).toBe(HCT_URL);
+  });
+  it('順豐 ⇒ null(只列單號)', async () => {
+    expect(await urlOf({ carrier_code: 'sf', tracking_number: 'SF1234' })).toBeNull();
+  });
+  it('自取 / 自送 ⇒ null', async () => {
+    expect(await urlOf({ carrier_code: 'other', carrier_note: '自取', tracking_number: null })).toBeNull();
+  });
+  it('新竹但單號是空字串 ⇒ null(沒有單號可查)', async () => {
+    expect(await urlOf({ tracking_number: '' })).toBeNull();
+  });
+});
+
 describe('SupabaseShippedEmailContextAdapter — 🔴 兩種 null 不可以合併', () => {
   it('🔴 自取(carrier=other + note「自取」+ 沒有追蹤碼)⇒ 整包不是 null,而追蹤碼是 null', async () => {
     // 🔴🔴 **這一格 2026-08-22 改過,而改的是【資料本身合不合法】,不是斷言**(codex R1 ①):

@@ -89,6 +89,11 @@ export type ShippedEmailContext = {
    */
   trackingNumber: string | null;
   /**
+   * 給客人自己查件的公開查詢頁(Sean 2026-09-27 Q1 甲);只有新竹物流而且有單號時才有值,其餘 `null`。
+   * 由 `carrierTrackingPageOf`(`@pcm/domain`)算,寄信端不自己判斷是哪一家。
+   */
+  trackingPageUrl: string | null;
+  /**
    * **這一箱的單號最後一次被更正的時點**(ISO 8601);從來沒被更正過 ⇒ `null`。
    *
    * 🔴🔴 **它只給更正信那條線用, 而它回答的是【這份工作單還是不是最新的那一次更正】。**

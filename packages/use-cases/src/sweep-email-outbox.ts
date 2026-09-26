@@ -690,6 +690,8 @@ function buildEmailContent(
   shipped: ShippedEmailContext | null,
   paid: PaidEmailContext | null,
   siteUrl: string | undefined,
+  /** 更正信用:寄出前比對即時值那一段讀到的查詢頁(其他信一律 `null`)。 */
+  correctedTrackingPageUrl: string | null,
 ): EmailContent {
   switch (job.eventType) {
     case 'order_partially_cancelled':
@@ -751,7 +753,7 @@ function buildEmailContent(
       //    不需要品項、不需要金額。
       // 🛑 **而它【不能】重用 `order_shipped` 的模板**:那封說的是「有一批商品已出貨」,
       //    而客人這時候需要知道的是「你手上那個號碼是錯的」。
-      return buildTrackingCorrectedText(job, siteUrl);
+      return buildTrackingCorrectedText(job, siteUrl, correctedTrackingPageUrl);
     default:
       // 🔴🔴 **這裡原本是 `return job.eventType satisfies never;`**(Fable 2026-08-22 R2 F7)。
       //    `satisfies` 在編譯後**整個消失** ⇒ 執行期它就是 `return job.eventType`
@@ -1569,6 +1571,12 @@ function buildOrderShippedText(
   } else {
     if (ctx.carrierName !== null) lines.push(`貨運:${ctx.carrierName}`);
     lines.push(`追蹤碼:${ctx.trackingNumber}`);
+    // Sean 2026-09-27 Q1 甲:有查詢頁(目前只有新竹物流)⇒ 多給一行。
+    //   🔴 網址【自成一行】:`customer-email-html.ts` 只把整行是網址的那行做成可點的 <a>。
+    //   `typeof` 而不是 `!== null`:舊資料 / 替身給得出 `undefined`(同檔收件資訊那段的教訓)。
+    if (typeof ctx.trackingPageUrl === 'string' && ctx.trackingPageUrl !== '') {
+      lines.push('查詢配送進度(請輸入上面的追蹤碼):', ctx.trackingPageUrl);
+    }
   }
 
   lines.push('', '本批出貨內容:');
@@ -2303,6 +2311,8 @@ export async function sweepEmailOutbox(
     //
     // 🔵 **為什麼放在這裡而不是排信那一端**:排信那端**看不到未來**——
     //    它入隊的那一刻 B 就是對的。⇒ 📌 **唯一知道「它已經不對了」的時刻是【寄出的前一秒】。**
+    // Sean 2026-09-27 Q1 甲:通過下面所有比對之後, 才從同一份即時值取查詢頁給更正信用。
+    let correctedTrackingPageUrl: string | null = null;
     if (job.eventType === 'shipment_tracking_corrected') {
       const shipmentId = readShipmentId(job.payload);
       const enqueuedTracking = readTrackingNumber(job.payload);
@@ -2391,6 +2401,11 @@ export async function sweepEmailOutbox(
         await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
+      // `typeof`:替身與舊資料給得出 `undefined`, 那要當成「沒有查詢頁」。
+      correctedTrackingPageUrl =
+        typeof live.context.trackingPageUrl === 'string' && live.context.trackingPageUrl !== ''
+          ? live.context.trackingPageUrl
+          : null;
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -2836,7 +2851,7 @@ export async function sweepEmailOutbox(
       }
       try {
         // 🔵 純文字 = 與 email 同一份文案(`buildEmailContent(...).text`);不做 Flex(plan §1-4)。
-        const content = buildEmailContent(job, shipped, paid, opts.siteUrl);
+        const content = buildEmailContent(job, shipped, paid, opts.siteUrl, correctedTrackingPageUrl);
         // 🔴🔴 先記「交給 provider 了」再送 —— 與 email 同一條規矩、同一個理由(見下面 email 那段)。
         const handedOwned = await outbox.markHandedToProvider(job.id, job.attempts, now().toISOString());
         if (!handedOwned) {
@@ -2918,7 +2933,7 @@ export async function sweepEmailOutbox(
       //      ⇒ 📌 標了型別之後,**未來加附件的人在這裡加一行就會被守門看到**, 不必知道它存在。
       // 🔵 2026-09-12:付款成功信以外的 6 封也帶 HTML(同一組 body 長出來,見 `customerEmail`)。
       //    付款成功信照舊用上面那份 `html`(它有品項與金額表,不走純文字排版)。
-      const content = buildEmailContent(job, shipped, paid, opts.siteUrl);
+      const content = buildEmailContent(job, shipped, paid, opts.siteUrl, correctedTrackingPageUrl);
       const bodyHtml = html ?? content.html;
       const sendInput: SendEmailInput = {
         to: job.recipientEmail,
@@ -3041,7 +3056,11 @@ export async function sweepEmailOutbox(
  *    ⚠️ 而**單號那一格缺了就【不該寄】** —— 一封「正確的單號是(空白)」比不寄糟。
  *    那道閘在呼叫端(`buildEmailContent` 的 `order_shipped` 那格是同一個形狀:fail-closed throw)。
  */
-function buildTrackingCorrectedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
+function buildTrackingCorrectedText(
+  job: ClaimedEmailJob,
+  siteUrl: string | undefined,
+  trackingPageUrl: string | null,
+): EmailContent {
   const payload = job.payload;
   const readStr = (key: string): string | null => {
     if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
@@ -3069,11 +3088,10 @@ function buildTrackingCorrectedText(job: ClaimedEmailJob, siteUrl: string | unde
   ];
   // 🔵 箱號缺了照樣寄 —— 它幫客人分辨「哪一箱」, 而少了它那封信仍然回答得了主要問題。
   if (shipmentReference !== null) body.push(`箱號:${shipmentReference}`);
-  body.push(
-    `正確的貨運單號:${trackingNumber}`,
-    '',
-    '請以這一封為準;先前那個號碼查不到是正常的。',
-  );
+  body.push(`正確的貨運單號:${trackingNumber}`);
+  // Sean 2026-09-27 Q1 甲:與出貨信同一行(網址自成一行才會變成連結)。網址來自寄出前比對過的那一箱。
+  if (trackingPageUrl !== null) body.push('查詢配送進度(請輸入上面的貨運單號):', trackingPageUrl);
+  body.push('', '請以這一封為準;先前那個號碼查不到是正常的。');
   // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(plan §4)。
   const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
   return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);

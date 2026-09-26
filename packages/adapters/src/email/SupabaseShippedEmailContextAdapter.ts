@@ -18,7 +18,7 @@
  * 🔴 **`linesTruncated` 是承重的,不是選配**:讀取一定有上限,而**少列幾項的信與正常的信長得一模一樣**
  * —— 客人照著清單對,少的那一項他不會知道要問。⇒ 為 `true` 時呼叫端**必須不寄**。
  */
-import { carrierLabelOf } from '@pcm/domain';
+import { carrierLabelOf, carrierTrackingPageOf } from '@pcm/domain';
 import type { IShippedEmailContext, LoadShippedContextResult, ShippedEmailLine } from '@pcm/ports';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -274,6 +274,7 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
         //    ⚠️ `other` 有 `carrier_note`(自取/自送的自由文字)⇒ 有 note 時以 note 為準。
         carrierName: pickCarrierName(box.carrier_code, box.carrier_note),
         trackingNumber: emptyToNull(box.tracking_number),
+        trackingPageUrl: carrierTrackingPageOf(box.carrier_code, emptyToNull(box.tracking_number)),
         trackingCorrectedAt: emptyToNull(box.tracking_corrected_at),
         lines,
         linesTruncated,

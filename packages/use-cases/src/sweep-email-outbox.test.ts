@@ -1073,6 +1073,8 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
     shipmentReference: 'BCDF23',
     carrierName: '黑貓宅急便',
     trackingNumber: '1234567890',
+    // 黑貓沒有查詢頁 ⇒ null(新竹那一版在「新竹物流有查詢頁」那格用 ctxOverrides 給)。
+    trackingPageUrl: null,
     lines: [
       { title: '前煞車來令片', quantity: 2 },
       { title: null, quantity: 1 },
@@ -1270,6 +1272,28 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
         '新北市新莊區化成路736巷18號1樓',
       ].join('\n'),
     );
+  });
+
+  // Sean 2026-09-27 Q1 甲:新竹物流的箱在追蹤碼下面多一行查詢頁網址。
+  //   網址自成一行 ⇒ HTML 版才會變成可點的連結(`customer-email-html.ts` 只把整行是網址的那行做成 <a>)。
+  it('🔴 新竹物流有查詢頁 ⇒ 追蹤碼下面多一句說明 + 單獨一行網址(HTML 是連結)', async () => {
+    const HCT_URL = 'https://www.hct.com.tw/Search/SearchGoods_n.aspx';
+    const { sender } = await run('ok', { carrierName: '新竹物流', trackingPageUrl: HCT_URL });
+    const text = sentText(sender);
+    expect(text).toContain(
+      ['追蹤碼:1234567890', '查詢配送進度(請輸入上面的追蹤碼):', HCT_URL, '', '本批出貨內容:'].join('\n'),
+    );
+    const html = sender.send.mock.calls[0]![0].html as string;
+    expect(html).toContain(`<a href="${HCT_URL}"`);
+  });
+
+  it('🔴 沒有追蹤碼(自取／自送)⇒ 就算給了查詢頁也不印那一句', async () => {
+    const { sender } = await run('ok', {
+      carrierName: '自取',
+      trackingNumber: null,
+      trackingPageUrl: 'https://www.hct.com.tw/Search/SearchGoods_n.aspx',
+    });
+    expect(sentText(sender)).not.toContain('查詢配送進度');
   });
 
   /**
@@ -2671,6 +2695,19 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
     expect(html).toContain('https://lin.ee/egsf1Jy');
     expect(html).toContain('統一編號 90003020');
     expect(html).not.toContain('<!--');
+  });
+
+  // Sean 2026-09-27 Q1 甲:更正信也在正確單號下面給查詢頁;網址取【寄出當下】讀到的那一箱。
+  it('🔴 新竹物流 ⇒ 正確單號下面多一句說明 + 單獨一行網址;沒有網址 ⇒ 不印', async () => {
+    const HCT_URL = 'https://www.hct.com.tw/Search/SearchGoods_n.aspx';
+    const live = ctx('B-0002', T1);
+    const { sender } = await run({ ...live, context: { ...live.context, trackingPageUrl: HCT_URL } });
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).toContain(['正確的貨運單號:B-0002', '查詢配送進度(請輸入上面的貨運單號):', HCT_URL].join('\n'));
+    expect(sender.send.mock.calls[0]![0].html as string).toContain(`<a href="${HCT_URL}"`);
+
+    const plain = await run(ctx('B-0002', T1));
+    expect(plain.sender.send.mock.calls[0]![0].text as string).not.toContain('查詢配送進度');
   });
 
   it('🔴 更正信寄出 ⇒ markSent 帶著【信裡那個更正後的號碼】, 不是 null', async () => {
