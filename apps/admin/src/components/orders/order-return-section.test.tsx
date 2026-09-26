@@ -125,4 +125,18 @@ describe('OrderReturnSection', () => {
     expect(screen.queryByRole('link', { name: '為這筆退貨登記退款' })).toBeNull();
     expect(screen.getByText(/算不出建議退款金額/)).toBeTruthy();
   });
+
+  it('第 3 片審查建議 3:訂單有折扣 ⇒ 建議金額旁印出折扣金額, 請員工自行判斷', () => {
+    render(
+      <OrderReturnSection
+        orderId={ORDER}
+        returnTo={`/orders/${ORDER}`}
+        items={[item(2)]}
+        discountTotal={500}
+        returns={[ret({ status: 'received', receivedBy: 's', receivedAt: '2026-09-28T01:00:00Z', items: [{ orderItemId: I1, quantity: 1, receivedQuantity: 1, condition: 'good' }] })]}
+        tokens={tokens}
+      />,
+    );
+    expect(screen.getByText(/這張訂單有折扣 NT\$ 500，建議金額沒有扣掉折扣，請自行判斷要扣多少/)).toBeTruthy();
+  });
 });

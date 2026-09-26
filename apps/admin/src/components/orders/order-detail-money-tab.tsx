@@ -26,7 +26,7 @@ import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund
 import { OrderReturnSection, type ReturnTokens } from './order-return-section';
 import type { OrderReturnRow } from '../../lib/orders/return-view';
 import type { ReturnRefundPrefill } from '../../lib/orders/return-action-state';
-import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import { refundPrefillNotice } from '../../lib/orders/return-view';
 import {
   manualRefundEntryEligible,
   manualRefundLedgerSettled,
@@ -150,6 +150,18 @@ export function OrderDetailMoneyTab({
   //       現在多看一格更正紀錄。
   const hasStuckRefundVerdict = refunds.some((r) => isBlockingStuckVerdict(r, stuckVerdicts));
 
+  // 線上退款表單顯不顯示(下面 JSX 與退貨預填那句提示共用同一個結果, 不各算一次)。
+  const cardRefundShown = shouldShowRefundEntry({
+    refundEnabled,
+    refundsFailed,
+    refundUnregisteredFailed,
+    refundUnregisteredAmount,
+    refundsTruncated,
+    hasStuckRefundVerdict,
+    paymentChannel: detail.paymentChannel,
+    paymentStatus: detail.paymentStatus,
+  });
+
   // 走查 2026-09-14 第 6 條(主視窗裁):一毛錢都沒收的單, 取消區在上且展開、退款區收合在下;有收過款才照原本(退款在上)。
   //   「一毛沒收」= 狀態未付款【且】收款列讀得到而且是空的(讀不到 ⇒ 當成有可能收過, 不換順序)。
   //   退款區「對帳異常 ⇒ 自己打開」那道判準不動 —— 收在下面照樣會開。兩塊 JSX 只寫一份, 換的只是順序。
@@ -214,7 +226,12 @@ export function OrderDetailMoneyTab({
                   <span id='refund' />
                   {refundPrefill && (
                     <p className='rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100'>
-                      已從退貨紀錄帶入建議退款金額 NT$ {formatOrderAmount(Number(refundPrefill.amount))}。請確認金額後再送出；這是實收數量 × 當初成交單價，沒有扣掉訂單折扣。
+                      {refundPrefillNotice({
+                        amount: Number(refundPrefill.amount),
+                        // 線上退款表單有顯示、而部分退款被停用 ⇒ 那邊沒帶金額(RefundSection 的 usePrefillAmount)
+                        cardRefundPartialBlocked: cardRefundShown && partialRefundBlockedReason !== null,
+                        discount: detail.discountTotal.amount,
+                      })}
                     </p>
                   )}
                   {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
@@ -264,16 +281,7 @@ export function OrderDetailMoneyTab({
                       ⇒ 入口 fail-closed —— 同一頁「文字叫你別按、按鈕還亮著」就是自打嘴巴。
                       負值下錢仍安全(S5 single-flight 擋下一發),關的是矛盾畫面。
                       🔴 **片12 沒有動這道閘**:它照舊決定「渲不渲染」,片12 只決定「渲出來的東西收在哪」。 */}
-                  {shouldShowRefundEntry({
-                    refundEnabled,
-                    refundsFailed,
-                    refundUnregisteredFailed,
-                    refundUnregisteredAmount,
-                    refundsTruncated,
-                    hasStuckRefundVerdict,
-                    paymentChannel: detail.paymentChannel,
-                    paymentStatus: detail.paymentStatus,
-                  }) && (
+                  {cardRefundShown && (
                       <>
                         {/* P0-1 片 5:退款前的出貨提醒(只顯示、不擋)。人工退款讀不到 / 被截斷時當混合軌:寧可少說一句「會自動取消」。 */}
                         <RefundShipNotice
@@ -547,6 +555,7 @@ export function OrderDetailMoneyTab({
                   items={detail.items}
                   returns={orderReturns.rows}
                   tokens={orderReturns.tokens}
+                  discountTotal={detail.discountTotal.amount}
                 />
               )}
               {nothingReceived ? (

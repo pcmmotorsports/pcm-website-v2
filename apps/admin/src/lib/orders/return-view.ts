@@ -114,3 +114,18 @@ export function suggestReturnRefund(
     lines,
   };
 }
+
+/**
+ * 第 3 片:從退貨卡片帶預填過來時, 退款區塊最上面那句提示(審查建議 2、3)。
+ * cardRefundPartialBlocked = 線上退款表單有顯示、而部分退款被停用 ⇒ 線上退款那邊沒有帶金額, 要講明。
+ * discount = 訂單折扣總額(整數元);> 0 時印出來, 建議金額沒有扣折扣, 由員工判斷。
+ */
+export function refundPrefillNotice(args: { amount: number; cardRefundPartialBlocked: boolean; discount: number }): string {
+  const money = (n: number) => `NT$ ${n.toLocaleString('en-US')}`;
+  const head = args.cardRefundPartialBlocked
+    ? `建議退款金額 ${money(args.amount)} 只帶入現金／匯款登記。線上退款目前只能全額，所以線上退款沒有帶入金額。`
+    : `已從退貨紀錄帶入建議退款金額 ${money(args.amount)}。`;
+  const discount =
+    args.discount > 0 ? `這張訂單有折扣 ${money(args.discount)}，建議金額沒有扣掉折扣，請自行判斷要扣多少。` : '';
+  return `${head}這是實收數量 × 當初成交單價，運費由公司吸收不另計。${discount}請確認金額後再送出。`;
+}

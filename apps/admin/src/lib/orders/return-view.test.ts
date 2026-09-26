@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { returnableByItem, RETURN_STATUS_LABEL, suggestReturnRefund, type OrderReturnRow } from './return-view';
+import { returnableByItem, RETURN_STATUS_LABEL, suggestReturnRefund, refundPrefillNotice, type OrderReturnRow } from './return-view';
 
 const ret = (over: Partial<OrderReturnRow> & Pick<OrderReturnRow, 'status' | 'items'>): OrderReturnRow => ({
   id: 'r1',
@@ -87,5 +87,26 @@ describe('suggestReturnRefund:為這筆退貨算建議退款金額(第 3 片, Se
   it('還沒確認收到(退貨中 / 已作廢)⇒ 不給建議金額', () => {
     expect(suggestReturnRefund(ret({ status: 'registered', items: [] }), [item], [])).toBeNull();
     expect(suggestReturnRefund(ret({ status: 'voided', items: [] }), [item], [])).toBeNull();
+  });
+});
+
+describe('refundPrefillNotice:退款區塊上那句藍色提示(第 3 片審查建議 2、3)', () => {
+  it('一般:帶入建議金額, 沒有折扣就不提折扣', () => {
+    const t = refundPrefillNotice({ amount: 3000, cardRefundPartialBlocked: false, discount: 0 });
+    expect(t).toContain('已從退貨紀錄帶入建議退款金額 NT$ 3,000');
+    expect(t).not.toContain('折扣');
+  });
+
+  it('建議 2:線上退款目前只能全額 ⇒ 講明建議金額只帶進現金／匯款登記', () => {
+    const t = refundPrefillNotice({ amount: 3000, cardRefundPartialBlocked: true, discount: 0 });
+    expect(t).toContain('線上退款目前只能全額');
+    expect(t).toContain('只帶入現金／匯款登記');
+    expect(t).not.toContain('已從退貨紀錄帶入建議退款金額 NT$ 3,000。');
+  });
+
+  it('建議 3:訂單有折扣 ⇒ 印出折扣金額, 請員工自行判斷', () => {
+    expect(refundPrefillNotice({ amount: 3000, cardRefundPartialBlocked: false, discount: 500 })).toContain(
+      '這張訂單有折扣 NT$ 500，建議金額沒有扣掉折扣，請自行判斷要扣多少',
+    );
   });
 });

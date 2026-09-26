@@ -40,10 +40,13 @@ export function OrderReturnSection({
   items,
   returns,
   tokens,
+  discountTotal = 0,
 }: {
   orderId: string;
   returnTo: string;
   items: readonly ReturnSectionItem[];
+  /** 訂單折扣總額(整數元);> 0 時建議退款金額旁提醒員工自行扣(第 3 片審查建議 3)。 */
+  discountTotal?: number;
   /** null = 退貨紀錄載入失敗 */
   returns: readonly OrderReturnRow[] | null;
   tokens: ReturnTokens;
@@ -57,7 +60,15 @@ export function OrderReturnSection({
           退貨紀錄載入失敗，請重新整理。若仍無法載入，請聯絡系統管理員。
         </p>
       ) : (
-        <ReturnBody orderId={orderId} returnTo={returnTo} items={items} byId={byId} returns={returns} tokens={tokens} />
+        <ReturnBody
+          orderId={orderId}
+          returnTo={returnTo}
+          items={items}
+          byId={byId}
+          returns={returns}
+          tokens={tokens}
+          discountTotal={discountTotal}
+        />
       )}
     </section>
   );
@@ -70,7 +81,9 @@ function ReturnBody({
   byId,
   returns,
   tokens,
+  discountTotal,
 }: {
+  discountTotal: number;
   orderId: string;
   returnTo: string;
   items: readonly ReturnSectionItem[];
@@ -120,6 +133,7 @@ function ReturnBody({
               returnTo={returnTo}
               byId={byId}
               tokens={tokens.perReturn[r.id]}
+              discountTotal={discountTotal}
               refund={suggestReturnRefund(
                 r,
                 items.map((it) => ({ id: it.id, shippedQuantity: it.quantitySummary?.shippedQuantity ?? 0, unitPrice: it.unitPrice.amount })),
@@ -150,7 +164,9 @@ function ReturnCard({
   byId,
   tokens,
   refund,
+  discountTotal,
 }: {
+  discountTotal: number;
   r: OrderReturnRow;
   orderId: string;
   returnTo: string;
@@ -205,7 +221,7 @@ function ReturnCard({
           {formatOrderDateTime(r.receivedAt)} {r.receivedBy} 確認收到{r.receiveNote ? `。收件備註：${r.receiveNote}` : ''}
         </p>
       )}
-      {refund && <ReturnRefundHint refund={refund} returnTo={returnTo} byId={byId} />}
+      {refund && <ReturnRefundHint refund={refund} returnTo={returnTo} byId={byId} discountTotal={discountTotal} />}
       {r.status === 'voided' && r.voidedAt && (
         <p className='text-muted-foreground mt-1 text-xs'>
           {formatOrderDateTime(r.voidedAt)} {r.voidedBy} 作廢。原因：{r.voidReason}
@@ -226,7 +242,9 @@ function ReturnRefundHint({
   refund,
   returnTo,
   byId,
+  discountTotal,
 }: {
+  discountTotal: number;
   refund: NonNullable<ReturnType<typeof suggestReturnRefund>>;
   returnTo: string;
   byId: Map<string, ReturnSectionItem>;
@@ -251,7 +269,9 @@ function ReturnRefundHint({
         建議退款金額 NT$ {formatOrderAmount(refund.amount)}（{breakdown}）
       </p>
       <p className='text-muted-foreground text-xs'>
-        依實收數量 × 當初成交單價計算，沒有扣掉訂單折扣，運費由公司吸收不另計。送出前可以修改金額。
+        依實收數量 × 當初成交單價計算，運費由公司吸收不另計。送出前可以修改金額。
+        {discountTotal > 0 &&
+          ` 這張訂單有折扣 NT$ ${formatOrderAmount(discountTotal)}，建議金額沒有扣掉折扣，請自行判斷要扣多少。`}
         {refund.capped && ' 有品項的實收數量多於目前可退的已出貨數量，已按已出貨數量計算。'}
       </p>
       <a
