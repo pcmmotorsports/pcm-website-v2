@@ -610,8 +610,18 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     // 來源 `images` 是**純字串陣列、每列一張自己的圖**（實查樣本）⇒ per-variant。
     // 🔵 圖在 `pub-267d5f9578a344cc92267571caab1743.r2.dev` —— **不是新 host**，ebc 已經在用同一個。
     variantImages: 'per-variant',
-    // 🛑 **一個位元組也不寫** —— 翻這一格要兩個條件同時滿足，見上方。
-    writeAllowed: false,
+    // 🔵 2026-09-28 加:缺說明 / 分類 / 中文品名的新列先不上架(同 Arrow)。今天 1,045 列全齊,這一格擋不到任何一列;
+    //   它守的是之後報價單新增、還沒補完內容的 Öhlins 商品 —— 讓 Sean ② 那個條件在首灌之後也成立。
+    requireListingContent: true,
+    // 🔵 2026-09-28 翻開(商品頁乙空檔,主視窗派「只準備、只乾跑」):上方兩個條件的現況 ——
+    //   ① Sean 09-17 乙「先 ohlins」:這一家就是 ohlins。
+    //   ② Sean 09-17 乙「先補完描述再上」:報價單 7f 窗 09-28 補完最後 7 件;本窗同日唯讀實查 storefront_catalog_v
+    //      1,045 列:缺說明 0 · 缺中文名 0 · 缺分類 0 · 缺價 0(PCM 自家無圖卡 1 列,同 09-17)。
+    //   乾跑(同日):1,045 群 / 1,045 變體;分類全對上、品名全有中文、handle 全合法且與網站零撞、離群價 0。
+    //   既有 ohlins 品牌 5 件(dbk 改掛:DU 468 / OH01–OH04)與本家料號、handle 交集都是 0(同日重查)。
+    //   🛑 翻這一格 ≠ 首灌:首灌(--confirm-write --expect-groups)由誰跑、何時跑,主視窗問 Sean(Arrow 09-26 是 Sean 自己跑)。
+    //      這一顆合進 dev 之前,首灌沒有做完的話,每日同步會在隔天自己灌進去 —— 所以要等 Sean 答了再合。
+    writeAllowed: true,
   },
   // Arrow。2026-09-25 登記;2026-09-26 Sean Q15 甲批首灌 ⇒ `writeAllowed: true`。
   //   Sean 2026-09-25 Q6 甲:有說明的先上,其餘等分類、中文品名、說明都補好再上
