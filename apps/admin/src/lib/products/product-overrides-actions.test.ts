@@ -86,4 +86,9 @@ describe('setProductOverrideAction(丙方案片 2)', () => {
     setProductOverride.mockRejectedValue({ code: '08006', message: 'connection failure' });
     expect(await run(form('title', 'save'))).toContain('r=override_error');
   });
+
+  it('RPC 擋下停用員工(無權執行此操作)⇒ override_denied,不是「無法確認」', async () => {
+    setProductOverride.mockRejectedValue({ code: 'P0001', message: '無權執行此操作' });
+    expect(await run(form('title', 'save'))).toContain('r=override_denied');
+  });
 });

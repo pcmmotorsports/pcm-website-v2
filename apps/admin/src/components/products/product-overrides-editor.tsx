@@ -105,7 +105,8 @@ export function ProductOverridesEditor({
       field={field}
       label={label}
       ours={ours !== null}
-      hint={ours !== null ? '存檔後網站約 1 分鐘內更新；清空再儲存等於還原。' : '目前沒有我們的版本。'}
+      // 審查建議:搜尋(storefront_search_product_ids)還比對供應商原字,要先講清楚(計畫片 10 會修)。
+      hint={`${ours !== null ? '存檔後網站約 1 分鐘內更新；清空再儲存等於還原。' : '目前沒有我們的版本。'}客人用新標題搜尋，要等之後搜尋功能更新才找得到。`}
       supplier={supplierValue ?? <span className='text-muted-foreground'>（供應商沒有提供）</span>}
       editor={
         <label className='block'>

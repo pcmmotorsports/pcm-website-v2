@@ -17,6 +17,7 @@
 --   · p_value = NULL ⇒ 刪掉那個鍵 = 「還原成供應商的」(片 1 CHECK:取消覆寫要刪鍵,不能寫 null)
 --   · title / subtitle:jsonb 字串;去前後空白後是空的 ⇒ 當成刪鍵;上限 200 / 300 字;不收控制字元
 --   · highlights:jsonb 字串陣列;每點去前後空白、空的丟掉;全丟光 ⇒ 刪鍵;最多 12 點、每點 200 字;不收控制字元
+--   · 操作人必須是在職員工(staff.is_active;審查建議 C1,照 20260927020000),否則 RAISE '無權執行此操作'
 --   · 鎖列讀 before → 同值回 NO_CHANGE 零寫入零稽核 → UPDATE staff_overrides → 同交易寫 admin_audit_log('product.override.change')
 --   · 回 UPDATED / NO_CHANGE / NOT_FOUND;參數不合法 ⇒ RAISE(後台顯示「內容不合規則」)
 -- 🔵 寫入後 products_content_changed_guard(20260927040000 那一代)會自動更新 content_changed_at,不用在這裡寫。
@@ -43,6 +44,9 @@ BEGIN
      WHERE conrelid = 'public.products'::regclass AND conname = 'products_staff_overrides_shape' AND contype = 'c'
   ) THEN
     RAISE EXCEPTION '前置閘失敗 — products.staff_overrides 或它的 CHECK 不存在(20260927040000 未套用)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.staff'::regclass AND attname = 'is_active' AND NOT attisdropped) THEN
+    RAISE EXCEPTION '前置閘失敗 — staff.is_active 不存在(在職員工檢查需要它)';
   END IF;
 END
 $pre$;
@@ -83,6 +87,12 @@ BEGIN
   -- 1a. server 供參數 fail-closed(actor 由 server session 解析,缺 ⇒ 拒,不以未知身分寫稽核)
   IF p_actor IS NULL OR pg_catalog.btrim(p_actor, v_ws) = '' THEN
     RAISE EXCEPTION 'admin_set_product_override: 缺 actor';
+  END IF;
+  -- 🔴 操作人必須是【在職】員工(審查建議 C1;寫法照 20260927020000 ②–④):誰能改不變(Sean C4 甲全員),只擋停用帳號。
+  --    錯誤字面與那一支相同 ⇒ 後台 action 對應到 override_denied。
+  PERFORM 1 FROM public.staff s WHERE s.id = p_actor AND s.is_active FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '無權執行此操作';
   END IF;
   IF p_request_id IS NULL OR pg_catalog.btrim(p_request_id, v_ws) = '' THEN
     RAISE EXCEPTION 'admin_set_product_override: 缺 request_id';

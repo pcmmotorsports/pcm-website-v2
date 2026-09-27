@@ -38,6 +38,10 @@ describe('ProductOverridesEditor(丙方案片 2,照設計稿 設計稿-商品編
     }
     expect(card('title').textContent).toContain('Brake Lever');
     expect(card('highlights').textContent).toContain('CNC machined');
+    // 審查建議:搜尋還比對不到我們改過的標題 / 副標,要先講清楚
+    for (const f of ['title', 'subtitle']) {
+      expect(card(f).textContent).toContain('客人用新標題搜尋，要等之後搜尋功能更新才找得到');
+    }
   });
 
   it('標題有我們的版本 ⇒ 標「網站顯示：我們的版本」、輸入框帶值、有還原鈕;還原鈕送 intent=restore', () => {

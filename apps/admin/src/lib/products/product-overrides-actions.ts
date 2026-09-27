@@ -66,14 +66,19 @@ export async function setProductOverrideAction(formData: FormData): Promise<void
   } catch (err) {
     const e = err as { code?: unknown; message?: unknown };
     const message = String(e.message ?? '');
-    // RPC 自己 RAISE 的(內容不合規則)開頭都是函式名;其餘(連線、權限、RPC 不存在)一律當系統錯誤。
+    // RPC 自己 RAISE 的(內容不合規則)開頭都是函式名;停用員工被擋是「無權執行此操作」(同 20260927020000 的字面);
+    // 其餘(連線、RPC 不存在)一律當「無法確認」。
     const rejectedByRule = message.startsWith('admin_set_product_override:');
+    const deniedInactive = message === '無權執行此操作';
     console.error('[admin/products] 商品文字儲存失敗', {
       request_id: requestId,
       code: typeof e.code === 'string' ? e.code : undefined,
       message: message.slice(0, 200),
     });
-    redirectWith(parsed.returnTo, rejectedByRule ? 'override_invalid' : 'override_error');
+    redirectWith(
+      parsed.returnTo,
+      deniedInactive ? 'override_denied' : rejectedByRule ? 'override_invalid' : 'override_error',
+    );
   }
 
   revalidatePath(`/products/${parsed.productId}`);

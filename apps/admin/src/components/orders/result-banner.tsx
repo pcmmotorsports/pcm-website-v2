@@ -389,7 +389,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '內容沒有儲存：字數超過上限，或含有不能使用的字元。請修改後再儲存。',
     tone: 'warn',
   },
-  override_denied: { text: '登入已過期，請重新登入後再儲存。', tone: 'error' },
+  // 兩種情況都走這一顆:登入過期(action 層),或帳號已停用(RPC 在職員工檢查)。
+  override_denied: {
+    text: '沒有儲存：登入已過期，或這個帳號目前不能修改商品。請重新登入後再試；仍無法儲存時請聯絡系統管理員。',
+    tone: 'error',
+  },
   override_error: {
     text: '無法確認是否已儲存。請重新整理頁面查看目前內容；若沒有更新，再試一次，仍失敗請聯絡系統管理員。',
     tone: 'error',
