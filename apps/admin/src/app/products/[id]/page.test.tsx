@@ -422,14 +422,18 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
     mocks.taxonomy.mockResolvedValue({ brandName: 'CNC RACING', categoryName: '外觀部品' });
   });
 
-  it('🟢 三個分組抬頭都在, 而順序是【可以改的 → 還不能用 → 只能看的】', async () => {
+  // 商品頁改版乙 B2:「還不能用」三張灰卡收成一行字(計畫第五節), 分組抬頭剩兩個。
+  it('🟢 分組抬頭是【可以改的 → 只能看的】, 「還不能用」收成一行字排在兩者之間', async () => {
     const { container } = await renderPage();
     const heads = Array.from(container.querySelectorAll('[data-od-pe="grouph"]')).map(
       (n) => n.textContent,
     );
-    // 🔴 比【陣列】不是比「有沒有出現」:順序本身是這一片的內容
-    //    ——「可以改的」排在最後 = 病灶原樣復發, 而逐個 includes 抓不到。
-    expect(heads).toEqual(['可以改的', '還不能用(要先做後端)', '只能看的']);
+    expect(heads).toEqual(['可以改的', '只能看的']);
+    const line = container.querySelector('[data-not-yet]');
+    expect(line).not.toBeNull();
+    // 順序:一行字在「只能看的」之前
+    const onlyView = container.querySelectorAll('[data-od-pe="grouph"]')[1]!;
+    expect(line!.compareDocumentPosition(onlyView) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   // ⛔ ~~原名:「…而它的 form 一個字都沒改」~~ ⇒ 🔴 **名稱才是報表印出來的東西**(codex R2):
@@ -448,44 +452,27 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
     expect(container.textContent).toContain('變更會寫入稽核紀錄');
   });
 
-  it('🔴 按不動的那三張:各有「還不能用」徽章, 而控制項【真的 disabled】', async () => {
+  it('🔴 還不能用的三項收成一行字:特價、分類、各規格現貨數量;不再有三張停用的灰卡', async () => {
     const { container } = await renderPage();
-    const todos = Array.from(container.querySelectorAll('[data-od-pe="todo"]'));
-    expect(todos).toHaveLength(3);
-    for (const t of todos) expect(t.textContent).toBe('還不能用');
-    // 🔴🔴 **徽章與 disabled 要分開驗** —— 只驗徽章的話,
-    //    「標了還不能用而其實按得動」會全綠, 而那正好是最糟的那一種(員工按下去以為改到了)。
-    expect(container.querySelector('input[aria-label="特價(還不能用)"]')).toHaveProperty(
-      'disabled',
-      true,
+    expect(container.querySelector('[data-not-yet] summary')?.textContent).toBe(
+      '還不能用(要先做後端):特價、分類、各規格現貨數量',
     );
-    expect(container.querySelector('select[aria-label="分類(還不能用)"]')).toHaveProperty(
-      'disabled',
-      true,
-    );
-    // 🔴 第三張(codex must-fix):我第一版只驗兩張, 而本格的標題寫「那三張」
-    //    ⇒ **宣稱三、實際二**。現貨那張原本只印一個 `—`, 沒有控制項可以驗。
-    expect(container.querySelector('input[aria-label="各規格現貨數量(還不能用)"]')).toHaveProperty(
-      'disabled',
-      true,
-    );
+    expect(container.querySelectorAll('[data-od-pe="todo"]')).toHaveLength(0);
+    expect(container.querySelector('[aria-label="特價(還不能用)"]')).toBeNull();
   });
 
-  it('未開放功能須說明使用限制，且不向操作人顯示資料庫欄位', async () => {
+  it('未開放功能須說明使用限制(展開那一行看得到), 且不向操作人顯示資料庫欄位', async () => {
     const { container } = await renderPage();
-    const descriptions = [
-      ['特價(還不能用)', '目前尚未支援儲存商品特價，因此無法在此設定。'],
-      ['分類(還不能用)', '目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。'],
-      ['各規格現貨數量(還不能用)', '目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。'],
-    ];
-    for (const [label, description] of descriptions) {
-      const control = container.querySelector(`[aria-label="${label}"]`);
-      expect(control).not.toBeNull();
-      expect(control).toHaveProperty('disabled', true);
-      const card = control!.closest('section')!;
-      expect([...card.querySelectorAll('p')].map((p) => p.textContent?.trim())).toContain(description);
-      expect(card.textContent).not.toMatch(/sale_price|category_id|stock_quantity|NOT NULL|0 命中/);
+    const line = container.querySelector('[data-not-yet]')!;
+    const texts = [...line.querySelectorAll('p')].map((p) => p.textContent?.trim());
+    for (const description of [
+      '目前尚未支援儲存商品特價，因此無法在此設定。',
+      '目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。',
+      '目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。',
+    ]) {
+      expect(texts).toContain(description);
     }
+    expect(line.textContent).not.toMatch(/sale_price|category_id|stock_quantity|NOT NULL|0 命中/);
     expect(container.textContent).not.toContain('敬請期待');
     expect(container.textContent).not.toContain('即將推出');
   });
@@ -700,5 +687,32 @@ describe("B1 頂端摘要帶", () => {
     expect(item(container, "brand")).toBe("讀不到");
     expect(item(container, "category")).toBe("讀不到");
     expect(item(container, "sku")).toBe("RPM-001");
+  });
+});
+
+// 商品頁改版乙 B2:兩欄版面, 照片在左、文字在右(計畫第五節)。
+describe('B2 兩欄版面', () => {
+  beforeEach(() => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: 'CNC RACING', categoryName: '外觀部品' });
+  });
+
+  it('🔴 照片在左欄、標題 / 副標 / 賣點在右欄', async () => {
+    const { container } = await renderPage();
+    const left = container.querySelector('[data-col="photos"]')!;
+    const right = container.querySelector('[data-col="text"]')!;
+    expect(left.querySelector('[data-gallery-unavailable]')).not.toBeNull();
+    expect([...right.querySelectorAll('[data-override-field]')].map((e) => e.getAttribute('data-override-field'))).toEqual([
+      'title',
+      'subtitle',
+      'highlights',
+    ]);
+    expect(left.querySelector('[data-override-field]')).toBeNull();
+  });
+
+  it('🔴 圖庫讀得到時, 照片面板在左欄', async () => {
+    gallery.load.mockResolvedValueOnce({ state: 'ok', photos: [], curated: false });
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-col="photos"] [data-gallery-panel]')).not.toBeNull();
   });
 });
