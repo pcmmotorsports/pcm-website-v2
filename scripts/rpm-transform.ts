@@ -472,6 +472,22 @@ export function liveVariantsOf(variants: SourceProductRow[]): SourceProductRow[]
   return isFullyDelisted(variants) ? variants : variants.filter((v) => !v.delisted_at);
 }
 
+// Sean 2026-09-27 B3 乙:品名是聯絡方式 / 網址 / 「請聯絡」的列不是商品(gbracing SPB「Please contact enquiries@…」
+//   被當成 NT$150 的螺絲上架)。email 要求 @ 後面有網域點 ⇒ kspeed「TT@CO」品牌不算;
+//   contact 只認「please contact / contact us」⇒ lightech「Contact Surface」、motogadget「reed contact」不算。
+//   查證:~/pcm-mailbox/查證-非商品混入-20260927.md(全站 26,534 件只有 SPB 一件)。
+const NON_PRODUCT_NAME = [
+  /[^\s@]+@[^\s@]+\.[a-z]{2,}/i, // email
+  /(https?:\/\/|www\.)/i, // 網址
+  /(please\s+contact|contact\s+us|enquir|price\s+on\s+request)/i,
+  /(請聯絡|請洽|洽詢|來電詢價)/,
+];
+
+/** 這一列的英文或中文品名是聯絡方式 / 網址 / 請聯絡 ⇒ 不是商品, 匯入時跳過。 */
+export function isNonProductListing(row: Pick<SourceProductRow, 'product_name' | 'product_name_zh'>): boolean {
+  return [row.product_name, row.product_name_zh].some((name) => !!name && NON_PRODUCT_NAME.some((re) => re.test(name)));
+}
+
 /**
  * 一群這一輪要同步哪些規格(supplier-config `requireListingContent`,Arrow)。`onSiteSkus` = null ⇒ 等於 liveVariantsOf。
  * - withhold:整群都還沒上架、而在售規格全都缺內容 ⇒ 這一輪不建(呼叫端仍把它算成「在來源裡」)。
