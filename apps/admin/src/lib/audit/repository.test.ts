@@ -198,3 +198,46 @@ describe('SupabaseAuditLogReader', () => {
     expect(seen, 'limit 應原樣傳給 selector,不被 adapter 改寫').toBe(1);
   });
 });
+
+// 2026-09-27 商品編輯片 9:商品頁「最近的變更」只讀【這件商品】的紀錄。
+describe('SupabaseAuditLogReader.listForTarget', () => {
+  const row = {
+    id: '11111111-2222-4333-8444-555555555555',
+    actor: 'sean',
+    actor_label: '小美',
+    actor_is_manager: false,
+    action: 'product.override.change',
+    target: 'product:abc',
+    before: { field: 'title', value: null },
+    after: { field: 'title', value: '我們的標題' },
+    reason: null,
+    request_id: 'req-1',
+    source_app: 'admin',
+    created_at: '2026-09-27T02:00:00Z',
+  };
+  const filter = { target: 'product:abc', actions: ['product.override.change', 'product.listing.change'] };
+
+  it('把 target、動作清單、筆數原樣交給 selector', async () => {
+    let seen: unknown;
+    const r = new SupabaseAuditLogReader({
+      select: async (limit, f) => {
+        seen = { limit, f };
+        return { data: [row], error: null };
+      },
+    });
+    await expect(r.listForTarget(filter, 20)).resolves.toEqual([row]);
+    expect(seen).toEqual({ limit: 20, f: filter });
+  });
+
+  it('🔴 target 空白或動作清單空的 ⇒ 不查(否則會變成撈整張表)', async () => {
+    const r = new SupabaseAuditLogReader({ select: async () => ({ data: [row], error: null }) });
+    await expect(r.listForTarget({ target: ' ', actions: filter.actions }, 20)).rejects.toThrow();
+    await expect(r.listForTarget({ target: 'product:abc', actions: [] }, 20)).rejects.toThrow();
+    await expect(r.listForTarget(filter, 0)).rejects.toThrow();
+  });
+
+  it('🔴 error 往上丟, 不吞成空陣列(畫面才分得出「沒有紀錄」與「讀不到」)', async () => {
+    const r = new SupabaseAuditLogReader({ select: async () => ({ data: null, error: { message: 'boom' } }) });
+    await expect(r.listForTarget(filter, 20)).rejects.toThrow('boom');
+  });
+});

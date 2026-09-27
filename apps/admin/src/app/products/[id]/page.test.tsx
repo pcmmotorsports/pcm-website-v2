@@ -5,7 +5,14 @@ import { cleanup, render } from '@testing-library/react';
 // repository 拉 server-only 模組 ⇒ 只 mock 那兩支查詢函式。
 // 🔴 `resolvePrice` / `resolveListingState` **不 mock** —— 它們是本片要驗的取值落點,
 //    mock 掉等於把要驗的東西換成假的(memory `feedback_assertion-measures-the-wrong-thing`)。
-const mocks = vi.hoisted(() => ({ get: vi.fn(), taxonomy: vi.fn(), notFound: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  taxonomy: vi.fn(),
+  notFound: vi.fn(),
+  // 商品編輯片 9「最近的變更」:預設 = 沒有紀錄(既有各格不受影響)
+  history: vi.fn(async () => ({ rows: [] as unknown[], loadFailed: false })),
+}));
+vi.mock('../../../lib/products/product-history-loader', () => ({ loadProductHistory: mocks.history }));
 vi.mock('../../../lib/products/product-repository', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../../lib/products/product-repository')>();
@@ -504,5 +511,69 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
     expect(title.textContent).toContain('網站顯示：我們的版本');
     expect(title.textContent).toContain('碳纖維前土除'); // 供應商那一欄仍然顯示原值
     expect(container.querySelector('[data-override-field="subtitle"]')!.textContent).toContain('網站顯示：供應商的');
+  });
+});
+
+describe('商品編輯片 9:最近的變更', () => {
+  const ROWS = [
+    { id: 'h1', at: '2026-09-27 10:14', actor: '小美', field: '賣點', from: '(用供應商的)', to: '輕量\n好裝' },
+    { id: 'h2', at: '2026-09-27 10:12', actor: '阿肯(管理者)', field: '上架狀態', from: '上架中', to: '已下架' },
+  ];
+
+  it('用這件商品的 id 去讀, 每筆列出時間、誰、欄位、原本、改成', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    mocks.history.mockResolvedValueOnce({ rows: ROWS, loadFailed: false });
+    const { container } = await renderPage();
+    expect(mocks.history).toHaveBeenCalledWith(ID);
+    const section = container.querySelector('[data-product-history]')!;
+    expect(section.querySelector('h3')!.textContent).toBe('最近的變更');
+    const rows = [...section.querySelectorAll('[data-history-row]')];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toContain('2026-09-27 10:14');
+    expect(rows[0]!.textContent).toContain('小美');
+    expect(rows[0]!.querySelector('[data-history-from]')!.textContent).toBe('(用供應商的)');
+    expect(rows[0]!.querySelector('[data-history-to]')!.textContent).toBe('輕量\n好裝');
+    expect(rows[1]!.querySelector('[data-history-to]')!.textContent).toBe('已下架');
+  });
+
+  it('🔴 讀不到 ⇒ 說載入失敗, 不能印成「目前沒有變更紀錄」', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    mocks.history.mockResolvedValueOnce({ rows: [], loadFailed: true });
+    const { container } = await renderPage();
+    const section = container.querySelector('[data-product-history]')!;
+    expect(section.querySelector('[data-history-failed]')).not.toBeNull();
+    expect(section.textContent).not.toContain('目前沒有變更紀錄');
+    // 其餘編輯功能照常
+    expect(container.querySelector('[data-override-field="title"]')).not.toBeNull();
+  });
+
+  it('上方「查看變更紀錄」不再是 disabled, 而是跳到「最近的變更」', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const { container } = await renderPage();
+    const jump = container.querySelector<HTMLAnchorElement>('[data-history-jump]')!;
+    expect(jump.textContent).toBe('查看變更紀錄');
+    expect(jump.getAttribute('href')).toBe('#product-history');
+    expect(container.querySelector('#product-history')).toBe(container.querySelector('[data-product-history]'));
+  });
+
+  it('沒有紀錄 ⇒「目前沒有變更紀錄」', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-history-empty]')!.textContent).toContain('目前沒有變更紀錄');
+  });
+
+  it('滿 20 筆 ⇒ 提示只列最近 20 筆, 並連到操作紀錄', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const many = Array.from({ length: 20 }, (_, i) => ({ ...ROWS[0]!, id: `h${i}` }));
+    mocks.history.mockResolvedValueOnce({ rows: many, loadFailed: false });
+    const { container } = await renderPage();
+    const section = container.querySelector('[data-product-history]')!;
+    expect(section.textContent).toContain('只列出最近 20 筆');
+    expect(section.querySelector('a[href="/settings/audit"]')).not.toBeNull();
   });
 });

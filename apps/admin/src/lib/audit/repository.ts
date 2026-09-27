@@ -66,6 +66,17 @@ export function toInsertRow(entry: AuditEntry, context: AuditContext): AdminAudi
 export interface AuditLogReader {
   /** 最近 N 筆,`created_at` DESC。上限由呼叫端給,adapter 不自訂預設。 */
   listRecent(limit: number): Promise<AdminAuditLogRow[]>;
+  /**
+   * 某一個對象(`target`)的最近 N 筆,只限列出的動作。2026-09-27 商品頁「最近的變更」(商品編輯計畫片 9)。
+   * 🔴 同一個讀取埠多一種查法,不另開讀取路徑 ⇒ 這張表的讀取者仍然數得出來(見上方 REQUIRED-2 段)。
+   */
+  listForTarget(filter: AuditLogTargetFilter, limit: number): Promise<AdminAuditLogRow[]>;
+}
+
+/** `listForTarget` 的條件。`target` 格式同寫入端 `<entity>:<uuid>`;`actions` 不得為空。 */
+export interface AuditLogTargetFilter {
+  readonly target: string;
+  readonly actions: readonly string[];
 }
 
 /**
@@ -74,5 +85,9 @@ export interface AuditLogReader {
  *   而那是頁面層的決定(plan 驗收 1 的 N)。
  */
 export interface AuditLogSelector {
-  select(limit: number): Promise<{ data: AdminAuditLogRow[] | null; error: { message: string } | null }>;
+  /** `filter` 不給 = 全表最近 N 筆(`listRecent`);給了 = 只限那個對象與那幾種動作(`listForTarget`)。 */
+  select(
+    limit: number,
+    filter?: AuditLogTargetFilter,
+  ): Promise<{ data: AdminAuditLogRow[] | null; error: { message: string } | null }>;
 }

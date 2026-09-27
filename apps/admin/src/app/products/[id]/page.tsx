@@ -4,6 +4,8 @@ import { isUuid } from '../../../lib/orders/note-action-state';
 import { ProductDetail } from '../../../components/products/product-detail';
 import { ProductListingForm } from '../../../components/products/product-listing-form';
 import { ProductOverridesEditor } from '../../../components/products/product-overrides-editor';
+import { ProductHistory } from '../../../components/products/product-history';
+import { loadProductHistory } from '../../../lib/products/product-history-loader';
 import { readProductOverrides } from '../../../lib/products/product-overrides-view';
 import { toProductMedia } from '../../../lib/products/product-media';
 import { findVariantSkuCollision } from '../../../lib/products/variant-sku-collision';
@@ -94,6 +96,9 @@ export default async function ProductDetailPage({
   // 🔴 `max-w-6xl` **刻意留著**:本頁是商品**詳情表單**、沒有表格。
   //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
   //    (`#640` 守門在 `app/design-tokens.test.ts`)。
+  // 商品編輯計畫片 9:「最近的變更」(Sean 09-27 C4 甲:全員可改、留變更紀錄)。讀不到只影響那一塊。
+  const history = product === null ? null : await loadProductHistory(product.id);
+
   return (
     <div className='mx-auto max-w-6xl space-y-4'>
       <Link
@@ -175,8 +180,9 @@ export default async function ProductDetailPage({
                 </span>
               </span>
             </div>
-            {/* 🔴 兩顆 disabled 是稿指定的 —— 而它們**不是佔位**:
-                它們讓員工知道「這件事存在, 只是還不能用」, 而不是以為系統沒有這個功能。 */}
+            {/* 🔴 這兩顆原本都是 disabled(稿指定)—— 而它們**不是佔位**:
+                它們讓員工知道「這件事存在, 只是還不能用」, 而不是以為系統沒有這個功能。
+                「查看變更紀錄」在商品編輯片 9 開通, 現在只剩「批次改特價」是 disabled。 */}
             <div className='mt-3 flex flex-wrap gap-2'>
               <button
                 type='button'
@@ -186,14 +192,14 @@ export default async function ProductDetailPage({
               >
                 批次改特價
               </button>
-              <button
-                type='button'
-                disabled
-                title='還不能用:商品變更紀錄尚未建立'
-                className='text-muted-foreground rounded-md border px-3 py-1 text-sm disabled:opacity-50'
+              {/* 商品編輯片 9 之後變更紀錄已經有了 ⇒ 從 disabled 改成跳到下面「最近的變更」 */}
+              <a
+                href='#product-history'
+                data-history-jump
+                className='rounded-md border px-3 py-1 text-sm'
               >
                 查看變更紀錄
-              </button>
+              </a>
             </div>
           </div>
 
@@ -232,6 +238,7 @@ export default async function ProductDetailPage({
               variantSkuCollisionOwner={variantSkuCollisionOwner}
             />
           </section>
+          {history && <ProductHistory rows={history.rows} loadFailed={history.loadFailed} />}
 
           {/* ── 還不能用(要先做後端)────────────────────────────────
               🔴 每張卡的腳註寫的是**缺什麼**, 不是「敬請期待」(稿指定)。
