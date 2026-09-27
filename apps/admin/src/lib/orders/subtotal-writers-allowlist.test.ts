@@ -316,6 +316,14 @@ const ALLOWLIST = [
   // 🔬 由拋棄式 PG17 行為測試背書(79 格;可重跑 supabase/tests/database/customer_disable_delete_behavior.sql)。
   // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;停用檢查對不對由那組測試與審查背書。
   '20260926100000_m4b_customer_disable_delete.sql',
+  // ── 2026-09-28 網站施工窗 86 agent/86-plist(商品頁乙價格段 P10 / P-M4)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`(底 = 20260926100000, prosrc md5 3c742288…),本體有 INSERT orders / order_items。
+  // ✅ **它改了什麼**:一般會員的單價改成 `pcm_effective_general_price(一般價, 特價)`(沒有特價時等於一般價),經銷分支不動;
+  //    每一行有帶 expected_unit_price 就和算出的單價比對,不同 ⇒ P2C21、不建單。
+  //    `v_line_total := v_unit_price × qty`、`v_subtotal` 累加、INSERT 的欄位清單一行沒動。
+  // 🔬 由拋棄式 PG 行為測試背書(可重跑 supabase/tests/database/sale_price_pm4_behavior.sql;小計、運費、券、總額逐格對金額)。
+  // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;特價與核對對不對由那組測試與 Codex R1 / Fable R2 背書。
+  '20260928230000_m4b_sale_price_read_paths.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
