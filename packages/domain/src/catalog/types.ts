@@ -228,6 +228,11 @@ export type ProductVariant = {
    * `priceByTier.general` 在特價期間已經是特價(view 20260928230000 起讀實際一般價)。經銷會員不吃特價(Q-P2 乙)。
    */
   saleOriginalPrice?: number;
+  /**
+   * 商品頁乙 P12b:一般價是空的(不能賣)。這時 `priceByTier.general` 是 0 佔位,【不是 0 元】——
+   * 讀價一律先看這一格(storefront 只有 toUIProduct 讀 domain 價,見那裡)。
+   */
+  generalPriceMissing?: true;
   /** 變體 availability(對齊 ProductAvailability、與 Product 同 union) */
   availability: ProductAvailability;
   /** 變體圖 URL 陣列;無圖時 16c fallback 商品群代表圖(Q3=C) */
@@ -288,6 +293,8 @@ export type Product = {
    * `priceByTier.general` 在特價期間已經是代表款的特價(view 20260928230000)。經銷會員不吃特價(Q-P2 乙)。
    */
   saleOriginalPrice?: number;
+  /** 商品頁乙 P12b:代表價是空的(不能賣);`priceByTier.general` 是 0 佔位,不是 0 元。見 ProductVariant 同名欄。 */
+  generalPriceMissing?: true;
 
   /**
    * 商品主碼 / 產品型號(M-1-16c-4b 落地)。vendor 來源料號(如 RPM 的 `RPM-DCC01`)、

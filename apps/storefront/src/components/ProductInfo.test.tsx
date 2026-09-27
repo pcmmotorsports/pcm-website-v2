@@ -185,7 +185,7 @@ describe('ProductInfo', () => {
     renderInfo(noVariant);
     expect(screen.queryByText('紋路')).toBeNull();
     expect(screen.queryByText('表面')).toBeNull();
-    expect(screen.getByText(`NT$ ${noVariant.price.toLocaleString()}`)).toBeDefined();
+    expect(screen.getByText(`NT$ ${noVariant.price!.toLocaleString()}`)).toBeDefined();
   });
 
   it('should add to cart without crashing (variant_id discriminator)', () => {
@@ -934,5 +934,21 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ PDP 經銷價 —— 兩個世界', () => 
     //   經銷價**在 props 裡是被我自己放進去的** ⇒ 這裡只證得了「畫面沒印出來」。
     //   ⇒ 📌 **真正的邊界在 route**：一般會員的 `product.dealerPrice` 必須從頭到尾沒被賦值，
     //     那一格在 `app/products/[slug]/page.test.tsx`（stub 直接讀 props 裡的價）。
+  });
+});
+
+describe('商品頁乙 P12b:選到的規格一般價是空的', () => {
+  it('🔴 價格印「—」,不能退回商品價(那是別的規格的價);沒有折數', () => {
+    renderInfo({
+      ...variantProduct,
+      price: 4400,
+      origPrice: null,
+      variants: [
+        { id: 'v-null', sku: 'N-1', spec: { weave: 'Forged' }, price: null, images: [] },
+        { id: 'v-ok', sku: 'N-2', spec: { weave: 'Plain' }, price: 4400, images: [] },
+      ],
+    });
+    expect(document.querySelector('.pd-price')?.textContent).toBe('—');
+    expect(document.querySelector('.pd-price-save')).toBeNull();
   });
 });

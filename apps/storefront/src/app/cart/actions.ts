@@ -171,7 +171,8 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
       continue;
     }
 
-    let unitPrice: number;
+    // 商品頁乙 P12b:一般價空 ⇒ null(購物車印「—」、hasUnpricedLine 擋結帳;create_order 也會拒絕)
+    let unitPrice: number | null;
     let variantLabel: string | null = null;
     let sku: string | null = null; // V-2a2:變體=variant.sku、無變體=null
     if (variantId) {

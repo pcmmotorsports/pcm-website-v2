@@ -173,7 +173,7 @@ describe('sortProducts', () => {
     //    ⚠️ 而下面 `:176` 那格的 toEqual 擋不到它 —— 那是**另一個 case 分支**(recommend)。
     expect(result).toHaveLength(MOCK_PRODUCTS.length);
     for (let i = 1; i < result.length; i++) {
-      expect(result[i]!.price).toBeGreaterThanOrEqual(result[i - 1]!.price);
+      expect(result[i]!.price).toBeGreaterThanOrEqual(result[i - 1]!.price!);
     }
   });
 

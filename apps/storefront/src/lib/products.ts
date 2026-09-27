@@ -215,10 +215,14 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
   //     沒有規格 ⇒ 商品價(沒有規格就不會有特價)。
   //     商品在特價中而這裡沒有規格資料(列表讀路徑)⇒ 不知道基準款的原價 ⇒ 不劃線(null),不拿特價頂上。
   const rawGeneralOf = (v: (typeof product.variants)[number]) => v.saleOriginalPrice ?? v.priceByTier.general.amount;
+  // 商品頁乙 P12b:一般價空的規格不算(那是 0 佔位,不是 0 元)
+  const pricedVariants = product.variants.filter((v) => !v.generalPriceMissing);
   const basisRawGeneral =
     product.variants.length > 0
-      ? Math.min(...product.variants.map(rawGeneralOf))
-      : product.saleOriginalPrice === undefined
+      ? pricedVariants.length > 0
+        ? Math.min(...pricedVariants.map(rawGeneralOf))
+        : null
+      : product.saleOriginalPrice === undefined && !product.generalPriceMissing
         ? computeEffectivePrice(product, 'general').amount
         : null;
   const saleOriginalPrice = tier === 'general' ? (product.saleOriginalPrice ?? null) : null;
@@ -237,7 +241,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     brandSlug: product.brand.slug,
     name: product.name,
     fits,
-    price: effectivePrice.amount,
+    // 商品頁乙 P12b:一般價空 ⇒ null(畫面印「—」、購物車不能結帳);domain 那個 0 是佔位,不是 0 元
+    price: product.generalPriceMissing ? null : effectivePrice.amount,
     origPrice: saleOriginalPrice,
     isNew: false,
     isSale: saleOriginalPrice !== null,
@@ -282,7 +287,7 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
       id: v.id,
       sku: v.sku,
       spec: v.spec,
-      price: v.priceByTier.general.amount,
+      price: v.generalPriceMissing ? null : v.priceByTier.general.amount,
       // 商品頁乙 P12:這個規格特價生效時的原價(沒有特價 ⇒ 不帶)
       ...(v.saleOriginalPrice !== undefined ? { origPrice: v.saleOriginalPrice } : {}),
       images: v.images,

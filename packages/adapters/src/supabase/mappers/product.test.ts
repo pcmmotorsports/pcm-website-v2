@@ -205,10 +205,19 @@ describe('mapVariantRow', () => {
     expect(v.images).toEqual([]);
   });
 
-  it('price_general null → throw(16b 應已定價)', () => {
-    expect(() => mapVariantRow({ ...baseVariantRow, price_general: null })).toThrow(
-      /price_general/,
-    );
+  // ⛔ ~~price_general null → throw(16b 應已定價)~~ ⇒ 商品頁乙 P12b(計畫 R6-1 / R7-1):丟錯會讓整個商品頁 500,
+  //   而一般價空是合法的資料狀態(報價單零售價空白時同步寫空)⇒ 改成帶 generalPriceMissing、畫面印「—」、不能買。
+  it('🔴 商品頁乙 P12b:price_general null ⇒ 不丟錯,帶 generalPriceMissing(佔位 0 不是 0 元)', () => {
+    const v = mapVariantRow({ ...baseVariantRow, price_general: null });
+    expect(v.generalPriceMissing).toBe(true);
+    expect(v).not.toHaveProperty('saleOriginalPrice');
+    const p = mapSupabaseProductToDomain({ ...baseProductRow, price_general: null });
+    expect(p.generalPriceMissing).toBe(true);
+  });
+
+  it('有價 ⇒ 不帶 generalPriceMissing(包括 0 元贈品)', () => {
+    expect(mapVariantRow({ ...baseVariantRow, price_general: 0 })).not.toHaveProperty('generalPriceMissing');
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, price_general: 0 })).not.toHaveProperty('generalPriceMissing');
   });
 
   it('runtime guard:spec 非 string 值 → throw(防 import 錯 shape 進 client)', () => {

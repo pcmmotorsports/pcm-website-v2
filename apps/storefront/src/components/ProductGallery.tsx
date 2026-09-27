@@ -152,10 +152,10 @@ export function ProductGallery({ product, selectedVariant, saleOrigPrice }: Prod
   }, [lightbox, gallery.length]);
 
   // 商品頁乙 P12:折數跟著選到的規格走(沒選 ⇒ 商品代表款),經銷會員看不到(ProductPage 傳 null)。
-  const shownPrice = selectedVariant?.price ?? product.price;
+  const shownPrice = selectedVariant ? selectedVariant.price : product.price; // P12b:null 不退回商品價
   const shownOrig = saleOrigPrice !== undefined ? saleOrigPrice : product.isSale ? product.origPrice : null;
-  const hasDiscount = shownOrig != null && shownOrig > shownPrice;
-  const discountPct = hasDiscount ? Math.round((1 - shownPrice / shownOrig!) * 100) : 0;
+  const hasDiscount = shownOrig != null && shownPrice != null && shownOrig > shownPrice;
+  const discountPct = hasDiscount ? Math.round((1 - shownPrice! / shownOrig!) * 100) : 0;
 
   // Lightbox 無限輪播(Sean 2026-07-09:滑到最後一張再往右 → 回第一張)。
   const lbNext = () => setActiveImg((i) => (i + 1) % gallery.length);
