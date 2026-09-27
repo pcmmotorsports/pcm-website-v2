@@ -88,10 +88,13 @@ export function getAdminAuditLogRepository(): SupabaseAuditLogRepository {
 export function getAdminAuditLogReader(): AuditLogReader {
   const client = createSupabaseServiceClient();
   const selector: AuditLogSelector = {
-    select: async (limit) => {
-      const { data, error } = await client
+    select: async (limit, filter) => {
+      let q = client
         .from('admin_audit_log')
-        .select('id, actor, actor_label, actor_is_manager, action, target, before, after, reason, request_id, source_app, created_at')
+        .select('id, actor, actor_label, actor_is_manager, action, target, before, after, reason, request_id, source_app, created_at');
+      // 依對象讀(商品頁「最近的變更」):target 有索引 admin_audit_log_target_idx(20260712210000)
+      if (filter) q = q.eq('target', filter.target).in('action', [...filter.actions]);
+      const { data, error } = await q
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
         // ⚠️ **已知缺口(不是已守)**:`id` 次鍵**零測試覆蓋**(E 窗 R1 F3)。

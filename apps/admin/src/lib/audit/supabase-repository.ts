@@ -4,6 +4,7 @@ import {
   type AuditLogReader,
   type AuditLogRepository,
   type AuditLogSelector,
+  type AuditLogTargetFilter,
 } from './repository';
 import type { AdminAuditLogRow, AuditContext, AuditEntry } from './types';
 
@@ -68,6 +69,20 @@ export class SupabaseAuditLogReader implements AuditLogReader {
       // 只帶 message,不把 DB error 原文往上冒到瀏覽器(同 record() 的理由)。
       throw new Error(`admin_audit_log 讀取失敗:${error.message}`);
     }
+    return data ?? [];
+  }
+
+  async listForTarget(filter: AuditLogTargetFilter, limit: number): Promise<AdminAuditLogRow[]> {
+    // 🔴 條件缺一就不查:少了 target 或動作清單,PostgREST 那邊會變成「全表最近 N 筆」,
+    //    商品頁就會印出別的訂單、別的客人的紀錄,而畫面看起來完全正常。
+    if (filter.target.trim() === '' || filter.actions.length === 0) {
+      throw new Error('admin_audit_log 依對象讀取:target 與動作清單都不得為空');
+    }
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new Error(`admin_audit_log 讀取上限必須是正整數,收到 ${String(limit)}`);
+    }
+    const { data, error } = await this.selector.select(limit, filter);
+    if (error) throw new Error(`admin_audit_log 讀取失敗:${error.message}`);
     return data ?? [];
   }
 }
