@@ -192,9 +192,16 @@ const LEAK_TOKENS = ['price_store', 'price_by_tier', 'cost'] as const;
  *      低於成本檢查直接 denied), 有測試守(`brand-discount-e4-actions.test.ts`)。
  *   🔴 到期條件:設定頁不再需要預覽與低於成本檢查 ⇒ 刪掉這一筆。
  */
+/*
+ * 🔴 **第三筆(2026-09-27, 商品清單匯出 M-4a-24 第二片, Sean 2026-09-27 F3「都放」:所有員工匯出都有店家價)**:
+ *   `product-export.ts` 讀基準款變體的 `price_store` 寫進 CSV 的「店家價」欄。只在 server 端組檔、
+ *   由員工按下載取得,不進顧客站、也不進後台頁面的 client bundle(`/products/export` 是 route handler)。
+ *   🔴 到期條件:Sean 收回 F3 或商品清單不再匯出店家價 ⇒ 刪掉這一筆。
+ */
 const LEAK_ALLOWLIST = [
   'apps/admin/src/lib/customers/brand-discount-repository.ts:price_store×6',
   'apps/admin/src/lib/orders/manual-order-catalog.ts:price_store×2',
+  'apps/admin/src/lib/products/product-export.ts:price_store×3',
 ] as const;
 
 /**

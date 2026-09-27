@@ -455,3 +455,36 @@ describe('/products 列表 · FIX-21 篩選區併成一張卡', () => {
     expect(card?.querySelector('#product-keyword-search')).not.toBeNull();
   });
 });
+
+describe('/products 商品清單匯出(M-4a-24 第二片)', () => {
+  it('有商品 ⇒ 工具列有「匯出商品清單」連結, 帶著目前的篩選、不帶頁碼, 文字不用「全部」', async () => {
+    mocks.list.mockResolvedValue({ items: [ROW], total: 1234 });
+    const { container } = await renderPage({ set_by: 'staff', q: '卡鉗', page: '3' });
+    const link = container.querySelector<HTMLAnchorElement>('[data-product-export]');
+    expect(link).not.toBeNull();
+    expect(link!.textContent).toBe('匯出商品清單(1,234 件)');
+    expect(link!.textContent).not.toContain('全部');
+    const href = new URL(link!.getAttribute('href')!, 'http://x');
+    expect(href.pathname).toBe('/products/export');
+    expect(href.searchParams.get('set_by')).toBe('staff');
+    expect(href.searchParams.get('q')).toBe('卡鉗');
+    expect(href.searchParams.has('page')).toBe(false);
+  });
+
+  it('超過上限 ⇒ 不給連結, 說明要先縮小範圍', async () => {
+    mocks.list.mockResolvedValue({ items: [ROW], total: 30001 });
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-product-export]')).toBeNull();
+    expect(container.querySelector('[data-product-export-blocked]')?.textContent).toContain('請先用品牌或分類縮小範圍');
+  });
+
+  it('0 件或讀取失敗 ⇒ 不出現匯出連結', async () => {
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-product-export]')).toBeNull();
+    cleanup();
+    mocks.list.mockRejectedValue(new Error('db down'));
+    const failed = await renderPage();
+    expect(failed.container.querySelector('[data-product-export]')).toBeNull();
+  });
+});

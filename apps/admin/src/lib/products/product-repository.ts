@@ -311,9 +311,26 @@ export async function listProductsForAdmin(
   offset: number,
   query: AdminProductQuery = {},
 ): Promise<AdminProductPage> {
+  return queryProductsForAdmin<AdminProductListRow>(PRODUCT_LIST_COLUMNS, limit, offset, query);
+}
+
+/**
+ * 篩選 + 排序 + 分頁的共用那一段;欄位由呼叫端指定。
+ *
+ * 🔴 2026-09-27 商品清單匯出(`product-export.ts`)要讀另一組欄(含店家價),而篩選必須跟列表【同一段】,
+ *    所以把原本 `listProductsForAdmin` 的本體抽到這裡,列表那支只剩傳欄位。
+ *    🛑 欄位字串在呼叫端 ⇒ 經銷價外洩守門(`product-repository.test.ts` 的 LEAK_TOKENS 全樹掃)
+ *       照樣咬得到呼叫端那支檔:新的呼叫端要讀經銷價,就得進 LEAK_ALLOWLIST。
+ */
+export async function queryProductsForAdmin<Row>(
+  columns: string,
+  limit: number,
+  offset: number,
+  query: AdminProductQuery,
+): Promise<{ items: Row[]; total: number }> {
   let q = createSupabaseServiceClient()
     .from('products')
-    .select(PRODUCT_LIST_COLUMNS, { count: 'exact' });
+    .select(columns, { count: 'exact' });
 
   // 🔴 **篩選一定要走 DB,不能在頁面上過濾陣列。**
   //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
@@ -363,7 +380,7 @@ export async function listProductsForAdmin(
     .range(offset, offset + limit - 1);
 
   if (error) throw error;
-  return { items: (data ?? []) as unknown as AdminProductListRow[], total: count ?? 0 };
+  return { items: (data ?? []) as unknown as Row[], total: count ?? 0 };
 }
 
 

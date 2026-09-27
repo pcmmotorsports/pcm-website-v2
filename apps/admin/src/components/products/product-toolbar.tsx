@@ -2,7 +2,8 @@ import { ProductFilterChips } from './product-filter-chips';
 import { ProductKeywordSearch } from './product-keyword-search';
 import { ProductSkuFilter } from './product-sku-filter';
 import { ProductTaxonomyFilter } from './product-taxonomy-filter';
-import type { AdminProductFilter } from '../../lib/products/product-list-view';
+import { DEFAULT_PAGE_SIZE, buildProductListHref, type AdminProductFilter } from '../../lib/products/product-list-view';
+import { PRODUCT_EXPORT_CAP, productExportHref } from '../../lib/products/product-export';
 import type { BrandOptionRow, CategoryOption } from '../../lib/products/product-taxonomy-options';
 
 // product-toolbar.tsx — 商品頁工具列(2026-09-14 設計窗;Sean 09-14 逐字「重新幫我設計一個比較好用的版本,目前很不直覺並且上方篩選欄位太佔空間」)。
@@ -46,6 +47,22 @@ export function ProductToolbar({
       )}
       <span className='pcm-sp' />
       {!loadFailed && <span className='pcm-count'>共 {total.toLocaleString('zh-TW')} 件</span>}
+      {/* 2026-09-27 商品清單匯出(M-4a-24 第二片):一般連結,檔案由 `/products/export` 在 server 端組。
+          🔴 文字不用「全部」(訂單工具列 Sean 09-16 拍甲那條,商品頁也避開)。超過上限就不給連結,直接說怎麼做。 */}
+      {!loadFailed && total > 0 && total <= PRODUCT_EXPORT_CAP && (
+        <a
+          href={productExportHref(buildProductListHref(filter, { page: 1, size: DEFAULT_PAGE_SIZE }))}
+          data-product-export
+          className='inline-flex h-8 items-center rounded-md border px-3 text-sm'
+        >
+          {`匯出商品清單(${total.toLocaleString('zh-TW')} 件)`}
+        </a>
+      )}
+      {!loadFailed && total > PRODUCT_EXPORT_CAP && (
+        <span className='text-muted-foreground max-w-xs text-xs' data-product-export-blocked>
+          {`超過一次匯出的上限 ${PRODUCT_EXPORT_CAP.toLocaleString('zh-TW')} 件,請先用品牌或分類縮小範圍再匯出。`}
+        </span>
+      )}
     </div>
   );
 }

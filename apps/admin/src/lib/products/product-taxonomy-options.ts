@@ -1,3 +1,6 @@
+import type { AdminProductQuery, ProductFilterOptions } from './product-repository';
+import type { AdminProductFilter } from './product-list-view';
+
 // apps/admin/src/lib/products/product-taxonomy-options.ts
 //
 // 商品列表「品牌 / 分類」篩選的**純函式層**(plan:`docs/specs/2026-08-19-admin-product-brand-category-filter-plan.md`)。
@@ -175,4 +178,96 @@ export function resolveCategoryIds(
     if (child !== undefined) return [child.id];
   }
   return null;
+}
+
+/**
+ * 商品列表的網址篩選 + 撈到的下拉選項 ⇒ 真正丟給查詢的條件。
+ *
+ * 🔴 2026-09-27 商品清單匯出(M-4a-24 第二片)從 `app/products/page.tsx` 整段搬來:
+ *    列表頁與 `/products/export` 必須走【同一支】—— 兩邊各寫一份的話,員工匯出的會跟他眼前的
+ *    列表不是同一批商品,而且沒有任何東西會紅。下面的註解是跟著程式從頁面搬過來的。
+ */
+export interface ResolvedProductListQuery {
+  readonly query: AdminProductQuery;
+  readonly brandOptions: BrandOptionRow[];
+  readonly categoryOptions: CategoryOption[];
+  /** 網址帶的品牌有找不到的(整軸或部分沒有套用)。 */
+  readonly brandFilterDropped: boolean;
+  /** 網址帶的分類套用不上(整軸沒有套用)。 */
+  readonly categoryFilterDropped: boolean;
+}
+
+export function resolveProductListQuery(
+  filter: AdminProductFilter,
+  options: ProductFilterOptions | null,
+): ResolvedProductListQuery {
+  const categoryOptions =
+    options === null
+      ? []
+      : buildCategoryOptions(options.categories, options.categoryIdsWithProducts);
+  // 🔴 第三個參數 = 目前選中的品牌:**零商品的品牌不進下拉,但選中的那個一律留著** ——
+  //    沒有它,網址上帶著零商品品牌時下拉會顯示「全部品牌」而查詢照樣在篩它
+  //    (畫面說全部、實際 0 筆,而員工清不掉)。理由全文在 `buildBrandOptions` 檔頭。
+  const brandOptions =
+    options === null
+      ? []
+      : buildBrandOptions(options.brands, options.brandIdsWithProducts, filter.brandIds);
+
+  // 🔴🔴 **上面那格救得了「零商品的品牌」,救不了「已經不在 `brands` 表裡的品牌」**
+  //    (W6 `W6-051` F1)。可達路徑**不是**手改網址,是**品牌被刪 + 舊書籤** ——
+  //    而「選中態靠網址不靠 state ⇒ 可加書籤」正是這一族的明文設計原則
+  //    (`product-filter-chips.tsx:11-19`)⇒ **加書籤是被鼓勵的用法,不是誤用。**
+  //    那時下拉畫不出對應的 `<option>` ⇒ 顯示「全部品牌」,而查詢照樣 `.eq('brand_id', …)`
+  //    ⇒ 員工看到「全部品牌 + 0 筆」,**既解釋不了也清不掉**。
+  //    ⚠️ 這條**本片之前就在**、不是本片引入的;在這裡一起修是因為本片正好把
+  //       「下拉裡有沒有這個選項」變成一件會動的事。
+  //    🔴 而我原本寫「品牌沒有路徑可以解析、id 認不認得無從判斷」—— **那句是錯的**,已撤:
+  //       同一個請求裡就有整張 `brands` 表,一行 `some()` 就判得出來。
+  //       **一個錯的理由會關掉下一個人的動作**,那比缺這個修法本身更貴。
+  //    處置照分類那條(`resolveCategoryIds` 回 `null` ⇒ 不套用):認不得就**不套用品牌條件**,
+  //    畫面與查詢一致。**不自動改寫網址** —— 那會讓「我明明選了」變成無聲的消失。
+  // 🔴🔴 **2026-08-20 多值之後,這一格從「認不認得」變成【逐個認】**:
+  //    網址可能帶三個品牌而其中一個被刪掉了 ⇒ **留下認得的兩個、丟掉那一個**,
+  //    而不是整軸放棄。整軸放棄會讓「兩個還在的品牌」也一起消失,那比原本的病更糟。
+  //    ⇒ 而**全部都認不得**時才等同舊行為(不套用 + 橫幅)。
+  const knownBrandIds =
+    filter.brandIds === undefined || options === null
+      ? undefined
+      : filter.brandIds.filter((id) => options.brands.some((brand) => brand.id === id));
+  const brandIds = knownBrandIds !== undefined && knownBrandIds.length > 0 ? knownBrandIds : undefined;
+  // 🔴 「有丟掉東西」才提示 —— 而它現在包含「丟掉了一部分」,不只「整軸丟掉」。
+  const brandFilterDropped =
+    filter.brandIds !== undefined && (knownBrandIds === undefined || knownBrandIds.length < filter.brandIds.length);
+
+  // 🔴 選了大類 ⇒ 要含它自己 + 它的子類;認不得的 `raw_path` ⇒ `null` ⇒ **不套用分類條件**
+  //    (看到全部,不是看到空的 —— 理由逐字在 `resolveCategoryIds` 檔頭)。
+  //    ⚠️ 選項撈失敗時 `categoryOptions` 是空陣列 ⇒ 這裡一律回 `null` ⇒ 分類條件不套用。
+  //       **那是對的**:此時畫面上根本沒有分類下拉,再拿一個解不出來的路徑去砍列表
+  //       只會讓員工看到一個他無法解釋、也無法清除的空清單。
+  const categoryIds = resolveCategoryIds(categoryOptions, filter.categoryPath) ?? undefined;
+
+  // 🔴🔴 **R1 審查 important-4:網址上有分類篩選,而查詢沒套上它 —— 這件事畫面上看不出來。**
+  //    兩條可達路徑,而兩條的畫面都是「一份看起來正常的清單」:
+  //      ① 選項撈失敗 ⇒ `categoryOptions` 空 ⇒ `?category=` 被丟掉,
+  //         **而 `?brand=` 照樣生效** ⇒ 員工看到一份「品牌篩過、分類沒篩」的清單,
+  //         且此時兩顆下拉整塊不畫 ⇒ **他沒有任何控制項可以解釋或清掉它**。
+  //      ② 選項撈成功,但那個分類今天同步後變成 0 件 ⇒ 被 `buildCategoryOptions` 濾掉
+  //         ⇒ 舊書籤 `?category=X` 從「0 件」變成 **整本兩萬多件**。
+  //    ⇒ 講出來 + 給一條清得掉的路。**不自動改寫網址** —— 那會讓「我明明選了」變成無聲的消失。
+  const categoryFilterDropped = filter.categoryPath !== undefined && categoryIds === undefined;
+
+  return {
+    query: {
+      setBy: filter.setBy,
+      keyword: filter.keyword,
+      // 🔴 這裡用 `brandIds` 不是 `filter.brandIds` —— 認不得的那幾個已經被濾掉(見上面 `knownBrandIds`)。
+      brandIds,
+      categoryIds,
+      skus: filter.skus,
+    },
+    brandOptions,
+    categoryOptions,
+    brandFilterDropped,
+    categoryFilterDropped,
+  };
 }
