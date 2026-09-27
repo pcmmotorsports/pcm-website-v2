@@ -513,6 +513,53 @@ export function isFullyDelisted(variants: SourceProductRow[]): boolean {
   return variants.length > 0 && variants.every((v) => v.delisted_at);
 }
 
+/**
+ * 卡片標題去掉「選項字樣」(2026-09-27 Ilmberger 合卡後, 主視窗派工)。
+ * 卡片標題取 basis 那一款的名字(下面 transformGroup 的 `title`)⇒ 左右、亮霧合成一張卡之後,
+ * 標題會寫著「（左）」「亮面」, 而卡片其實有「左／右」「亮面／霧面」可以選。
+ *
+ * 規則(只在卡片【真的有兩種以上】時才拿掉, 只有一邊 / 一種表面時那個字就是商品本身的描述, 不動):
+ *   · 位置同時有「左」與「右」⇒ 拿掉 左側 / 右側 / 左邊 / 右邊 / 左 / 右
+ *     (只處理左右;Rizoma 的 前 / 後 / 騎士 / 乘客 不在這條規則裡, 那些字在標題裡通常是商品名的一部分)
+ *     「左側板」只拿掉「左」⇒「側板」(拿掉「左側」會變成「板」)
+ *   · 表面有兩種以上 ⇒ 拿掉卡片上實際出現的表面值(Ilmberger 是 亮面 / 霧面)
+ *   · 括號(全形 / 半形)裡的片段逐段處理, 空了就整組拿掉;留下的統一成全形括號與全形逗號
+ * 2026-09-27 正式庫唯讀量:其他供應商有多種表面的卡, 標題都沒寫表面字樣 ⇒ 實際只會動到 Ilmberger。
+ */
+export function cardTitleWithoutOptionWords(
+  title: string,
+  specs: ReadonlyArray<Readonly<Record<string, string | undefined>>>,
+): string {
+  const positions = new Set(specs.map((s) => s.position).filter(Boolean));
+  const finishes = [...new Set(specs.map((s) => s.finish).filter((f): f is string => Boolean(f)))];
+  const stripSide = positions.has('左') && positions.has('右');
+  const stripFinish = finishes.length > 1;
+  if (!stripSide && !stripFinish) return title;
+
+  const clean = (text: string): string => {
+    let t = text;
+    if (stripFinish) for (const f of finishes) t = t.split(f).join('');
+    if (stripSide) t = t.replace(/[左右](?=側板)/g, '').replace(/[左右](?:側|邊)/g, '').replace(/[左右]/g, '');
+    return t;
+  };
+
+  const withGroups = title.replace(/[（(]([^）)]*)[）)]/g, (m: string, inner: string) => {
+    // 🔴 沒有要拿掉的字 ⇒ 整組原樣(半形括號、斜線都不改;乾跑抓到 RPM 76 張被改了格式)
+    if (clean(inner) === inner) return m;
+    const parts = inner
+      .split(/[，,、/]/)
+      .map((part) => clean(part).trim())
+      .filter((part) => part !== '');
+    return parts.length === 0 ? '' : `（${parts.join('，')}）`;
+  });
+  // 括號外的部分;括號組已經處理過, 不再動它們
+  const out = withGroups
+    .split(/(（[^）]*）)/)
+    .map((seg) => (seg.startsWith('（') ? seg : clean(seg)))
+    .join('');
+  return out.replace(/\s{2,}/g, ' ').trim();
+}
+
 export function transformGroup(
   mainSku: string,
   variants: SourceProductRow[],
@@ -597,7 +644,8 @@ export function transformGroup(
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
     handle: `${ctx.handlePrefix}-${normalizeHandleSegment(mainSku)}`, // SEO slug、供應商命名空間化(rpm→'rpm-');#266 正規化(髒字元→hyphen;rpm 合法 sku=no-op、byte 不變)
-    title: basis.product_name_zh || basis.product_name, // 中文部位詞優先、回退英文
+    // 中文部位詞優先、回退英文;再去掉整張卡有得選的左右 / 表面字樣(見 cardTitleWithoutOptionWords)
+    title: cardTitleWithoutOptionWords(basis.product_name_zh || basis.product_name, variants.map((v) => v.spec ?? {})),
     subtitle: buildSubtitle(vehicleLabel, ctx.subtitleTag, distinctModelLabels(fitments)),
     // 🔴 description 條件寫入(§2.9 F2):syncDescription 且來源非空才展開 key。
     //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。混批 NULL-clobber 已由 load 層 groupByKeySignature 修(見 ProductRow 註、#260)。

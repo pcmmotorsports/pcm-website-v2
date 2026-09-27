@@ -16,6 +16,7 @@ import {
   resolveFitmentYears,
   liveVariantsOf,
   isNonProductListing,
+  cardTitleWithoutOptionWords,
   type GroupTransformContext,
 } from './rpm-transform';
 import type { SourceFitmentEntry } from './rpm-fetch';
@@ -1223,5 +1224,63 @@ describe('isNonProductListing:品名是聯絡方式的列不當商品', () => {
     expect(isNonProductListing(row('Special Nut35x 1,5 Ergal  (Contact Surface D=55)'))).toBe(false);
     expect(isNonProductListing(row('Speedometer sensor M8 reed contact (reinforced)'))).toBe(false);
     expect(isNonProductListing(row('M6 Counter Sink', 'M6 沉頭螺絲'))).toBe(false);
+  });
+});
+
+describe('🔴 卡片標題去掉選項字樣(Ilmberger 合卡 2026-09-27:標題取 basis 那一款的名字 ⇒ 帶著「左」「亮面」)', () => {
+  const sp = (position?: string, finish?: string) => ({ ...(position ? { position } : {}), ...(finish ? { finish } : {}) });
+  const LR = [sp('左', '亮面'), sp('右', '亮面'), sp('左', '霧面'), sp('右', '霧面')];
+  const LR_ONLY = [sp('左'), sp('右')];
+  const FIN_ONLY = [sp(undefined, '亮面'), sp(undefined, '霧面')];
+
+  // 例子取自正式庫 2026-09-27 唯讀查到的真標題
+  it.each([
+    ['碳纖維定風翼（左）', LR_ONLY, '碳纖維定風翼'],
+    ['碳纖維排氣側蓋（左側）', LR_ONLY, '碳纖維排氣側蓋'],
+    ['碳纖維空濾護蓋（左側，亮面）', LR, '碳纖維空濾護蓋'],
+    ['碳纖維車架防護蓋(左,亮面)', LR, '碳纖維車架防護蓋'],
+    ['碳纖維整流罩側蓋（左，賽道版）', LR_ONLY, '碳纖維整流罩側蓋（賽道版）'],
+    ['碳纖維車架飾蓋（上左）', LR_ONLY, '碳纖維車架飾蓋（上）'],
+    ['碳纖維左側整流罩', LR, '碳纖維整流罩'],
+    ['碳纖維整流罩左側板', LR_ONLY, '碳纖維整流罩側板'],
+    ['碳纖維後整流罩左蓋', LR_ONLY, '碳纖維後整流罩蓋'],
+    ['亮面碳纖維進氣室護蓋（左側）', LR, '碳纖維進氣室護蓋'],
+    ['碳纖維亮面油冷護蓋', LR, '碳纖維油冷護蓋'],
+    ['前土除(亮面)', FIN_ONLY, '前土除'],
+    ['碳纖維整流側板（左） 賽道版', LR_ONLY, '碳纖維整流側板 賽道版'],
+  ])('%s', (title, specs, expected) => {
+    expect(cardTitleWithoutOptionWords(title, specs)).toBe(expected);
+  });
+
+  it('🔴 只有一邊或只有一種表面 ⇒ 不動(那個字就是商品本身的描述)', () => {
+    expect(cardTitleWithoutOptionWords('碳纖維定風翼（左）', [sp('左')])).toBe('碳纖維定風翼（左）');
+    expect(cardTitleWithoutOptionWords('碳纖維定風翼（亮面）', [sp('左', '亮面'), sp('右', '亮面')])).toBe('碳纖維定風翼（亮面）');
+    expect(cardTitleWithoutOptionWords('碳纖維水箱護蓋（左）', [])).toBe('碳纖維水箱護蓋（左）');
+  });
+
+  it('🔴 括號裡沒有要拿掉的字 ⇒ 原樣保留(半形括號、斜線都不改;正式庫乾跑抓到 RPM 76 張被改了格式)', () => {
+    const rpm = [sp(undefined, 'Glossy'), sp(undefined, 'Matt')];
+    expect(cardTitleWithoutOptionWords('單座蓋 (不含支架/鑰匙鎖)', rpm)).toBe('單座蓋 (不含支架/鑰匙鎖)');
+    expect(cardTitleWithoutOptionWords('側整流罩 (左右側殼)', rpm)).toBe('側整流罩 (左右側殼)');
+    expect(cardTitleWithoutOptionWords('碳纖維護蓋(下)（左）', LR_ONLY)).toBe('碳纖維護蓋(下)');
+  });
+
+  it('🔴 位置是前 / 後 / 騎士這類(Rizoma)⇒ 不拿掉任何字(只處理左右)', () => {
+    expect(cardTitleWithoutOptionWords('腳踏組（前）', [sp('前'), sp('後')])).toBe('腳踏組（前）');
+    expect(cardTitleWithoutOptionWords('騎士腳踏', [sp('騎士'), sp('乘客')])).toBe('騎士腳踏');
+  });
+
+  it('🔴 整張卡走 transformGroup:有左右兩款 ⇒ 卡片標題不帶左右', () => {
+    const mk = (sku: string, retail: string, position: string, zh: string): SourceProductRow =>
+      ({ ...BASE, sku, supplier_slug: 'ilmberger', main_sku: 'ILM-VF.002.V422', price_retail: retail, spec: { position }, product_name_zh: zh }) as SourceProductRow;
+    const p = transformGroup(
+      'ILM-VF.002.V422',
+      [mk('CG.VFL.001.V422', '100', '左', '碳纖維定風翼（左）'), mk('CG.VFR.002.V422', '100', '右', '碳纖維定風翼（右）')],
+      null,
+      RPM_CTX,
+      NOW,
+      NO_DEALER,
+    );
+    expect(p.title).toBe('碳纖維定風翼');
   });
 });
