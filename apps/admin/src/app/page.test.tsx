@@ -593,7 +593,7 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
 
   it('第 1 層(票是 v:2)⇒ 說身分來自那張票,而【不再】說是你自己選的', async () => {
     const text = await copyOf('ticket', { id: 's1', label: '小陳' });
-    expect(text).toContain('系統已驗證此身分');
+    expect(text).toContain('已由報價單帳號驗證');
     // 🔴 這一行才是本片的本體:舊字面**不得**出現在這個世界。
     //    翻面條件:把分岔拆掉、或把三句合回一句 ⇒ 紅。
     expect(text).not.toContain('你選擇的身分');
@@ -603,7 +603,21 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
     const text = await copyOf('self-selected', { id: 's1', label: '小陳' });
     // 🔴 這格是**負向守門**:本片宣稱「今天正式站那個世界零改動」,而這裡就是那句宣稱的量具。
     expect(text).toContain('你選擇的身分，但系統尚未驗證是否為本人');
-    expect(text).not.toContain('系統已驗證此身分');
+    expect(text).not.toContain('已由報價單帳號驗證');
+  });
+
+  // Sean 2026-09-28 拍甲:用報價單帳號登入(票)時選單選了也不生效 ⇒ 不顯示;只有「自選」這一層才顯示。
+  //    翻面條件:把 page.tsx 的 `actorSource === 'self-selected' &&` 拿掉 ⇒ 第一格紅。
+  it('用報價單帳號登入(ticket)⇒ 不顯示身分選單;自選(self-selected)⇒ 顯示', async () => {
+    mocks.getSessionActorWithSource.mockResolvedValue({ actor: { id: 's1', label: '小陳' }, source: 'ticket' });
+    const withTicket = render(await AdminHomePage());
+    expect(withTicket.container.querySelector('select#actor_id')).toBeNull();
+    expect(withTicket.container.textContent).not.toContain('切換');
+    withTicket.unmount();
+
+    mocks.getSessionActorWithSource.mockResolvedValue({ actor: { id: 's1', label: '小陳' }, source: 'self-selected' });
+    const selfSelected = render(await AdminHomePage());
+    expect(selfSelected.container.querySelector('select#actor_id')).not.toBeNull();
   });
 
   it('none(共用密碼 / 首次建置)⇒ 選單不會生效,而復原步驟是【改用個人帳號】', async () => {
@@ -631,7 +645,7 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
     //    而那個人的帳號其實好好的。翻面條件:有人把話改回「你的帳號被停用了」⇒ 紅。
     expect(text).not.toMatch(/帳號(已)?被停用了/);
     // 這一句是矛盾的來源:畫面上方已經印「尚未選擇」,不得再說「這個身分來自…那張票」。
-    expect(text).not.toContain('系統已驗證此身分');
+    expect(text).not.toContain('已由報價單帳號驗證');
     expect(text).not.toContain('你選擇的身分');
   });
 

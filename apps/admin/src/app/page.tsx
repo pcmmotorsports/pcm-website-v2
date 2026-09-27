@@ -104,7 +104,7 @@ type CopyKey = ActorSource | 'ticket-unresolved' | 'self-selected-unset';
 const ACTOR_SOURCE_COPY: Readonly<Record<CopyKey, string>> = {
   // 第 1 層:票是 v:2 且 kind='user',而那個人也還在啟用名單裡。線D 2026-08-29 備好的 A 版,逐字採用。
   ticket:
-    '。操作紀錄會使用目前登入的身分，系統已驗證此身分。',
+    '，已由報價單帳號驗證。操作紀錄會記在這個身分。',
   // 第 1 層而 `resolveStaff` 回 null ⇒ 票上有人,而那個人現在不是啟用中的員工。
   // 🔴 這一句與 `none` **不可以合併**:兩者「選了都不會生效」,而**員工要做的事完全不同** ——
   //    這一句要他去找管理員把帳號開回來,`none` 那句要他改用個人帳號登入。
@@ -580,7 +580,7 @@ export default async function AdminHomePage() {
       </details>
 
       <div className='rounded-lg border bg-card p-6 text-card-foreground'>
-        <p className='text-sm font-medium'>具名身分(M-4a M0-S2)</p>
+        <p className='text-sm font-medium'>目前操作人</p>
         <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
           目前身分:
           <span className='text-foreground font-medium'>
@@ -588,6 +588,8 @@ export default async function AdminHomePage() {
           </span>
           {ACTOR_SOURCE_COPY[copyKey]}
         </p>
+        {/* Sean 2026-09-28 拍甲:只有「自選」這一層(沒用個人帳號登入)才讀得到選單寫的 cookie ⇒ 其他世界選了也不生效, 不顯示。 */}
+        {actorSource === 'self-selected' && (
         <form action={selectActorAction} className='mt-4 flex items-center gap-2'>
           {/* #388:欄名走共用常數 —— 三處都吃同一顆(`htmlFor`/`id` 綁 a11y、`name` 是 wire 契約)。 */}
           <label htmlFor={ACTOR_ID_FIELD} className='sr-only'>
@@ -615,6 +617,7 @@ export default async function AdminHomePage() {
             切換
           </button>
         </form>
+        )}
       </div>
     </div>
   );
