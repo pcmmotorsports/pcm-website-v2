@@ -1,7 +1,8 @@
 # 計畫：Ilmberger「左右一對」出貨時提醒拆成左、右各一件（網站後台，2026-09-27，窗「進度 a0」）
 
 > 主視窗派工。報價單側 `be23d433`（報價單 14，審查中）：左右合卡、spec 加 `position`（左／右／左右一對）、另產「一對」虛擬款（sku `{群鍵}-PAIR[-G|-M]`，`raw_jsonb.pair_components = [左料號, 右料號]`）。
-> 片 1（商品頁「位置」維）已 commit `9328f4c51`。本計畫是片 2：後台出貨、揀貨單、出貨單的提示。會改 `packages/domain` 的共用型別 ⇒ 鐵則 8 先寫 plan。
+> 片 1（商品頁「位置」維）已 commit（rebase 後 `dac11e353`）。本計畫是片 2：後台出貨、揀貨單、出貨單的提示。
+> **實作更正**：原本打算改 `packages/domain` 的共用型別，實際**沒有改**；改成後台自己查、用 prop 傳進三個畫面（見第 2 節最後一條）。
 
 ## 1. 查到的事實
 
@@ -16,7 +17,10 @@
 - 找兄弟：用一對款的 sku 查 `product_variants` 取 `product_id`，再讀同一個商品的所有款；左 = `spec` 除了 `position` 之外都相同、`position = 左`；右同理。
 - 左、右**各恰好一個**才印料號；找不到或多於一個 ⇒ 只印「一對：出貨時請拆成左、右各一件（料號請到報價單確認）」，不猜。
 - 讀取失敗 ⇒ 同上的保守句，不擋出貨、不讓頁面壞掉。
-- 型別：`AdminOrderDetailItem` 加一欄 `pairSplit: null | { left: string | null; right: string | null }`（null = 不是一對）。
+- ~~型別：`AdminOrderDetailItem` 加一欄 `pairSplit`~~ ⇒ **實作改成不動共用型別**：
+  - 判定與找兄弟：`apps/admin/src/lib/orders/pair-split.ts`；讀資料庫：`pair-split-read.ts`（`loadPairNotesForItems`，沒有一對款就不查）。
+  - 揀貨單頁、出貨單頁、出貨單 PDF 下載各自呼叫一次，把 `{ 料號: 提示字 }` 以 `pairNotes` prop 傳給 `PickingDoc`／`ShippingDoc`。
+  - 出貨彈窗：`ShipmentCandidateItem` 加 `pairNote`（只有料號，不是價格、客人資料或供應商），在 `loadShipmentCandidates` 補上。
 
 **乙：改同步，把 `pair_components` 帶進 `product_variants.metadata`。**
 - 要改報價單 `storefront_catalog_v`（加一欄）＋ 網站 `rpm-fetch.ts`／`rpm-transform.ts`（metadata 目前刻意全停寫）。資料來源最權威，但動兩個 repo 的同步與 view，範圍大一截。

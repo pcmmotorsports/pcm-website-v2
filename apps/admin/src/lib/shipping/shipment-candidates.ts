@@ -36,6 +36,8 @@ import 'server-only';
 //    那就是**新類別**,已改成「按下去才抓」的獨立 action(`fetchItemProcurementChoices`)。
 //    (`variantSku` = 料號,2026-08-09 Sean 實測後追加:員工核對包裹內容靠料號、不是靠品名。
 //     它是非價格欄、`ADMIN_ORDER_DETAIL_SELECT` 早就取了它 ⇒ 零白名單改動。)
+//    (`pairNote` = Ilmberger「左右一對」拆件提示, 2026-09-27 主視窗裁 Q1 甲:內容只有固定字與
+//     同一張商品卡左右兩款的【料號】, 不屬於價格 / PII / 供應商三類 ⇒ 品項白名單加這一鍵。)
 //    ⇒ 呼叫端把這個 DTO 交給 client 元件是安全的;把 `AdminOrderDetail` 交過去不是。
 //    `import 'server-only'` 讓「有人不小心從 client 檔 import 它」變成**建置期錯誤**,
 //    不是等到上線才發現金額進了 bundle。守門另有一條釘住這個 import。
@@ -91,6 +93,7 @@ import {
 // 🔴 上限常數住在【沒有 server-only】的 `shipment-limits.ts`,因為 client 端的文案也要用同一個值。
 //    抄成兩份的話,兩邊會各自漂而**沒有任何東西會紅**。
 import { MAX_SHIPMENT_CANDIDATE_ORDERS } from './shipment-limits';
+import { loadPairNotesForItems } from '../orders/pair-split-read';
 import { summaryOrUntouched } from '../orders/order-status-axes';
 import { listOrderPayments } from '../orders/payment-repository';
 import { shipmentBalanceWarning, type BalancePayments } from './shipment-balance-warning';
@@ -132,6 +135,11 @@ export type ShipmentCandidateItem = {
    *    是**假話**,而且會把員工指去追一批根本不會來的貨。
    */
   blockedReason: 'cancelled' | 'refunded' | 'all_boxed' | 'not_arrived' | 'unknown' | null;
+  /**
+   * Ilmberger「左右一對」拆件提示(2026-09-27;lib/orders/pair-split):一對款 ⇒ 那一行字, 其他 ⇒ null。
+   * 由 `loadShipmentCandidates` 最後一步補上(`itemsOf` 不管它)。非價格欄。
+   */
+  pairNote?: string | null;
 };
 
 export type ShipmentCandidates = {
@@ -472,9 +480,11 @@ export async function loadShipmentCandidates(
   );
 
   const allItemIds = [...itemsByOrderId.values()].flat().map((it) => it.id);
-  const [assigned, customerByOrderId] = await Promise.all([
+  const [assigned, customerByOrderId, pairNotes] = await Promise.all([
     listAssignedQuantitiesByOrderItemIds(allItemIds),
     listOrderCustomerUserIds(details.map((d) => d.id)),
+    // Ilmberger「左右一對」拆件提示:沒有一對款 ⇒ 不查、回 {};讀不到 ⇒ 保守句(不擋出貨)。
+    loadPairNotesForItems([...itemsByOrderId.values()].flat()),
   ]);
 
   // 🔴 **`listAssignedQuantitiesByOrderItemIds` 現在自己翻頁撈到盡、撈不完直接 throw**
@@ -506,6 +516,7 @@ export async function loadShipmentCandidates(
     //    **只准比「能不能出」這一個鍵**;多加任何 tie-breaker 都會把那個對齊打散。
     items: details
       .flatMap((d) => itemsOf(d, itemsByOrderId.get(d.id)!, assigned))
+      .map((c) => ({ ...c, pairNote: pairNotes[c.variantSku] ?? null }))
       .sort((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0)),
     customerUserId: complete ? [...distinct][0]! : null,
     recipient: details[0]!.shippingAddress,

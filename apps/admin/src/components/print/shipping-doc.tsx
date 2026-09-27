@@ -302,10 +302,13 @@ function ItemCells({
   sku,
   title,
   spec,
+  pairNote,
 }: {
   sku: string | undefined;
   title: string | null | undefined;
   spec: Record<string, string> | null | undefined;
+  /** Ilmberger「左右一對」:倉庫要拆成左、右各一件(2026-09-27;沿用稿的 .pd-spec 小字)。 */
+  pairNote?: string | undefined;
 }) {
   return (
     <>
@@ -328,6 +331,11 @@ function ItemCells({
             {Object.entries(spec)
               .map(([k, v]) => `${k}: ${v}`)
               .join(' · ')}
+          </span>
+        )}
+        {pairNote && (
+          <span className='pd-spec' data-slot='pair-note'>
+            {pairNote}
           </span>
         )}
       </td>
@@ -616,6 +624,7 @@ export function ShippingDoc({
   shipment,
   lines,
   printButton = true,
+  pairNotes,
 }: {
   detail: AdminOrderDetail;
   /**
@@ -678,6 +687,8 @@ export function ShippingDoc({
    *      本檔還沒有那一層 ⇒ **今天守它的是下面那格測試, 不是型別。**
    */
   printButton?: boolean;
+  /** Ilmberger「左右一對」拆件提示 { 一對款 sku: 那一行字 }(lib/orders/pair-split-read;沒傳 = 不印)。 */
+  pairNotes?: Record<string, string>;
 }) {
   // ⚠️ **已登記、本片不修的一條(codex 對抗審查 2026-08-16 指出)**:
   //    頁層分兩次查 —— 先 `findAdminOrderDetail`(拿 `shippedQuantity`)、再 `loadOrderShipments`
@@ -1049,7 +1060,7 @@ export function ShippingDoc({
                          而**單測若只數框的總數是抓不到的** —— 守門要問「框在不在這一區裡」。
                          (我第一版就是漏掉這一行,是那道新守門當場紅給我看的。) */}
                   <TickCell />
-                  <ItemCells sku={item?.variantSku} title={item?.title} spec={item?.spec} />
+                  <ItemCells sku={item?.variantSku} title={item?.title} spec={item?.spec} pairNote={item ? pairNotes?.[item.variantSku] : undefined} />
                   <td data-slot='qty' className='pd-num pd-strong'>
                     {l.quantity}
                   </td>
@@ -1113,7 +1124,7 @@ export function ShippingDoc({
                    ⚠️ 改前那句用 `text-amber-800`(琥珀)——**單色雷射印表機上它就是灰的**,
                       而紙面調色盤本來就只有五階灰。⇒ 用「粗 + 主色」表達「這一列要注意」,不靠顏色。 */
                 <tr key={item.id} className={qty === null ? 'border-b pd-wait' : 'border-b'}>
-                  <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />
+                  <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} pairNote={pairNotes?.[item.variantSku]} />
                   {/* 🔴🔴 **R2 MF1+MF2:這一格與另外兩區【必須長得一樣】,而它先前不一樣。**
                       改前:`<td className='pd-num'>` + `<span className='pd-strong'>`,兩個都壞:
                         · 裸 `.pd-num` **(0,1,0)** 輸給 `.pd-items td` **(0,1,1)** ⇒ 它的字級從未生效
@@ -1163,7 +1174,7 @@ export function ShippingDoc({
             >
               {cancelledRows.map(({ item, qty }) => (
                 <tr key={item.id} className='border-b'>
-                  <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />
+                  <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} pairNote={pairNotes?.[item.variantSku]} />
                   <td data-slot='qty' className='pd-num pd-strong'>
                     {qty}
                   </td>

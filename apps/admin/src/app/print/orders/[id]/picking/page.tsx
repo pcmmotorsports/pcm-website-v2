@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { getAdminOrderRepository } from '../../../../../lib/orders/order-repository';
 import { isOrderId } from '../../../../../lib/orders/order-detail-view';
 import { PickingDoc } from '../../../../../components/print/picking-doc';
+import { loadPairNotesForItems } from '../../../../../lib/orders/pair-split-read';
 
 // 相對 import(非 `@/`):根 `vitest.config.ts` 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話
 // 這一頁**完全沒辦法被單測載入**。同 `app/orders/[id]/page.tsx:1` 的既有慣例。
@@ -60,5 +61,7 @@ export default async function OrderPickingPrintPage({
   const detail = await getAdminOrderRepository().findAdminOrderDetail(id);
   if (detail === null) notFound();
 
-  return <PickingDoc detail={detail} />;
+  // Ilmberger「左右一對」拆件提示:沒有一對款不查;讀不到印保守句, 不擋列印。
+  const pairNotes = await loadPairNotesForItems(detail.items);
+  return <PickingDoc detail={detail} pairNotes={pairNotes} />;
 }

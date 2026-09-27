@@ -3,6 +3,7 @@ import { getAdminOrderRepository } from '../../../../../../lib/orders/order-repo
 import { isOrderId } from '../../../../../../lib/orders/order-detail-view';
 import { loadOrderShipments } from '../../../../../../lib/shipping/order-shipments';
 import { ShippingDoc } from '../../../../../../components/print/shipping-doc';
+import { loadPairNotesForItems } from '../../../../../../lib/orders/pair-split-read';
 
 // 相對 import(非 `@/`):根 `vitest.config.ts` 的 `@` alias 指向 storefront ⇒ 用 `@/` 這一頁
 // 完全沒辦法被單測載入。同 `app/orders/[id]/page.tsx:1` 的既有慣例。
@@ -88,6 +89,8 @@ export default async function OrderShippingPrintPage({
   const group = groups.find((g) => g.shipment.id === shipmentId);
   // 網址把不相干的箱與單湊在一起 ⇒ 這裡就結束,不進版面。
   if (group === undefined) notFound();
+  // Ilmberger「左右一對」拆件提示:沒有一對款不查;讀不到印保守句, 不擋列印。
+  const pairNotes = await loadPairNotesForItems(items);
 
   // 料號 / 規格由**本頁**自己從 `detail.items` 對回去(`lines` 只帶 `orderItemId`)。
   // 🔴 刻意不去加寬 `loadOrderShipments` 的簽章:那支是訂單詳情頁出貨卡的既有消費端,
@@ -99,6 +102,7 @@ export default async function OrderShippingPrintPage({
       reportedTotal={reportedTotal}
       shipment={group.shipment}
       lines={group.lines}
+      pairNotes={pairNotes}
       // ⛔ ~~`printedAt={new Date().toISOString()}` —— 「現在幾點」在頁層取(`Q-⑨`=甲,Sean 2026-08-24)~~
       //    ⇒ **2026-08-30 Sean 拍板拿掉紙上的「列印時間」** ⇒ 這個 prop 沒有人用了,一併移除。
       // 🔴 **而 `export const dynamic = 'force-dynamic'`(檔頭)【留著】,理由換了一個**:
