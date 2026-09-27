@@ -102,7 +102,13 @@ vi.mock('next/navigation', () => ({
   notFound: () => {
     throw new Error('NEXT_NOT_FOUND');
   },
+  permanentRedirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT_308 ${url}`);
+  },
 }));
+// 商品舊網址轉址(20260927100000):預設查無;個別格改回傳值
+const findProductRedirect = vi.fn(async (_handle: string): Promise<string | null> => null);
+vi.mock('@/lib/product-redirect', () => ({ findProductRedirect }));
 
 const { default: ProductSlugRoute, generateMetadata } = await import('./page');
 
@@ -353,5 +359,30 @@ describe('/products/[slug] · 分享圖(og / twitter)', () => {
     const m = await metaFor(['/placeholder-product.png']);
     expect(m.openGraph?.images).toBeUndefined();
     expect(m.twitter).toBeUndefined();
+  });
+});
+
+describe('商品舊網址轉址(Ilmberger 合卡配套)', () => {
+  it('🔴 找不到商品、而轉址表有 ⇒ 308 到新網址, 網址參數帶過去', async () => {
+    fetchProductByHandle.mockResolvedValueOnce(null);
+    findProductRedirect.mockResolvedValueOnce('ilmberger-new-1');
+    await expect(
+      ProductSlugRoute({ params: Promise.resolve({ slug: 'ilmberger-old-1' }), searchParams: Promise.resolve({ v: '2' }) }),
+    ).rejects.toThrow('NEXT_REDIRECT_308 /products/ilmberger-new-1?v=2');
+    expect(findProductRedirect).toHaveBeenCalledWith('ilmberger-old-1');
+  });
+
+  it('找不到商品、轉址表也沒有 ⇒ 照舊 404', async () => {
+    fetchProductByHandle.mockResolvedValueOnce(null);
+    await expect(
+      ProductSlugRoute({ params: Promise.resolve({ slug: 'nope' }), searchParams: Promise.resolve({}) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND');
+  });
+
+  it('🔴 商品找得到 ⇒ 不查轉址表(正常商品頁不多查一次)', async () => {
+    findProductRedirect.mockClear();
+    fetchProductByHandle.mockResolvedValueOnce(product([], [{ id: 'v-1', price: 8400 }]));
+    await ProductSlugRoute({ params: Promise.resolve({ slug: 'any' }), searchParams: Promise.resolve({}) });
+    expect(findProductRedirect).not.toHaveBeenCalled();
   });
 });

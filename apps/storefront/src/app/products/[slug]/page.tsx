@@ -28,7 +28,9 @@
 
 import type { Metadata } from 'next';
 import { SITE_NAME, SITE_TITLE_SUFFIX } from '@/lib/site-config';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
+import { findProductRedirect } from '@/lib/product-redirect';
+import { productRedirectPath } from '@/lib/product-redirect-path';
 import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomy } from '@/lib/products';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
@@ -97,6 +99,10 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   const { slug } = await params;
   const product = await fetchProductByHandle(slug);
   if (!product) {
+    // 商品舊網址轉址(20260927100000;Ilmberger 合卡配套):舊卡下架後舊網址 308 到合併後的新卡。
+    // 只在找不到商品時查;查詢失敗當查無(照舊 404)。
+    const target = await findProductRedirect(slug);
+    if (target) permanentRedirect(productRedirectPath(target, await searchParams));
     notFound();
   }
 

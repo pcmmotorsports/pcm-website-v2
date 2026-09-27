@@ -24,6 +24,9 @@
 //    `products.staff_overrides`(20260927040000,已貼正式庫)× Row/Insert/Update 三處(jsonb ⇒ Json;NOT NULL DEFAULT ⇒ Row 必填、Insert/Update 選填),
 //    以及 `admin_set_product_override`(20260927060000,尚未貼)。照 migration 手打、形狀照生成器規則、字母序。
 //    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
+// 🟢 **2026-09-27 網站施工窗 86:同一條慣例 —— 商品舊網址轉址(20260927100000,尚未貼正式庫)。**
+//    `product_redirects`(Row/Insert/Update + 兩條 FK)與 `product_redirects_live_v`(Row)。照 migration 手打、形狀照生成器規則、字母序。
+//    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
 // 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
 //    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
 //    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
@@ -6154,6 +6157,48 @@ export type Database = {
         }
         Relationships: []
       }
+      product_redirects: {
+        Row: {
+          created_at: string
+          created_by: string
+          new_product_id: string
+          old_handle: string
+          old_product_id: string | null
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          new_product_id: string
+          old_handle: string
+          old_product_id?: string | null
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          new_product_id?: string
+          old_handle?: string
+          old_product_id?: string | null
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_redirects_new_product_id_fkey"
+            columns: ["new_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_redirects_old_product_id_fkey"
+            columns: ["old_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_variants: {
         Row: {
           availability: string
@@ -8173,6 +8218,13 @@ export type Database = {
           notification_email: string | null
           order_id: string | null
           order_source: string | null
+        }
+        Relationships: []
+      }
+      product_redirects_live_v: {
+        Row: {
+          new_handle: string | null
+          old_handle: string | null
         }
         Relationships: []
       }
