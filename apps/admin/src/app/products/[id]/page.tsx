@@ -162,6 +162,12 @@ export default async function ProductDetailPage({
       </div>
 
       <ResultBanner code={resultCode} />
+      {/* 商品頁乙 P6:剛建立的手動商品 */}
+      {rawSearch.created === '1' && product && resolveListingState(product) !== 'listed' && (
+        <p role='status' className='bg-muted rounded-md px-4 py-3 text-sm' data-product-created>
+          商品已建立，目前是「已下架」，客人看不到。請檢查照片和文字，確認沒問題再按「上架這件商品」。
+        </p>
+      )}
 
       {product === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
