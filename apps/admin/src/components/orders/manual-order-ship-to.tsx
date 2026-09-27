@@ -129,7 +129,8 @@ export function ManualOrderShipTo() {
           if (el) el.value = '';
         });
       } else {
-        setNotice('收件資料原本是從上一位客人的地址簿帶入的，你修改過的內容已保留。請確認這是這位客人的收件資料。');
+        // Fable R2 建議:講清楚送出後的後果(會存進目前這位客人的地址簿);「同上」改過也走這裡, 不說「你修改過」
+        setNotice('收件資料和上一位客人帶入的不同，已保留。送出後會存進目前這位客人的地址簿，請確認這是這位客人的收件資料。');
       }
       autofill.current = null;
     }
