@@ -27,8 +27,8 @@ describe('查詢條件', () => {
   it('target 格式 = product:<id>(與兩支 RPC 寫入的一致)', () => {
     expect(productHistoryTarget('p-1')).toBe('product:p-1');
   });
-  it('只讀商品頁會改的兩種動作', () => {
-    expect([...PRODUCT_HISTORY_ACTIONS].sort()).toEqual(['product.listing.change', 'product.override.change']);
+  it('只讀商品頁會改的三種動作(商品頁乙 C4 加分類)', () => {
+    expect([...PRODUCT_HISTORY_ACTIONS].sort()).toEqual(['product.category.change', 'product.listing.change', 'product.override.change']);
   });
 });
 
@@ -85,5 +85,16 @@ describe('toProductHistoryRows', () => {
   it('紀錄格式不認得 ⇒ 不猜, 請員工到操作紀錄看', () => {
     const [r] = toProductHistoryRows([log({ before: 'x', after: 'y' })], []);
     expect(r).toMatchObject({ field: '修改商品文字', from: '—', to: '格式不同，請到「操作紀錄」查看' });
+  });
+});
+
+describe('商品頁乙 C4:分類變更', () => {
+  it('分類 id 翻成名字,並寫出是員工設定還是跟著同步;名字查不到寫「另一個分類」', () => {
+    const rows = toProductHistoryRows(
+      [log({ action: 'product.category.change', before: { category_id: 'c1', locked: false }, after: { category_id: 'c2', locked: true } })],
+      [],
+      new Map([['c2', '引擎部品 · 排氣管']]),
+    );
+    expect(rows[0]).toMatchObject({ field: '分類', from: '另一個分類(跟著同步)', to: '引擎部品 · 排氣管(員工設定)' });
   });
 });

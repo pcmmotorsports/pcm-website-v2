@@ -9,8 +9,8 @@ import { formatOrderDateTime } from '../orders/order-detail-view';
 // 版面照設計稿(~/pcm-mailbox/設計稿-商品編輯-基本資料-20260927.html「最近的變更」):時間 / 誰 / 欄位 / 原本 / 改成。
 // 🔴 純函式、不 import server-only(同 `audit-list-view.ts` 的分層理由)⇒ 單測載得起來。
 
-/** 兩支寫入 RPC 的 action 字面:20260819040000(上下架)、20260927060000(標題 / 副標 / 賣點)。 */
-export const PRODUCT_HISTORY_ACTIONS = ['product.override.change', 'product.listing.change'] as const;
+/** 寫入 RPC 的 action 字面:20260819040000(上下架)、20260927060000(標題 / 副標 / 賣點)、20260928050000(分類)。 */
+export const PRODUCT_HISTORY_ACTIONS = ['product.override.change', 'product.listing.change', 'product.category.change'] as const;
 /** 商品頁一次列幾筆(設計稿只列最近的;要看更舊的去「操作紀錄」)。 */
 export const PRODUCT_HISTORY_LIMIT = 20;
 
@@ -48,7 +48,14 @@ function listing(v: Record<string, unknown>): string | null {
   return v.delisted_at === null ? '上架中' : '已下架';
 }
 
-function describe(row: AdminAuditLogRow): Pick<ProductHistoryRow, 'field' | 'from' | 'to'> {
+/** 商品頁乙 C4:分類變更 { category_id, locked } ⇒「引擎部品 · 排氣管(員工設定)」;名字查不到就寫「另一個分類」。 */
+function category(v: Record<string, unknown>, names: ReadonlyMap<string, string>): string | null {
+  if (typeof v.category_id !== 'string' || typeof v.locked !== 'boolean') return null;
+  const name = names.get(v.category_id) ?? '另一個分類';
+  return v.locked ? `${name}(員工設定)` : `${name}(跟著同步)`;
+}
+
+function describe(row: AdminAuditLogRow, names: ReadonlyMap<string, string>): Pick<ProductHistoryRow, 'field' | 'from' | 'to'> {
   const before = obj(row.before);
   const after = obj(row.after);
   if (row.action === 'product.override.change' && before && after && typeof after.field === 'string') {
@@ -62,6 +69,11 @@ function describe(row: AdminAuditLogRow): Pick<ProductHistoryRow, 'field' | 'fro
     if (from !== null && to !== null) return { field: '上架狀態', from, to };
   }
   // 不認得的形狀不猜內容,只講動作名稱,請員工去看完整紀錄
+  if (row.action === 'product.category.change' && before && after) {
+    const from = category(before, names);
+    const to = category(after, names);
+    if (from !== null && to !== null) return { field: '分類', from, to };
+  }
   return { field: formatAuditAction(row.action), from: '—', to: UNKNOWN_SHAPE };
 }
 
@@ -69,11 +81,12 @@ function describe(row: AdminAuditLogRow): Pick<ProductHistoryRow, 'field' | 'fro
 export function toProductHistoryRows(
   rows: readonly AdminAuditLogRow[],
   staff: readonly StaffActor[],
+  categoryNames: ReadonlyMap<string, string> = new Map(),
 ): ProductHistoryRow[] {
   return rows.map((row) => ({
     id: row.id,
     at: formatOrderDateTime(row.created_at),
     actor: formatAuditActorSnapshot(staff, row),
-    ...describe(row),
+    ...describe(row, categoryNames),
   }));
 }

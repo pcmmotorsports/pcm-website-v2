@@ -28,11 +28,15 @@ vi.mock('../../../lib/products/product-repository', async (importOriginal) => {
     ...actual,
     getProductForAdmin: mocks.get,
     getProductTaxonomyNames: mocks.taxonomy,
+    // 商品頁乙 C4:分類選項
+    listCategoryChoices: async () => [{ id: 'cat-1', label: '外觀部品' }],
   };
 });
 vi.mock('server-only', () => ({}));
 // `notFound()` 真的會 throw ⇒ 用可觀察的 spy 取代,才驗得到「有沒有被呼叫」而不是靠例外形狀。
 vi.mock('next/navigation', () => ({
+  // 商品頁乙 C4:分類區是 client 元件,用到 useRouter
+  useRouter: () => ({ refresh: () => {} }),
   notFound: () => {
     mocks.notFound();
     throw new Error('NEXT_NOT_FOUND');
@@ -452,10 +456,10 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
     expect(container.textContent).toContain('變更會寫入稽核紀錄');
   });
 
-  it('🔴 還不能用的三項收成一行字:特價、分類、各規格現貨數量;不再有三張停用的灰卡', async () => {
+  it('🔴 還不能用的收成一行字:特價、各規格現貨數量(分類 C4 已開通,從這一行拿掉);不再有停用的灰卡', async () => {
     const { container } = await renderPage();
     expect(container.querySelector('[data-not-yet] summary')?.textContent).toBe(
-      '還不能用(要先做後端):特價、分類、各規格現貨數量',
+      '還不能用(要先做後端):特價、各規格現貨數量',
     );
     expect(container.querySelectorAll('[data-od-pe="todo"]')).toHaveLength(0);
     expect(container.querySelector('[aria-label="特價(還不能用)"]')).toBeNull();
@@ -467,7 +471,6 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
     const texts = [...line.querySelectorAll('p')].map((p) => p.textContent?.trim());
     for (const description of [
       '目前尚未支援儲存商品特價，因此無法在此設定。',
-      '目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。',
       '目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。',
     ]) {
       expect(texts).toContain(description);
@@ -520,7 +523,8 @@ describe('商品編輯片 9:最近的變更', () => {
     mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
     mocks.history.mockResolvedValueOnce({ rows: ROWS, loadFailed: false });
     const { container } = await renderPage();
-    expect(mocks.history).toHaveBeenCalledWith(ID);
+    // 商品頁乙 C4:第二個參數是分類選項(把分類變更的 id 翻成名字)
+    expect(mocks.history).toHaveBeenCalledWith(ID, [{ id: 'cat-1', label: '外觀部品' }]);
     const section = container.querySelector('[data-product-history]')!;
     expect(section.querySelector('h3')!.textContent).toBe('最近的變更');
     const rows = [...section.querySelectorAll('[data-history-row]')];

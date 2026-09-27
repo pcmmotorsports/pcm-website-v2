@@ -6,6 +6,7 @@ import { ProductSummaryBand } from '../../../components/products/product-summary
 import { ProductListingForm } from '../../../components/products/product-listing-form';
 import { ProductOverridesEditor } from '../../../components/products/product-overrides-editor';
 import { ProductHistory } from '../../../components/products/product-history';
+import { ProductCategoryEditor } from '../../../components/products/product-category-editor';
 import { loadProductHistory } from '../../../lib/products/product-history-loader';
 import { ProductGalleryPanel } from '../../../components/products/product-gallery-panel';
 import { loadProductGallery } from '../../../lib/products/gallery-loader';
@@ -17,6 +18,7 @@ import { resolveListingState, resolvePrice } from '../../../lib/products/product
 import {
   getProductForAdmin,
   getProductTaxonomyNames,
+  listCategoryChoices,
   type AdminProductDetailRow,
   type ProductTaxonomyNames,
 } from '../../../lib/products/product-repository';
@@ -103,8 +105,16 @@ export default async function ProductDetailPage({
   // 共用圖庫 G5(Sean 09-27 C3):讀報價單 G2 API。env 沒設 ⇒ 'disabled',讀不到只影響「照片」那一塊。
   // 兩個一起讀;報價單那一讀最多等 5 秒(gallery-api LIST_TIMEOUT_MS),卡住時整頁最多慢 5 秒,其餘照常(Fable R1 建議 2)。
   const overrides = readProductOverrides(product?.staff_overrides);
+  // 商品頁乙 C4:分類選項讀不到 ⇒ 分類區改成一句說明,其他照常
+  const categoryChoicesPromise = listCategoryChoices().catch((error: unknown) => {
+    console.error('[admin/products/[id]] 分類選項讀取失敗', error);
+    return null;
+  });
   const [history, gallery] =
-    product === null ? [null, null] : await Promise.all([loadProductHistory(product.id), loadProductGallery(product)]);
+    product === null
+      ? [null, null]
+      : await Promise.all([loadProductHistory(product.id, await categoryChoicesPromise), loadProductGallery(product)]);
+  const categoryChoices = await categoryChoicesPromise;
 
   return (
     <div className='mx-auto max-w-6xl space-y-4'>
@@ -227,6 +237,20 @@ export default async function ProductDetailPage({
                 }}
                 overrides={overrides}
               />
+              {/* 商品頁乙 C4:分類區(文字下面、價格上面)。 */}
+              {categoryChoices ? (
+                <ProductCategoryEditor
+                  productId={product.id}
+                  currentCategoryId={product.category_id}
+                  locked={product.category_locked === true}
+                  categories={categoryChoices}
+                />
+              ) : (
+                <section data-od-pe='card' className='rounded-lg border p-4'>
+                  <h3 className='mb-2 text-sm font-medium'>分類</h3>
+                  <p className='text-destructive text-sm'>分類選項載入失敗，暫時不能修改分類，請重新整理頁面。</p>
+                </section>
+              )}
             </div>
           </div>
           {history && <ProductHistory rows={history.rows} loadFailed={history.loadFailed} />}
@@ -235,7 +259,7 @@ export default async function ProductDetailPage({
               商品頁改版乙 B2:原本三張停用的灰卡(特價 / 分類 / 各規格現貨數量)收成一行字(計畫第五節;審視 E1)。
               每一項缺什麼的說明收在展開裡, 字不改。分類開通後(C4)從這一行拿掉「分類」。 */}
           <details data-not-yet className='text-muted-foreground rounded-lg border px-4 py-2 text-sm'>
-            <summary className='cursor-pointer'>還不能用(要先做後端):特價、分類、各規格現貨數量</summary>
+            <summary className='cursor-pointer'>還不能用(要先做後端):特價、各規格現貨數量</summary>
             <div className='mt-2 space-y-2'>
               {/* 🔴 這一段是 **Sean 指定的字**(稿裡標「Sean 指定」)——
                   而稿同時**刻意不寫**「之後可以再調整這筆訂單的特價」:
@@ -303,7 +327,6 @@ export default async function ProductDetailPage({
                      它**排不掉**「搜的是過期的、不完整的、或錯的那一份來源」。
                   ⇒ ⇒ 📌 **寫出它排掉了【哪一扇門】, 不寫它證明了什麼, 也不寫得比它做到的寬。** */}
               <p className='text-xs'>目前尚未支援儲存商品特價，因此無法在此設定。</p>
-              <p className='text-xs'>目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。</p>
               <p className='text-xs'>
                 目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。
               </p>

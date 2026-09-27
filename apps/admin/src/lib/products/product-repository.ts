@@ -485,6 +485,8 @@ export interface AdminProductDetailRow extends AdminProductRow, ProductMediaRow 
   readonly updated_at: string;
   /** 丙方案(20260927040000):員工自己的標題 / 副標 / 賣點。形狀由 `product-overrides-view.ts` 收斂,這裡不假設。 */
   readonly staff_overrides?: unknown;
+  /** 商品頁乙 C4:分類是不是員工設定的(20260928040000);true ⇒ 每日同步不改回去。 */
+  readonly category_locked?: boolean;
 }
 
 /**
@@ -495,7 +497,7 @@ export interface AdminProductDetailRow extends AdminProductRow, ProductMediaRow 
  * ⇒ wire 型別寬鬆、由 `toProductMedia()` 的 runtime guard 收斂,**不在這裡假設形狀**。
  */
 const PRODUCT_DETAIL_COLUMNS =
-  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, listing_set_by, source_missing_at, created_at, updated_at, description, highlights, fitments, images, video_url, manuals, sound_clips, staff_overrides' as const;
+  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, listing_set_by, source_missing_at, created_at, updated_at, description, highlights, fitments, images, video_url, manuals, sound_clips, staff_overrides, category_locked' as const;
 
 /**
  * 讀單筆商品(**含已下架** —— 後台要能把它撈回來)。查無回 `null`,不 throw。
@@ -777,4 +779,11 @@ export async function listProductListingStates(
     .in('id', [...ids]);
   if (error) throw error;
   return (data ?? []) as unknown as { id: string; title: string; override_title: string | null; delisted_at: string | null }[];
+}
+
+/** 商品頁乙 C4:改分類的選項 = 全部分類(含還沒有商品的),照完整路徑排。查失敗往上丟。 */
+export async function listCategoryChoices(): Promise<{ id: string; label: string }[]> {
+  const { data, error } = await createSupabaseServiceClient().from('categories').select('id, raw_path').order('raw_path');
+  if (error) throw error;
+  return ((data ?? []) as { id: string; raw_path: string }[]).map((c) => ({ id: c.id, label: c.raw_path }));
 }

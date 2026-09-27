@@ -15,6 +15,8 @@ import {
 
 export async function loadProductHistory(
   productId: string,
+  /** 商品頁乙 C4:把分類變更的 id 翻成名字;沒給就寫「另一個分類」。 */
+  categories: readonly { id: string; label: string }[] | null = null,
 ): Promise<{ rows: ProductHistoryRow[]; loadFailed: boolean }> {
   try {
     const [logs, staff] = await Promise.all([
@@ -27,7 +29,7 @@ export async function loadProductHistory(
         return [];
       }),
     ]);
-    return { rows: toProductHistoryRows(logs, staff), loadFailed: false };
+    return { rows: toProductHistoryRows(logs, staff, new Map((categories ?? []).map((c) => [c.id, c.label]))), loadFailed: false };
   } catch (error) {
     console.error('[admin/products/[id]] 變更紀錄讀取失敗', error);
     return { rows: [], loadFailed: true };
