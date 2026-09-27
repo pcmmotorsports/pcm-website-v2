@@ -56,7 +56,7 @@ vi.mock('../../lib/orders/receipt-actions', () => ({
   undoItemReceiptAction,
 }));
 
-import { OrderShipButton, useShipmentLauncher } from './shipment-launcher';
+import { ALL_BOXED_BELOW_ONLY, OrderShipButton, useShipmentLauncher } from './shipment-launcher';
 import { UnrecognizedActionError } from 'next/dist/client/components/unrecognized-action-error';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
@@ -245,6 +245,8 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
     fireEvent.click(screen.getByText('開'));
     await waitFor(() => expect(screen.getByTestId('err').textContent).toContain('箱在下面'));
     expect(screen.getByTestId('err').textContent).not.toContain('出貨紀錄找那一箱');
+    // 🔴 2026-09-27 出貨流程甲(報告問題 8):全部都已裝箱而箱就在下面 ⇒ 一句平鋪直敘, 不講「沒有任何一件出得了」。
+    expect(screen.getByTestId('err').textContent).toBe(ALL_BOXED_BELOW_ONLY);
     cleanup();
     render(<Probe withRows={false} />);
     fireEvent.click(screen.getByText('開'));

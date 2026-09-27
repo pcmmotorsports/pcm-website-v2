@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { useShipmentLauncher } from './shipment-launcher';
+import { ALL_BOXED_BELOW_ONLY, useShipmentLauncher } from './shipment-launcher';
 import { NextStepDialog } from './next-step-dialog';
 
 // next-step-shipment-body.tsx — 列表「下一步 = 出貨」的【內容】(P-e-2b,2026-09-13)。
@@ -78,7 +78,10 @@ export function NextStepShipmentBody({
   if (error !== null) {
     return (
       <NextStepDialog title='出貨' closeHref={closeHref}>
-        <p className='text-destructive text-[13px] leading-[1.4]' data-testid='next-step-shipment-error'>
+        <p
+          className={`${error === ALL_BOXED_BELOW_ONLY ? 'text-foreground' : 'text-destructive'} text-[13px] leading-[1.4]`}
+          data-testid='next-step-shipment-error'
+        >
           {error}
         </p>
         {/* 🔴 B13-b:「都已裝進其他箱子」正是員工要找【那一箱】的時候 —— 稿「更多」六列(叫車 / 標已取件 / 列印 / 這張單的箱 /

@@ -106,7 +106,7 @@ export async function ShipmentMoreRows({
   }
   return (
     <div data-testid='shipment-more-rows'>
-      {rows.map(({ shipment, hctStatus, hctPlaceholderStuck, hctRequestId }, i) => {
+      {rows.map(({ shipment, hctStatus, hctPlaceholderStuck, hctRequestId, hctDispatchAttempted, hctDispatched }, i) => {
         const voided = shipment.voidedAt !== null;
         const shipped = shipment.shippedAt !== null;
         const isHct = shipment.carrierCode === 'hct';
@@ -138,7 +138,19 @@ export async function ShipmentMoreRows({
                   placeholderStuck={hctPlaceholderStuck}
                 />
                 {/* 片 A(2026-09-15):卡在「送出結果未知」的箱不再給「送新竹」, 出口是上面提示裡的查詢鈕。 */}
-                {hctStatus !== 'unknown' && (
+                {/* 2026-09-27 出貨流程甲片三(報告問題 9):叫過車或已出貨 ⇒ 不再給要號(指引也跟著消失)。 */}
+                {!shipped && hctDispatchAttempted && (
+                  <Row label='叫車結果'>
+                    {hctDispatched ? (
+                      <span className='text-foreground text-right'>已叫到車。貨被收走後，請按下面的「填單號並標記出貨」。</span>
+                    ) : (
+                      <span className='text-right font-medium text-orange-700'>
+                        叫車結果未確認，車可能已經叫到。請打電話向新竹物流確認，不要再叫車。如果貨已經被收走，請按下面的「填單號並標記出貨」。
+                      </span>
+                    )}
+                  </Row>
+                )}
+                {hctStatus !== 'unknown' && !shipped && !hctDispatchAttempted && (
                   // 🔴🔴 **2026-09-16:這個標籤原本寫「跟新竹物流叫車」, 而它底下掛的是【要號碼】那顆鈕。**
                   //    ⇒ 員工按完會以為**車叫好了**, 實際只是拿到一個託運單號 ——
                   //      📌 Sean 2026-09-16 真後台就是這樣:他以為出貨走完了, **而車根本還沒叫**。

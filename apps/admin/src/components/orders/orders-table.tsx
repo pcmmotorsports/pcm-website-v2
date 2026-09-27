@@ -955,11 +955,11 @@ function OrderGroup({
                     {/* 2026-09-27 出貨流程甲:「叫車」帶到出貨清單(goto);結果不確定的那兩種用橘色(tone warn)。 */}
                     <Link
                       href={next.kind === 'goto' ? next.href : buildNextHref(order.id, next.do)}
-                      className={`relative z-10 inline-flex min-h-6 items-center rounded-lg border px-2 py-[3px] text-[12px] leading-[1.4] whitespace-nowrap ${
+                      className={`inline-flex min-h-6 items-center rounded-lg border px-2 py-[3px] text-[12px] leading-[1.4] whitespace-nowrap ${
                         next.kind === 'action' && next.tone === 'warn'
                           ? 'border-orange-400 bg-orange-50 font-medium text-orange-800'
                           : 'border-border bg-card text-(--fg-2)'
-                      }`}
+                      } relative z-10`}
                       data-next-do={next.kind === 'goto' ? 'goto' : next.do}
                     >
                       {next.label}

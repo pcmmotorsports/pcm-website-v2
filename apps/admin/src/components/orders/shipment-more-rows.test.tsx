@@ -161,3 +161,36 @@ describe('ShipmentMoreRows', () => {
     expect(container.textContent).toContain('作廢 JKMNPQ');
   });
 });
+
+// ── 2026-09-27 出貨流程甲片三(報告問題 9):叫過車 / 已出貨之後, 不再叫人去要號、去叫車 ──
+describe('箱子彈窗跟著叫車結果走', () => {
+  it('🔴 已出貨 ⇒ 不再出現「跟新竹要託運單號」', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box({ shippedAt: '2026-09-27T02:00:00Z' }), hctStatus: 'submitted' }]);
+    const { container } = await renderRows();
+    expect(container.textContent).not.toContain('送新竹');
+  });
+
+  it('🔴 叫車結果不確定 ⇒ 不給要號, 印出打電話與「填單號並標記出貨」的指引, 標出貨那顆還在', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted', hctDispatchAttempted: true, hctDispatched: false }]);
+    const { container, getByText } = await renderRows();
+    expect(container.textContent).not.toContain('送新竹');
+    expect(container.textContent).toContain('叫車結果未確認');
+    expect(container.textContent).toContain('請打電話向新竹物流確認，不要再叫車');
+    expect(container.textContent).toContain('填單號並標記出貨');
+    expect(getByText(/標出貨 BCDFGH/)).toBeTruthy();
+  });
+
+  it('叫到車而還沒標出貨 ⇒ 說已叫到車、下一步標記出貨', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted', hctDispatchAttempted: true, hctDispatched: true }]);
+    const { container } = await renderRows();
+    expect(container.textContent).not.toContain('送新竹');
+    expect(container.textContent).toContain('已叫到車');
+  });
+
+  it('🟢 對照:拿到單號、還沒叫車 ⇒ 要號那一列還在(指引在那顆鈕裡)', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted' }]);
+    const { container } = await renderRows();
+    expect(container.textContent).toContain('送新竹');
+  });
+});
+

@@ -1136,6 +1136,17 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
     expect(screen.getByRole('button', { name: '只建箱、先不出貨' }).hasAttribute('disabled')).toBe(false);
   });
 
+  it('🔴 2026-09-27 出貨流程甲(報告問題 7):新竹、還沒收走 ⇒ 說清楚先按「只建箱、先不出貨」;勾了收走 / 換順豐 ⇒ 不說', () => {
+    open();
+    const HINT = /新竹還沒來收貨：請按下面的「只建箱、先不出貨」/;
+    expect(screen.queryByText(HINT)).not.toBeNull();
+    confirmHctPickup();
+    expect(screen.queryByText(HINT)).toBeNull();
+    confirmHctPickup();
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });
+    expect(screen.queryByText(HINT)).toBeNull();
+  });
+
   it('對照:順豐 ⇒ 沒有那一格, 單號合法就按得下去', () => {
     open();
     fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });

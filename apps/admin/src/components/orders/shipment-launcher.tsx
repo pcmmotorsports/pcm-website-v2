@@ -56,9 +56,16 @@ import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates'
 //    批次列(勾多張單)沒有攤開的箱 ⇒ 保留原句。由 `boxesShownBelow`(= 有沒有給 `moreRows`)分。
 const ALL_BOXED_NEXT_DEFAULT = '已經裝進別的箱子的那幾件,請到那張訂單的出貨紀錄找那一箱。';
 const ALL_BOXED_NEXT_BELOW = '這張單的東西都裝箱了,箱在下面。';
+/**
+ * 2026-09-27 出貨流程甲片三(報告問題 8):全部都已裝箱、而箱就在下面 ⇒ 只說這一句。
+ * 原本會先印「這些訂單目前沒有任何一件出得了…」而且是紅字, 看起來像出錯;這不是錯, 是下一步在箱子那裡。
+ * `next-step-shipment-body.tsx` 看到這一句就用一般字色。
+ */
+export const ALL_BOXED_BELOW_ONLY = '這張單的東西都已裝箱，箱在下面。';
 
 function noneShippableMessage(items: ShipmentCandidates['items'], boxesShownBelow = false): string {
   if (items.length === 0) return '這些訂單裡沒有任何品項。';
+  if (boxesShownBelow && items.every((i) => i.blockedReason === 'all_boxed')) return ALL_BOXED_BELOW_ONLY;
   // 🔴🔴 **每個原因帶自己的下一步**(2026-09-04;L3 走查卡點乙1)——
   //    ⛔ ~~原本四個原因共用一句「出不了」~~ ⇒ 員工看到「出不了」而**不知道要做什麼**。
   //    🔬 走查逐字(`-account` 09-03)+ `-db` 09-04 在 admin-probe 上**真的按了那顆鈕**:

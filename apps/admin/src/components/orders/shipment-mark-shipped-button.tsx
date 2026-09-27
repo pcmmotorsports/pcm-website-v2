@@ -26,7 +26,6 @@ import { markShipmentShippedAction } from '../../lib/shipping/shipment-actions';
 import { trackingNumberIssue } from '../../lib/shipping/tracking-number';
 import {
   HCT_PICKUP_CONFIRM_LABEL,
-  HCT_PICKUP_REQUIRED_MESSAGE,
   needsHctPickupConfirm,
 } from '../../lib/shipping/hct-pickup-confirm';
 
@@ -165,8 +164,10 @@ export function ShipmentMarkShippedButton({
       {/* 🔴 主詞是箱號:同一箱會出現在多張訂單頁上,寫「這張訂單」在別張上是假的。 */}
       {/* 🔴 R2 F-E2:擋比警告顯眼,不要反過來。 */}
       {blocker !== null && <span className='text-xs font-semibold text-red-700'>{blocker}</span>}
+      {/* 2026-09-27 出貨流程甲片三(報告問題 11):箱子已經在了, 這裡只要說「先勾」;
+          原本那一大段紅字(叫人先只建箱、再要號、再叫車)是建箱彈窗的指引, 放在這裡答非所問。 */}
       {blocker === null && pickupBlocked && (
-        <span className='text-xs font-semibold text-red-700'>{HCT_PICKUP_REQUIRED_MESSAGE}</span>
+        <span className='text-muted-foreground text-xs'>要先勾「新竹已經把貨收走了」，才能標記出貨。</span>
       )}
       {/* 🔴 警告【不擋】⇒ 顏色與擋的那顆不同,否則員工會以為自己被擋住了。 */}
       {blocker === null && issue?.level === 'warn' && (

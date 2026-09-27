@@ -125,4 +125,12 @@ describe('⟦走查 F8⟧ 新竹手打標出貨要先勾確認', () => {
     t('1234567890');
     expect(screen.queryByText(/檢查碼對不上/)).not.toBeNull();
   });
+
+  it('🔴 2026-09-27 出貨流程甲:沒勾時的提示是一句灰字, 不是一大段紅字, 也不叫人去「只建箱」(箱子已經在了)', () => {
+    const { type: t } = open('hct', { confirm: false });
+    t(VALID);
+    const hint = screen.getByText(/要先勾「新竹已經把貨收走了」/);
+    expect(hint.textContent).not.toContain('只建箱');
+    expect(hint.className).not.toContain('red');
+  });
 });

@@ -518,6 +518,12 @@ export function ShipmentDialog({
               {HCT_PICKUP_CONFIRM_LABEL}
             </label>
           )}
+          {/* 2026-09-27 出貨流程甲片三(報告問題 7):新竹還沒收走時, 正確的下一步是「只建箱」, 要講出來。 */}
+          {needsHctPickupConfirm(carrier) && !hctPickedUp && (
+            <p className='text-muted-foreground text-[12.5px] leading-[1.4]'>
+              新竹還沒來收貨：請按下面的「只建箱、先不出貨」，之後再跟新竹要託運單號、叫車。
+            </p>
+          )}
 
           {/* 🔴 說明欄只在「其他」時出現,而且必填 —— 兩個方向 DB 都會擋 */}
           {carrier === 'other' && (
