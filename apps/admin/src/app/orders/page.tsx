@@ -74,7 +74,7 @@ import { COST_CURRENCY_CODES } from '../../lib/orders/item-costs-view';
 import { TruncationReveal } from '../../components/orders/truncation-reveal';
 import { OrderExportButton } from '../../components/orders/order-export-button';
 import { OrderExportAllLink } from '../../components/orders/order-export-all-link';
-import { orderExportAllHref } from '../../lib/orders/order-export-all';
+import { orderExportAllHref, taipeiDataAsOf } from '../../lib/orders/order-export-all';
 import { orderExportBlockedReason } from '../../lib/orders/order-export';
 import {
   buildOrderPageCsv,
@@ -709,7 +709,7 @@ export default async function OrdersPage({
   const exportCtx = {
     page,
     filterNote: '',
-    dataAsOf: exportNow.toISOString().slice(0, 16).replace('T', ' '),
+    dataAsOf: taipeiDataAsOf(exportNow), // 台灣時間(原本 UTC, 慢 8 小時)
   };
   const exportProps = {
     csv: buildOrderPageCsv(orders, exportCtx),

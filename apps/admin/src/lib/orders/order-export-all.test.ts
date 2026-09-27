@@ -17,6 +17,7 @@ import {
   orderAllExportFilename,
   orderExportAllHref,
   orderExportFilterNote,
+  taipeiDataAsOf,
 } from './order-export-all';
 
 // order-export-all.test.ts — 訂單匯出第一片:一次匯出【全部篩選結果】(M-4a-24, Sean 2026-09-27 F1 甲)。
@@ -145,6 +146,23 @@ describe('collectOrdersForExport —— 讀【全部】, 少一張都不交', ()
     expect(r.kind).toBe('changed_while_reading');
   });
 
+  it('後面某一批回報的總數跟第一批不同(讀到一半有單進出)⇒ 擋下, 不管最後張數湊不湊得上', async () => {
+    // 一張進、一張出:總數前後都一樣, 但中途那一批看到的總數不同 ⇒ 資料在讀的時候變過
+    const all = orders(ORDER_EXPORT_ALL_BATCH + 5);
+    const list = async (_f: AdminOrderFilter, p: { limit: number; offset?: number }) => {
+      const offset = p.offset ?? 0;
+      return {
+        items: all.slice(offset, offset + p.limit),
+        total: offset === 0 ? all.length : all.length + 1,
+        keywordTruncated: false,
+        keywordMatchCount: null,
+        supplierOrderNoMatchedSuppliers: null,
+      } as unknown as AdminOrderListResult;
+    };
+    const r = await collectOrdersForExport(list, {});
+    expect(r.kind).toBe('changed_while_reading');
+  });
+
   it('來源沒回總筆數 ⇒ 無法核對完整, 丟錯不給檔', async () => {
     await expect(collectOrdersForExport(fakeList(orders(3), { total: undefined }).list, {})).rejects.toThrow('總筆數');
   });
@@ -209,5 +227,10 @@ describe('buildOrderAllCsv / 檔名 / 篩選說明', () => {
     expect(orderExportAllHref('/orders?pay=paid&den=c')).toBe('/orders/export?pay=paid&den=c');
     expect(orderExportAllHref('/orders')).toBe('/orders/export');
     expect(orderExportAllHref('/orders-x?a=1')).toBe('/orders-x?a=1');
+  });
+
+  it('資料截至用台灣時間(UTC+8), 不是 UTC', () => {
+    expect(taipeiDataAsOf(new Date('2026-09-27T04:05:00Z'))).toBe('2026-09-27 12:05');
+    expect(taipeiDataAsOf(new Date('2026-09-27T17:30:00Z'))).toBe('2026-09-28 01:30');
   });
 });

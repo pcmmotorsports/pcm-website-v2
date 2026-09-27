@@ -11,6 +11,7 @@ import {
   orderExportAllBlockedMessage,
   orderExportFilterNote,
   resolveOrderExportFilter,
+  taipeiDataAsOf,
 } from '../../../lib/orders/order-export-all';
 
 // /orders/export — 匯出目前篩選的【全部】訂單(M-4a-24 第一片, Sean 2026-09-27 F1 甲)。
@@ -57,7 +58,7 @@ export async function GET(req: Request) {
   const csv = buildOrderAllCsv(result.orders, {
     total: result.total,
     filterNote: orderExportFilterNote(filter),
-    dataAsOf: now.toISOString().slice(0, 16).replace('T', ' '),
+    dataAsOf: taipeiDataAsOf(now),
   });
   const filename = orderAllExportFilename(now);
   return new NextResponse(csv, {

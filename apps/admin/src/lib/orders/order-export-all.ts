@@ -67,6 +67,8 @@ export async function collectOrdersForExport(list: ListFn, filter: AdminOrderFil
   for (let offset = ORDER_EXPORT_ALL_BATCH; offset < total; offset += ORDER_EXPORT_ALL_BATCH) {
     const r = await list(filter, { limit: ORDER_EXPORT_ALL_BATCH, offset });
     if (r.keywordTruncated) return { kind: 'keyword_truncated' };
+    // 每一批都核對總數:一張進、一張出時最後張數可能剛好湊得上, 但中途那一批看到的總數會不同(Fable R1 建議 1)
+    if (r.total !== total) return { kind: 'changed_while_reading', got: new Set(orders.map((o) => o.id)).size, total };
     orders.push(...r.items);
   }
   const distinct = new Set(orders.map((o) => o.id)).size;
@@ -115,6 +117,23 @@ export function orderExportAllHref(listHref: string): string {
   return listHref.replace(/^\/orders(?=\?|$)/, '/orders/export');
 }
 
+const TAIPEI_MINUTE = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Taipei',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** 「資料截至」用台灣時間 `YYYY-MM-DD HH:mm`(兩種匯出共用;原本 toISOString 是 UTC, 慢 8 小時)。 */
+export function taipeiDataAsOf(now: Date): string {
+  const parts = TAIPEI_MINUTE.formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
 /** 擋下時給員工看的話:說清楚為什麼、該怎麼做。 */
 export function orderExportAllBlockedMessage(r: Exclude<CollectResult, { kind: 'ok' }>): string {
   switch (r.kind) {
@@ -125,6 +144,6 @@ export function orderExportAllBlockedMessage(r: Exclude<CollectResult, { kind: '
     case 'items_truncated':
       return `有 ${r.displayIds.length} 張單的品項沒有全部載入(單號 ${r.displayIds.join('、')}),匯出會少東西。請先點進那幾張單查看,不要拿這份檔對帳。`;
     case 'changed_while_reading':
-      return `匯出途中訂單有變動(讀到 ${r.got} 張,應為 ${r.total} 張),這份檔不完整所以沒有產生。請再按一次匯出。`;
+      return `讀取途中訂單有變動(讀到 ${r.got} 張,開始時為 ${r.total} 張),這份檔可能不完整所以沒有產生。請重新匯出。`;
   }
 }
