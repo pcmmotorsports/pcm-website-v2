@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
   history: vi.fn(async () => ({ rows: [] as unknown[], loadFailed: false })),
 }));
 vi.mock('../../../lib/products/product-history-loader', () => ({ loadProductHistory: mocks.history }));
+// 共用圖庫 G5:預設 = 圖庫沒啟用(既有各格不受影響);面板本身在自己的測試檔測
+const gallery = vi.hoisted(() => ({ load: vi.fn(async (): Promise<unknown> => ({ state: 'disabled' })) }));
+vi.mock('../../../lib/products/gallery-loader', () => ({ loadProductGallery: gallery.load }));
+vi.mock('../../../components/products/product-gallery-panel', () => ({
+  ProductGalleryPanel: ({ initialPhotos }: { initialPhotos: unknown[] }) => (
+    <section data-gallery-panel>{`照片面板 ${initialPhotos.length} 張`}</section>
+  ),
+}));
 vi.mock('../../../lib/products/product-repository', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../../lib/products/product-repository')>();
@@ -575,5 +583,46 @@ describe('商品編輯片 9:最近的變更', () => {
     const section = container.querySelector('[data-product-history]')!;
     expect(section.textContent).toContain('只列出最近 20 筆');
     expect(section.querySelector('a[href="/settings/audit"]')).not.toBeNull();
+  });
+});
+
+describe('共用圖庫 G5:照片', () => {
+  function base() {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+  }
+
+  it('用這件商品(含 supplier_slug 與 external_id)去讀圖庫', async () => {
+    base();
+    await renderPage();
+    expect(gallery.load).toHaveBeenCalledWith(expect.objectContaining({ supplier_slug: 'rpm', external_id: 'RPM-001' }));
+  });
+
+  it('沒啟用 ⇒ 只寫「圖庫尚未啟用」, 底部那句不提照片', async () => {
+    base();
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-gallery-unavailable]')!.textContent).toContain('圖庫尚未啟用。');
+    expect(container.querySelector('[data-gallery-panel]')).toBeNull();
+    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點與上架狀態');
+  });
+
+  it('🔴 讀不到 ⇒ 顯示原因, 不顯示成「還沒有照片」', async () => {
+    base();
+    gallery.load.mockResolvedValueOnce({ state: 'failed', message: '照片載入失敗，請重新整理。若仍無法載入，請聯絡系統管理員。' });
+    const { container } = await renderPage();
+    const box = container.querySelector('[data-gallery-unavailable]')!;
+    expect(box.textContent).toContain('照片載入失敗');
+    expect(box.textContent).not.toContain('圖庫尚未啟用');
+    // 其餘編輯照常
+    expect(container.querySelector('[data-override-field="title"]')).not.toBeNull();
+  });
+
+  it('讀到了 ⇒ 掛照片面板, 底部那句加上「照片」', async () => {
+    base();
+    gallery.load.mockResolvedValueOnce({ state: 'ok', photos: [{ id: 'x' }, { id: 'y' }] });
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-gallery-panel]')!.textContent).toBe('照片面板 2 張');
+    expect(container.querySelector('[data-gallery-unavailable]')).toBeNull();
+    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點、照片與上架狀態');
   });
 });

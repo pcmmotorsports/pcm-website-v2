@@ -42,3 +42,38 @@ export function uploadRejection(file: { readonly name: string; readonly type: st
   if ((ACCEPTED_TYPES as readonly string[]).includes(file.type)) return null;
   return `「${file.name}」沒有上傳：只接受 JPG、PNG、WebP。請在手機設定改成「最相容」格式，或先轉檔再上傳。`;
 }
+
+// ── 接報價單 API(G2)之後 ─────────────────────────────────────────────
+
+/** 上傳前在瀏覽器縮到最長邊 1600(報價單圖片慣例;Vercel 請求上限 4.5MB)。 */
+export const UPLOAD_MAX_EDGE = 1600;
+/** 報價單上傳 API 收的上限(報價單 lib/gallery/service.ts MAX_UPLOAD_BYTES)。 */
+export const UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+
+/** 等比縮到最長邊不超過 max;本來就小就不放大。 */
+export function fitWithin(width: number, height: number, max: number = UPLOAD_MAX_EDGE): { width: number; height: number } {
+  const scale = Math.min(1, max / Math.max(width, height));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+/** 呼叫端丟這個錯 ⇒ 畫面直接顯示它的訊息(已經是給員工看的話)。 */
+export class GalleryUserError extends Error {}
+
+export type GalleryAction = 'reorder' | 'remove' | 'hide' | 'unhide' | 'upload';
+
+/**
+ * 報價單 API 的錯誤 ⇒ 給員工看的一句話。
+ * 🔴 刪除、上傳在「結果不明」(連不上、500)時不叫人直接重按:可能已經做了。排序、隱藏重做一次結果相同,可以重試。
+ */
+export function galleryErrorMessage(action: GalleryAction, status: number, code: string): string {
+  if (action === 'reorder' && status === 409) return '供應商剛更新了照片，請重新整理再排。';
+  if (code === 'GALLERY_PRODUCT_NOT_FOUND') return '報價單找不到這件商品，暫時無法整理照片。';
+  if (code === 'GALLERY_NOT_IN_PRODUCT') return '這張照片已經不在這件商品的圖庫裡，請重新整理頁面。';
+  if (status === 409) return '照片剛被別人改過，請重新整理頁面後再試。';
+  if (action === 'upload' && status === 503) return '照片空間尚未設定，暫時無法上傳。';
+  if (action === 'upload' && status === 400) return '照片沒有上傳：格式或大小不符（只收 JPG、PNG、WebP，4MB 以內）。';
+  if (status === 401) return '圖庫連線設定有誤，請聯絡系統管理員。';
+  if (action === 'remove') return '刪除的結果不確定，請重新整理頁面，確認這張照片是否還在。';
+  if (action === 'upload') return '上傳的結果不確定，請重新整理頁面，確認照片是否已經上傳。';
+  return '沒有完成，請再試一次。若仍失敗，請聯絡系統管理員。';
+}

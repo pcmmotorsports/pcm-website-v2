@@ -6,6 +6,8 @@ import { ProductListingForm } from '../../../components/products/product-listing
 import { ProductOverridesEditor } from '../../../components/products/product-overrides-editor';
 import { ProductHistory } from '../../../components/products/product-history';
 import { loadProductHistory } from '../../../lib/products/product-history-loader';
+import { ProductGalleryPanel } from '../../../components/products/product-gallery-panel';
+import { loadProductGallery } from '../../../lib/products/gallery-loader';
 import { readProductOverrides } from '../../../lib/products/product-overrides-view';
 import { toProductMedia } from '../../../lib/products/product-media';
 import { findVariantSkuCollision } from '../../../lib/products/variant-sku-collision';
@@ -98,6 +100,8 @@ export default async function ProductDetailPage({
   //    (`#640` 守門在 `app/design-tokens.test.ts`)。
   // 商品編輯計畫片 9:「最近的變更」(Sean 09-27 C4 甲:全員可改、留變更紀錄)。讀不到只影響那一塊。
   const history = product === null ? null : await loadProductHistory(product.id);
+  // 共用圖庫 G5(Sean 09-27 C3):讀報價單 G2 API。env 沒設 ⇒ 'disabled',讀不到只影響「照片」那一塊。
+  const gallery = product === null ? null : await loadProductGallery(product);
 
   return (
     <div className='mx-auto max-w-6xl space-y-4'>
@@ -222,6 +226,16 @@ export default async function ProductDetailPage({
             }}
             overrides={readProductOverrides(product.staff_overrides)}
           />
+          {gallery?.state === 'ok' ? (
+            <ProductGalleryPanel productId={product.id} initialPhotos={gallery.photos} />
+          ) : gallery ? (
+            <section data-od-pe='card' data-gallery-unavailable className='rounded-lg border p-4'>
+              <h3 className='mb-2 text-sm font-medium'>照片</h3>
+              <p className={gallery.state === 'failed' ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}>
+                {gallery.state === 'failed' ? gallery.message : '圖庫尚未啟用。'}
+              </p>
+            </section>
+          ) : null}
           {/* 🔴 M-4b `#20`:上下架原本是這一頁唯一的寫入動作(丙方案片 2 之後多了上面那三張)。
               位置=詳情頁(plan §3 裁定);理由與「不放列表」的取捨寫在
               `components/products/product-listing-form.tsx` 檔頭。 */}
@@ -401,8 +415,11 @@ export default async function ProductDetailPage({
               (同 `app/products/page.tsx:60-64` 的教訓:不要留一句已經不成立的自述。)
               🛑 而稿明寫**這一句要留著** —— 它是這一頁自己的誠實話。 */}
           {/* 丙方案片 2 之後:能改的多了標題、副標、賣點 ⇒ 這句跟著改(改的是事實,不是期望值)。 */}
+          {/* 共用圖庫 G5:圖庫真的讀得到時才把「照片」算進能改的(沒啟用 / 讀不到時那句不成立)。 */}
           <p className='text-muted-foreground text-sm'>
-            這一頁目前能改標題、副標、賣點與上架狀態,其餘欄位仍不能修改。
+            {gallery?.state === 'ok'
+              ? '這一頁目前能改標題、副標、賣點、照片與上架狀態,其餘欄位仍不能修改。'
+              : '這一頁目前能改標題、副標、賣點與上架狀態,其餘欄位仍不能修改。'}
           </p>
         </>
       )}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   GALLERY_ACCEPT,
+  GalleryUserError,
   galleryOrderChanged,
   moveGalleryPhoto,
   splitGallery,
@@ -103,6 +104,11 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
       await action();
       setStatus({ kind: 'ok', message: ok });
     } catch (error) {
+      // 呼叫端已經寫好給員工看的話(例如排序 409「供應商剛更新了照片」)⇒ 用它;其他錯誤用這個動作的預設說法
+      if (error instanceof GalleryUserError) {
+        setStatus({ kind: 'error', message: error.message });
+        return;
+      }
       console.error('[admin/products/gallery]', error);
       setStatus({ kind: 'error', message: fail });
     }

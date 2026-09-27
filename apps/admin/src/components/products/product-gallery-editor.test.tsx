@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { ProductGalleryEditor } from './product-gallery-editor';
-import type { GalleryPhoto } from '../../lib/products/product-gallery';
+import { GalleryUserError, type GalleryPhoto } from '../../lib/products/product-gallery';
 
 // product-gallery-editor.test.tsx — 共用圖庫 G5 畫面元件(假資料;還沒接報價單 API)。
 
@@ -193,5 +193,15 @@ describe('刪除、隱藏、上傳', () => {
     await act(async () => fireEvent.change(input, { target: { files: [ok, bad] } }));
     expect(onUpload).toHaveBeenCalledWith([ok]);
     expect(view.container.textContent).toContain('「側面-原檔.heic」沒有上傳');
+  });
+});
+
+describe('接上報價單之後的錯誤訊息', () => {
+  it('呼叫端丟 GalleryUserError ⇒ 畫面顯示它的訊息(例如排序衝突)', async () => {
+    const { view, tiles, button, onSaveOrder } = setup();
+    onSaveOrder.mockRejectedValueOnce(new GalleryUserError('供應商剛更新了照片，請重新整理再排。'));
+    fireEvent.click(button(tiles()[0]!, '往後移一張')!);
+    await act(async () => fireEvent.click(button(view.container, '儲存順序')!));
+    expect(view.container.querySelector('[role="status"]')!.textContent).toBe('供應商剛更新了照片，請重新整理再排。');
   });
 });

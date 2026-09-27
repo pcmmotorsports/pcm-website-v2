@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  fitWithin,
+  galleryErrorMessage,
   GALLERY_ACCEPT,
   galleryOrderChanged,
   moveGalleryPhoto,
@@ -78,5 +80,30 @@ describe('uploadRejection:只收 JPG、PNG、WebP', () => {
   });
   it('檔案選擇框的 accept 與上面同一組', () => {
     expect(GALLERY_ACCEPT).toBe('image/jpeg,image/png,image/webp');
+  });
+});
+
+describe('fitWithin:上傳前縮到最長邊 1600', () => {
+  it('橫的、直的都縮到最長邊 1600, 比例不變', () => {
+    expect(fitWithin(4032, 3024)).toEqual({ width: 1600, height: 1200 });
+    expect(fitWithin(3024, 4032)).toEqual({ width: 1200, height: 1600 });
+  });
+  it('本來就小 ⇒ 不放大', () => expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600 }));
+});
+
+describe('galleryErrorMessage', () => {
+  it('🔴 排序 409 ⇒ 供應商剛更新', () => {
+    expect(galleryErrorMessage('reorder', 409, 'GALLERY_SET_MISMATCH')).toBe('供應商剛更新了照片，請重新整理再排。');
+  });
+  it('🔴 刪除 / 上傳結果不明 ⇒ 請重新整理確認, 不叫人重按', () => {
+    expect(galleryErrorMessage('remove', 0, 'network')).toContain('結果不確定');
+    expect(galleryErrorMessage('upload', 500, 'internal')).toContain('結果不確定');
+  });
+  it('排序、隱藏失敗 ⇒ 可以再試(做兩次結果一樣)', () => {
+    expect(galleryErrorMessage('hide', 500, 'internal')).toContain('請再試一次');
+    expect(galleryErrorMessage('reorder', 0, 'network')).toContain('請再試一次');
+  });
+  it('上傳 503 ⇒ 照片空間尚未設定', () => {
+    expect(galleryErrorMessage('upload', 503, 'x')).toBe('照片空間尚未設定，暫時無法上傳。');
   });
 });
