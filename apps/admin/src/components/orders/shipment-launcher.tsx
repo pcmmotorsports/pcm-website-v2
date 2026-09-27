@@ -180,7 +180,11 @@ export function useShipmentLauncher(
    */
   options: {
     submit?: ShipmentSubmit;
-    onClose?: (createdShipment: boolean) => void;
+    /**
+     * 2026-09-27 出貨流程乙第 2 項:第二個參數只在【建箱成功】那條路給 ——
+     * `continueToBox: true` = 新竹、只建箱、還沒出貨 ⇒ 呼叫端可以直接接到箱子那一頁(要號 → 叫車), 不關回列表。
+     */
+    onClose?: (createdShipment: boolean, info?: { continueToBox: boolean }) => void;
     /** B13-b:稿「更多」六列(既有箱)。給了 = 「都裝箱了」那句改成「箱在下面」(它們真的在下面)。 */
     moreRows?: ReactNode;
     /**
@@ -308,11 +312,11 @@ export function useShipmentLauncher(
           const data = pickOnly(await fetchShipmentCandidates(orderIds));
           setOpen((o) => (o === null ? o : { ...o, data }));
         }}
-        onDone={() => {
+        onDone={(info) => {
           // 成功之後關窗;下一次開窗會生成**新的**冪等鍵(那是另一箱)。
           setOpen(null);
           onDone?.();
-          options.onClose?.(true);
+          options.onClose?.(true, { continueToBox: info.carrierCode === 'hct' && !info.markShipped });
         }}
         {...(options.submit ? { submit: options.submit } : {})}
         moreRows={options.moreRows ?? null}
