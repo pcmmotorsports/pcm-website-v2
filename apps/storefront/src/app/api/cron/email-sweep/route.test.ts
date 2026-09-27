@@ -1002,7 +1002,7 @@ describe('GET email-sweep — 🔴 出貨通知信 enqueue 接線(片3b)', () =>
   const SHP_CUTOFF_NORMALIZED = '2026-09-01T13:30:00.000Z';
 
   const SHP_CLEAN = {
-    scanned: 0, truncated: false, enqueued: 0,
+    scanned: 0, truncated: false, deferred: 0, enqueued: 0,
     skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
   };
 
@@ -1104,12 +1104,47 @@ describe('GET email-sweep — 🔴 出貨通知信 enqueue 接線(片3b)', () =>
     expect(shippedEnqueueSpy).toHaveBeenCalledWith(expect.anything(), {
       cutoff: SHP_CUTOFF_NORMALIZED,
       limit: 50,
+      freshSince: expect.any(String),
     });
     expect(res.status).toBe(200);
     expect(body.shippedEnqueueStatus).toBe('completed');
     expect(body.shpScanned).toBe(3);
     expect(body.shpEnqueued).toBe(2);
     expect(body.shpDuplicate).toBe(1);
+  });
+
+  // ── 2026-09-27 出貨信分批排(計畫 ~/pcm-mailbox/計畫-後台出貨流程乙-20260927.md 第九節)──
+  it('🔴 分界線 = 這一輪開始 − 2 小時;延後的封數進 body(shpDeferred)', async () => {
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    shippedEnqueueSpy.mockResolvedValue({ ...SHP_CLEAN, scanned: 30, enqueued: 20, deferred: 10 });
+    const before = Date.now();
+    const res = await GET(makeReq(bearer()));
+    const after = Date.now();
+    const body = await res.json();
+    const opts = shippedEnqueueSpy.mock.calls.at(-1)![1] as { freshSince: string };
+    const since = Date.parse(opts.freshSince);
+    expect(since).toBeGreaterThanOrEqual(before - 2 * 60 * 60 * 1000);
+    expect(since).toBeLessThanOrEqual(after - 2 * 60 * 60 * 1000);
+    expect(res.status).toBe(200);
+    expect(body.shpEnqueued).toBe(20);
+    expect(body.shpDeferred).toBe(10);
+  });
+
+  it('🔴 舊的撞保護 ⇒ 503, 而新的那一批的數字仍接回 body(不只寫在錯誤紀錄)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    const { EnqueueBatchCapExceededError } = await import('@pcm/use-cases');
+    shippedEnqueueSpy.mockRejectedValue(
+      new EnqueueBatchCapExceededError('order_shipped', 25, 20, { freshEnqueued: 20, freshDeferred: 10, freshErrors: 0 }),
+    );
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+    expect(res.status).toBe(503);
+    expect(body.shippedEnqueueStatus).toBe('failed');
+    expect(body.shpFreshEnqueued).toBe(20);
+    expect(body.shpDeferred).toBe(10);
+    expect(body.shpFreshErrors).toBe(0);
+    errSpy.mockRestore();
   });
 
   it('🔴 整段 throw ⇒ 狀態 failed(**不是** skipped)、回 503,而 **sweeper 照樣跑完**', async () => {

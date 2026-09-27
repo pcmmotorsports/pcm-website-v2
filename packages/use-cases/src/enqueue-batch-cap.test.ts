@@ -187,6 +187,10 @@ describe('甲-3 排信批次上限閘', () => {
       cap: 20,
       scanned: 22,
       noRecipient: 1,
+      // 2026-09-27:新 / 舊分堆只有出貨信有 ⇒ 訂單成立信撞閘時這三格是 null(沒有這件事), 不是 0。
+      freshEnqueued: null,
+      freshDeferred: null,
+      freshErrors: null,
     });
   });
 
@@ -206,6 +210,9 @@ describe('甲-3 排信批次上限閘', () => {
       // 🔵 沒帶 context 就是 null —— **不得印成 0**。「沒有讀數」與「讀數是 0」是兩件事。
       scanned: null,
       noRecipient: null,
+      freshEnqueued: null,
+      freshDeferred: null,
+      freshErrors: null,
     });
   });
 

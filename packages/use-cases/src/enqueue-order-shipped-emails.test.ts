@@ -6,11 +6,19 @@
 //   ✅ 🔴 再加一格:斷言**那封信講的是【哪一箱、哪一張單】** ——
 //      出貨信與付款信的差別就在這裡:同一張訂單會寄多封,只驗「寄給對的人」分不出哪一封是對的。
 import { describe, it, expect, vi } from 'vitest';
-import type { IEmailOutbox, IShippedOrderScanner, ShippedOrderWithoutShippedEmail } from '@pcm/ports';
+import type {
+  IEmailOutbox,
+  IShippedOrderScanner,
+  ListShippedWithoutShippedEmailInput,
+  ShippedOrderWithoutShippedEmail,
+} from '@pcm/ports';
 
 import { enqueueOrderShippedEmails } from './enqueue-order-shipped-emails';
+import { describeEnqueueBatchCap, EnqueueBatchCapExceededError } from './enqueue-batch-cap';
 
 const CUTOFF = '2026-08-22T00:00:00.000Z';
+/** 分批排的分界線(這一輪開始 − 2 小時)。既有測項的列都在它之後 ⇒ 全是「新的」, 行為與改版前相同(批量都遠小於 20)。 */
+const FRESH_SINCE = CUTOFF;
 
 function row(over: Partial<ShippedOrderWithoutShippedEmail> = {}): ShippedOrderWithoutShippedEmail {
   return {
@@ -34,7 +42,15 @@ function deps(
   truncated = false,
 ) {
   const scanner = {
-    listShippedWithoutShippedEmail: vi.fn(async () => ({ rows, truncated })),
+    // 2026-09-27 分批排:use-case 會分「新的」「舊的」兩次掃描;假 scanner 照真的 view 一樣依時間篩。
+    listShippedWithoutShippedEmail: vi.fn(async (input: ListShippedWithoutShippedEmailInput) => ({
+      rows: rows.filter(
+        (r) =>
+          (input.shippedAfter === undefined || r.shippedAt > input.shippedAfter) &&
+          (input.shippedAtOrBefore === undefined || r.shippedAt <= input.shippedAtOrBefore),
+      ),
+      truncated,
+    })),
   } as unknown as IShippedOrderScanner;
   const outbox = {
     enqueue,
@@ -50,7 +66,7 @@ function deps(
 describe('enqueueOrderShippedEmails', () => {
   it('世界A:一箱一單、客人有真信箱 ⇒ 排 1 封,而且【收件人與箱號都是具體的值】', async () => {
     const { deps: d, enqueue } = deps([row()]);
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r).toMatchObject({ scanned: 1, enqueued: 1, noRecipient: 0, errors: 0 });
     // 🔴 這一格才是驗收:不是「有沒有呼叫 enqueue」,是「呼叫時帶著什麼」。
@@ -81,7 +97,7 @@ describe('enqueueOrderShippedEmails', () => {
       row({ orderId: 'order-A', displayId: 'PCM-2026-0001' }),
       row({ orderId: 'order-B', displayId: 'PCM-2026-0002' }),
     ]);
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r).toMatchObject({ scanned: 2, enqueued: 2, errors: 0 });
     const sent = enqueue.mock.calls.map((c) => c[0] as { orderId: string; displayId: string; shipmentId: string });
@@ -97,14 +113,14 @@ describe('enqueueOrderShippedEmails', () => {
     //    本層若自己先判一次,repo 裡就會有第二套 LINE 判準。
     const enqueue = vi.fn(async () => ({ kind: 'skipped_no_real_email', id: 'e9' }));
     const { deps: d } = deps([row()], enqueue);
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r).toMatchObject({ scanned: 1, enqueued: 0, skippedNoRealEmail: 1, errors: 0 });
   });
 
   it('兩個信箱都沒有 ⇒ noRecipient,而且【完全不呼叫 enqueue】', async () => {
     const { deps: d, enqueue } = deps([row({ notificationEmail: null, customerEmail: null })]);
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r).toMatchObject({ scanned: 1, noRecipient: 1, enqueued: 0, errors: 0 });
     expect(enqueue).not.toHaveBeenCalled();
@@ -112,14 +128,14 @@ describe('enqueueOrderShippedEmails', () => {
 
   it('空字串信箱要當成沒有(不是丟給 enqueue 讓它 throw 成 errors)', async () => {
     const { deps: d } = deps([row({ notificationEmail: '   ', customerEmail: '' })]);
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r).toMatchObject({ noRecipient: 1, errors: 0 });
   });
 
   it('訂單欄空 ⇒ 退回 customers.email(與 order_created 同一條 fallback)', async () => {
     const { deps: d, enqueue } = deps([row({ notificationEmail: null })]);
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(enqueue.mock.calls[0]?.[0]).toMatchObject({ recipientEmail: 'frozen@example.com' });
   });
@@ -130,28 +146,30 @@ describe('enqueueOrderShippedEmails', () => {
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValueOnce({ kind: 'enqueued', id: 'e2' });
     const { deps: d } = deps([row({ orderId: 'order-A' }), row({ orderId: 'order-B' })], enqueue);
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r).toMatchObject({ scanned: 2, enqueued: 1, errors: 1 });
   });
 
   it('🔴 cutoff 與 limit 要**原樣**交給 scanner —— 少了 cutoff 就是把歷史上每一箱都排進去', async () => {
     const { deps: d, scanner } = deps([]);
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 7 });
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 7, freshSince: FRESH_SINCE });
 
-    expect(scanner.listShippedWithoutShippedEmail).toHaveBeenCalledWith({ cutoff: CUTOFF, limit: 7 });
+    // 2026-09-27 起分兩次掃(新的 / 舊的), 兩次都要原樣帶 cutoff 與 limit。
+    expect(scanner.listShippedWithoutShippedEmail).toHaveBeenCalledWith({ cutoff: CUTOFF, limit: 7, shippedAfter: FRESH_SINCE });
+    expect(scanner.listShippedWithoutShippedEmail).toHaveBeenCalledWith({ cutoff: CUTOFF, limit: 7, shippedAtOrBefore: FRESH_SINCE });
   });
 
   it('truncated 要原樣傳出去(「掃完了」與「還有沒掃到」不可混為一談)', async () => {
     const { deps: d } = deps([row()], vi.fn(async () => ({ kind: 'enqueued', id: 'e1' })), true);
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r.truncated).toBe(true);
   });
 
   it('duplicate 是冪等成功,不是錯誤(同一輪重跑不該把 errors 衝高)', async () => {
     const { deps: d } = deps([row()], vi.fn(async () => ({ kind: 'duplicate' })));
-    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    const r = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
 
     expect(r).toMatchObject({ duplicate: 1, enqueued: 0, errors: 0 });
   });
@@ -182,7 +200,7 @@ describe('片 C:手動建單留白 = 不寄', () => {
       const { deps: d, enqueue } = deps([
         row({ orderSource: src, notificationEmail: null, customerEmail: 'frozen@example.com' }),
       ]);
-      const res = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50 });
+      const res = await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50, freshSince: FRESH_SINCE });
       expect(enqueue).not.toHaveBeenCalled();
       expect(res).toMatchObject({ noRecipient: 1, enqueued: 0, errors: 0 });
     });
@@ -191,7 +209,7 @@ describe('片 C:手動建單留白 = 不寄', () => {
       const { deps: d, enqueue } = deps([
         row({ orderSource: src, notificationEmail: 'staff@example.com', customerEmail: 'frozen@example.com' }),
       ]);
-      await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50 });
+      await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50, freshSince: FRESH_SINCE });
       expect(enqueue).toHaveBeenCalledWith(
         expect.objectContaining({ recipientEmail: 'staff@example.com' }),
       );
@@ -202,7 +220,7 @@ describe('片 C:手動建單留白 = 不寄', () => {
     const { deps: d, enqueue } = deps([
       row({ orderSource: 'web', notificationEmail: null, customerEmail: 'frozen@example.com' }),
     ]);
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50 });
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50, freshSince: FRESH_SINCE });
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({ recipientEmail: 'frozen@example.com' }),
     );
@@ -212,7 +230,7 @@ describe('片 C:手動建單留白 = 不寄', () => {
     const { deps: d, enqueue } = deps([
       row({ orderSource: 'web', notificationEmail: 'buyer@example.com', customerEmail: 'frozen@example.com' }),
     ]);
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50 });
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50, freshSince: FRESH_SINCE });
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({ recipientEmail: 'buyer@example.com' }),
     );
@@ -222,7 +240,7 @@ describe('片 C:手動建單留白 = 不寄', () => {
     const { deps: d, enqueue } = deps([
       row({ orderSource: null, notificationEmail: null, customerEmail: 'frozen@example.com' }),
     ]);
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50 });
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 50, freshSince: FRESH_SINCE });
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({ recipientEmail: 'frozen@example.com' }),
     );
@@ -243,7 +261,7 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ 手動單留白 ⇒ 落一列終態(�
       const r = deps([row({ orderSource: 'manual_phone', notificationEmail: null, customerEmail: 'frozen@example.com' })]);
       const d = r.deps;
       const outbox = d.outbox;
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
     const trace = outbox.enqueueManualNoRecipient as unknown as { mock: { calls: unknown[][] } };
     expect(trace.mock.calls).toHaveLength(1);
     expect(trace.mock.calls[0]![0]).toMatchObject({ recipientEmail: 'frozen@example.com' });
@@ -256,7 +274,7 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ 手動單留白 ⇒ 落一列終態(�
       const r = deps([row({ orderSource: 'manual_phone', notificationEmail: 'staff@example.com', customerEmail: 'frozen@example.com' })]);
       const d = r.deps;
       const outbox = d.outbox;
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: FRESH_SINCE });
     const trace = outbox.enqueueManualNoRecipient as unknown as { mock: { calls: unknown[][] } };
     expect(trace.mock.calls).toHaveLength(0);
     const sent = outbox.enqueue as unknown as { mock: { calls: unknown[][] } };
@@ -275,7 +293,8 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ 那兩個承重條件的守門', () =>
       const r = deps([row({ orderSource: 'manual_phone', notificationEmail: null, customerEmail: 'frozen@example.com' }), row({ orderSource: 'web', notificationEmail: 'ok@example.com' })]);
       const d = r.deps;
       const outbox = d.outbox;
-    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 });
+    // 2026-09-27 起 countNewEvents 只問「舊的」那一堆 ⇒ 分界線放在列之後, 讓兩列都是舊的, 這一格守的事才量得到。
+    await enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: '2026-09-01T00:00:00.000Z' });
     const counted = outbox.countNewEvents as unknown as { mock: { calls: unknown[][] } };
     expect(counted.mock.calls).toHaveLength(1);
     const batch = counted.mock.calls[0]![0] as readonly { recipientEmail: string }[];
@@ -293,7 +312,8 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ 那兩個承重條件的守門', () =>
       const outbox = d.outbox;
     // 讓那道閘一定 throw(ENQUEUE_BATCH_CAP = 20)。
     (outbox.countNewEvents as unknown as { mockResolvedValue(v: number): void }).mockResolvedValue(999);
-    await expect(enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25 })).rejects.toThrow();
+    // 2026-09-27 起保護只擋「舊的」(出貨超過 2 小時) ⇒ 分界線放在列之後, 讓兩列都是舊的。
+    await expect(enqueueOrderShippedEmails(d, { cutoff: CUTOFF, limit: 25, freshSince: '2026-09-01T00:00:00.000Z' })).rejects.toThrow();
     const trace = outbox.enqueueManualNoRecipient as unknown as { mock: { calls: unknown[][] } };
     // 🔴 這一格就是全部的意義:閘炸了, 而那一列的終態已經寫下去了。
     //    少了它 ⇒ 下一輪再撈到同一張單, 而那正是本片要修的病。
@@ -303,3 +323,108 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ 那兩個承重條件的守門', () =>
     expect(sent.mock.calls).toHaveLength(0);
   });
 });
+
+// ── 2026-09-27 出貨信分批排(Sean 答 Q1 甲;計畫 ~/pcm-mailbox/計畫-後台出貨流程乙-20260927.md 第九節)──
+// 假 view:照真的 `pcm_shipped_email_pending` 的行為 —— 已經排進佇列的不再掃到(NOT EXISTS)、依出貨時間由舊到新、帶 limit+1 探針。
+function world(shippedAts: readonly string[]) {
+  const rows = shippedAts.map((at, i) =>
+    row({ shipmentId: `ship-${String(i).padStart(2, '0')}`, orderId: `order-${String(i).padStart(2, '0')}`, shippedAt: at, notificationEmail: `c${i}@example.com` }),
+  );
+  const queued = new Set<string>();
+  const key = (x: { shipmentId: string; orderId: string }) => `${x.shipmentId}:${x.orderId}`;
+  const scanner = {
+    listShippedWithoutShippedEmail: vi.fn(async (input: ListShippedWithoutShippedEmailInput) => {
+      const hit = rows
+        .filter((r) => r.shippedAt > input.cutoff && !queued.has(key(r)))
+        .filter((r) => input.shippedAfter === undefined || r.shippedAt > input.shippedAfter)
+        .filter((r) => input.shippedAtOrBefore === undefined || r.shippedAt <= input.shippedAtOrBefore)
+        .sort((a, b) => (a.shippedAt < b.shippedAt ? -1 : a.shippedAt > b.shippedAt ? 1 : a.shipmentId < b.shipmentId ? -1 : 1));
+      return { rows: hit.slice(0, input.limit), truncated: hit.length > input.limit };
+    }),
+  } as unknown as IShippedOrderScanner;
+  const outbox = {
+    enqueue: vi.fn(async (i: { shipmentId: string; orderId: string }) => {
+      if (queued.has(key(i))) return { kind: 'duplicate' };
+      queued.add(key(i));
+      return { kind: 'enqueued', id: key(i) };
+    }),
+    countNewEvents: vi.fn(async (inputs: readonly { shipmentId: string; orderId: string }[]) => inputs.filter((i) => !queued.has(key(i))).length),
+    enqueueManualNoRecipient: vi.fn(async () => ({ kind: 'skipped_manual_no_recipient', id: 'm' })),
+  } as unknown as IEmailOutbox;
+  return { deps: { scanner, outbox }, queued };
+}
+const at = (minute: number) => new Date(Date.UTC(2026, 8, 27, 12, minute)).toISOString();
+const BOUNDARY = at(0); // 分界線:它之後(不含)= 新的;它和它之前 = 舊的
+const opts = { cutoff: CUTOFF, limit: 50, freshSince: BOUNDARY };
+
+describe('出貨信分批排:新的一輪最多 20 封, 其餘下一輪', () => {
+  it('🔴 30 封新的:第一輪排 20、延後 10;第二輪排剩下的 10', async () => {
+    const w = world(Array.from({ length: 30 }, (_, i) => at(10 + i)));
+    const r1 = await enqueueOrderShippedEmails(w.deps, opts);
+    expect(r1.enqueued).toBe(20);
+    expect(r1.deferred).toBe(10);
+    expect(w.queued.size).toBe(20);
+    const r2 = await enqueueOrderShippedEmails(w.deps, opts);
+    expect(r2.enqueued).toBe(10);
+    expect(r2.deferred).toBe(0);
+    expect(w.queued.size).toBe(30);
+  });
+
+  it('🔴 先排最舊的那 20 封(延後的是最新的那幾封)', async () => {
+    const w = world(Array.from({ length: 25 }, (_, i) => at(10 + i)));
+    await enqueueOrderShippedEmails(w.deps, opts);
+    expect([...w.queued].sort()).toEqual(Array.from({ length: 20 }, (_, i) => `ship-${String(i).padStart(2, '0')}:order-${String(i).padStart(2, '0')}`));
+  });
+
+  it('🔴 舊的 50 封不會占掉新的掃描:新的仍排 20 封(然後舊的照舊撞保護)', async () => {
+    const w = world([...Array.from({ length: 50 }, () => at(-100)), ...Array.from({ length: 30 }, (_, i) => at(10 + i))]);
+    await expect(enqueueOrderShippedEmails(w.deps, opts)).rejects.toThrow(EnqueueBatchCapExceededError);
+    expect([...w.queued].filter((k) => Number(k.slice(5, 7)) >= 50)).toHaveLength(20);
+  });
+
+  it('🔴 25 封舊的:保護照舊, 整批一封都不排', async () => {
+    const w = world(Array.from({ length: 25 }, () => at(-30)));
+    await expect(enqueueOrderShippedEmails(w.deps, opts)).rejects.toThrow(EnqueueBatchCapExceededError);
+    expect(w.queued.size).toBe(0);
+  });
+
+  it('🔴 新 30 + 舊 25:新的先排好 20 封, 報錯裡帶著新的那一批的數字', async () => {
+    const w = world([...Array.from({ length: 25 }, () => at(-30)), ...Array.from({ length: 30 }, (_, i) => at(10 + i))]);
+    const err = await enqueueOrderShippedEmails(w.deps, opts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EnqueueBatchCapExceededError);
+    expect(w.queued.size).toBe(20);
+    expect(describeEnqueueBatchCap(err)).toMatchObject({ freshEnqueued: 20, freshDeferred: 10, freshErrors: 0 });
+  });
+
+  it('舊的 20 封以內照排(保護只擋超過 20 封)', async () => {
+    const w = world(Array.from({ length: 5 }, () => at(-30)));
+    const r = await enqueueOrderShippedEmails(w.deps, opts);
+    expect(r.enqueued).toBe(5);
+  });
+
+  it('分界:恰好等於分界線算舊的;晚一分鐘算新的', async () => {
+    const w = world([BOUNDARY, at(1)]);
+    await enqueueOrderShippedEmails(w.deps, opts);
+    const calls = (w.deps.scanner.listShippedWithoutShippedEmail as unknown as { mock: { calls: [ListShippedWithoutShippedEmailInput][] } }).mock.calls;
+    expect(calls.map((c) => c[0])).toEqual([
+      { cutoff: CUTOFF, limit: 50, shippedAfter: BOUNDARY },
+      { cutoff: CUTOFF, limit: 50, shippedAtOrBefore: BOUNDARY },
+    ]);
+    expect(w.queued.size).toBe(2);
+  });
+
+  it('🔴 重複與假信箱不佔 20 封的名額', async () => {
+    const w = world(Array.from({ length: 24 }, (_, i) => at(10 + i)));
+    let n = 0;
+    (w.deps.outbox.enqueue as unknown as { mockImplementation(f: (i: { shipmentId: string; orderId: string }) => Promise<unknown>): void }).mockImplementation(async (i) => {
+      n += 1;
+      if (n <= 4) return { kind: n % 2 === 0 ? 'duplicate' : 'skipped_no_real_email' };
+      w.queued.add(`${i.shipmentId}:${i.orderId}`);
+      return { kind: 'enqueued', id: 'x' };
+    });
+    const r = await enqueueOrderShippedEmails(w.deps, opts);
+    expect(r.enqueued).toBe(20);
+    expect(r.deferred).toBe(0);
+  });
+});
+
