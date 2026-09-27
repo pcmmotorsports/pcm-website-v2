@@ -47,6 +47,7 @@ import {
   type RetiredKeyCount,
 } from '../lib/mail/retired-key-count-read';
 import { needsYouSentence } from '../lib/dashboard/needs-you-cards';
+import { listPendingAmountRequests } from '../lib/orders/amount-request-repository';
 
 // ~~M0-S1 骨架占位頁~~ + M0-S2 具名身分選人。
 // 🔴 **`#16` 今日對帳(2026-08-14,Sean 拍「批」)**:骨架說明卡下架,換成對帳數字。
@@ -155,6 +156,15 @@ function countToneClass(c: StuckPaymentCount): string {
 }
 
 export default async function AdminHomePage() {
+  // G1 甲:跟下面那一批(Promise.allSettled)同時開始讀(不塞進那個已經很長的 allSettled 元組)。
+  const amountRequestsPromise = listPendingAmountRequests().then(
+    (r) => ({ count: r.rows.length, truncated: r.truncated }),
+    (reason: unknown) => {
+      console.error('[admin/home] 改價待審載入失敗', reason);
+      return null;
+    },
+  );
+
   // 🔴 ~~三支~~ ⇒ ~~**六支**~~ ⇒ ~~**九支**~~ ⇒ **十二支**(2026-09-13 加「今天要做的事」與「發票月統計」兩支;
   //    前者裡面自己再併發三發列表查詢)**併發**、不串行(R2 nit4):
   //    🔬 當場數法:`Promise.allSettled([...])` 那一段裡的呼叫行數 ⇒ **12**(loader 10 + 兩支 actor/staff)。
@@ -231,6 +241,9 @@ export default async function AdminHomePage() {
   } else {
     console.error('[admin/home] 今日對帳載入失敗', todaySettled.reason);
   }
+  // G1 甲(2026-09-27):改價待審件數。讀不到 ⇒ null(那一格顯示讀取失敗, 不印成 0)。
+  const amountRequests = await amountRequestsPromise;
+
   // 「今天要做的事」三格走列表查詢:整支拋(repo 建構 env 缺)⇒ 三格全顯示讀取失敗、不藏。
   let todoLists: TodayTodoLists;
   if (todoListsSettled.status === 'fulfilled') {
@@ -331,7 +344,7 @@ export default async function AdminHomePage() {
 
       {/* 版面(Sean 2026-09-13 拍):今天要做的事 → 今日對帳 → 發票月統計 → 具名身分 →
           工程數字整組收進 `<details>`(預設收合;內容照舊在 DOM,測試與 testid 一個不動)。 */}
-      <TodayTodo summary={today} lists={todoLists} />
+      <TodayTodo summary={today} lists={todoLists} amountRequests={amountRequests} />
       {today === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
           無法載入今日對帳資料。請稍後重新整理；若仍無法載入，請聯絡系統維護。

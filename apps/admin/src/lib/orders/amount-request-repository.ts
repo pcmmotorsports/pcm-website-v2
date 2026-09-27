@@ -117,6 +117,49 @@ export async function listOrderAmountRequests(orderId: string): Promise<OrderAmo
   }
 }
 
+/** 首頁「改價待審」與清單頁一次最多讀幾筆;超過時畫面數字黏「+」。 */
+export const PENDING_AMOUNT_REQUEST_LIMIT = 200;
+
+export type PendingAmountRequest = Pick<
+  OrderAmountRequest,
+  'id' | 'orderId' | 'fromUnitPrice' | 'toUnitPrice' | 'reason' | 'requestedBy' | 'requestedAt'
+> & { orderDisplayId: string | null; itemTitle: string | null };
+
+/**
+ * Sean 2026-09-27 G1 甲:全站待審的改價申請(首頁一格 + `/orders/amount-requests` 清單)。
+ * 讀取失敗一律 throw, 由呼叫端顯示「讀取失敗」, 不印成 0 或「沒有」。
+ */
+export async function listPendingAmountRequests(): Promise<{ rows: PendingAmountRequest[]; truncated: boolean }> {
+  const { data, error } = await client()
+    .from('order_amount_requests')
+    .select(`${REQUEST_SELECT}, orders(display_id), order_items(product_snapshot)`)
+    .eq('status', 'pending')
+    .order('requested_at', { ascending: true })
+    .limit(PENDING_AMOUNT_REQUEST_LIMIT + 1);
+  if (error) throw error;
+  if (!Array.isArray(data)) throw new Error('order_amount_requests 回的不是陣列');
+  const rows = data.map((raw) => {
+    const row = toRow(raw);
+    if (row === null) throw new Error('order_amount_requests 有一列形狀不對');
+    const r = raw as {
+      orders?: { display_id?: unknown } | null;
+      order_items?: { product_snapshot?: { title?: unknown } | null } | null;
+    };
+    return {
+      id: row.id,
+      orderId: row.orderId,
+      fromUnitPrice: row.fromUnitPrice,
+      toUnitPrice: row.toUnitPrice,
+      reason: row.reason,
+      requestedBy: row.requestedBy,
+      requestedAt: row.requestedAt,
+      orderDisplayId: typeof r.orders?.display_id === 'string' ? r.orders.display_id : null,
+      itemTitle: typeof r.order_items?.product_snapshot?.title === 'string' ? r.order_items.product_snapshot.title : null,
+    };
+  });
+  return { rows: rows.slice(0, PENDING_AMOUNT_REQUEST_LIMIT), truncated: rows.length > PENDING_AMOUNT_REQUEST_LIMIT };
+}
+
 const MANAGER_GATE_MESSAGE = '無權執行此操作';
 
 export type AmountRequestOutcome =

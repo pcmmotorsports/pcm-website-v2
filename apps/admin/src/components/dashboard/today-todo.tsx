@@ -3,8 +3,9 @@ import type { TodaySummary } from '../../lib/dashboard/today-read';
 import type { TodayTodoLists } from '../../lib/dashboard/today-todo-read';
 import { newOrdersHref } from './today-summary';
 
-// today-todo.tsx — 首頁最上面那一列「今天要做的事」五格(Sean 2026-09-13 拍:
-//    新單 · 待收款(匯款) · 待訂貨 · 到貨待出貨 · 退款待處理,每格帶連結,零也印 0 不藏)。
+// today-todo.tsx — 首頁最上面那一列「今天要做的事」六格(Sean 2026-09-13 拍前五格:
+//    新單 · 待收款(匯款) · 待訂貨 · 到貨待出貨 · 退款待處理,每格帶連結,零也印 0 不藏;
+//    2026-09-27 G1 甲加第六格「改價待審」⇐ `listPendingAmountRequests`)。
 //
 // 🔴 五格數字**兩個來源、零自寫判準**:
 //    · 新單 / 退款待處理 ⇐ `loadTodaySummary`(與下面「今日對帳」同一份,不重查)
@@ -58,19 +59,24 @@ function TodoCard({
 }
 
 export const REFUND_PENDING_HREF = '/orders/refund-exceptions';
+/** Sean 2026-09-27 G1 甲:改價待審清單。 */
+export const AMOUNT_REQUESTS_HREF = '/orders/amount-requests';
 
 export function TodayTodo({
   summary,
   lists,
+  amountRequests,
 }: {
   /** `null` = `loadTodaySummary` 整支拋 ⇒ 新單 / 退款兩格顯示讀取失敗。 */
   summary: TodaySummary | null;
   lists: TodayTodoLists;
+  /** Sean 2026-09-27 G1 甲:改價待審件數;`null` = 讀不到(顯示讀取失敗, 不印成 0)。 */
+  amountRequests: { count: number; truncated: boolean } | null;
 }) {
   return (
     <section aria-label='今天要做的事' data-testid='today-todo'>
       <h2 className='mb-2 text-[13px] leading-[1.4] font-semibold text-(--fg-2)'>今天要做的事</h2>
-      <div className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5'>
+      <div className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6'>
         <TodoCard
           label='新單'
           count={summary?.newOrderCount ?? null}
@@ -94,6 +100,15 @@ export function TodayTodo({
                 ? '已達上限,實際可能更多'
                 : undefined
           }
+        />
+        {/* Sean 2026-09-27 G1 甲:員工送出、還沒審的改金額申請。非 0 紅(同退款待處理:等人處理的事)。 */}
+        <TodoCard
+          label='改價待審'
+          count={amountRequests?.count ?? null}
+          href={AMOUNT_REQUESTS_HREF}
+          tone='alert'
+          suffix={amountRequests?.truncated ? '+' : ''}
+          note={amountRequests?.truncated ? '已達上限,實際可能更多' : undefined}
         />
       </div>
     </section>

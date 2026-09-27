@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   loadWebhookManualReviewCount: vi.fn(),
   loadTodayTodoLists: vi.fn(),
   loadInvoiceMonthStats: vi.fn(),
+  listPendingAmountRequests: vi.fn(),
 }));
 vi.mock('../lib/session/actor-actions', () => ({ selectActorAction: vi.fn() }));
 vi.mock('../lib/session/actor', () => ({
@@ -82,6 +83,8 @@ vi.mock('../lib/dashboard/invoice-month-read', async (orig) => ({
 // 🔴 `today-todo-read` 真身會 import `order-repository`(建構 supabase client;缺 env 就拋)——
 //    本檔只要它的 `TODO_LIST_SPECS` / `unreadableTodoLists` 純函式,把 repo 那支拔掉。
 vi.mock('../lib/orders/order-repository', () => ({ getAdminOrderRepository: () => ({}) }));
+// G1 甲(2026-09-27):第六格「改價待審」的資料來源。
+vi.mock('../lib/orders/amount-request-repository', () => ({ listPendingAmountRequests: mocks.listPendingAmountRequests }));
 vi.mock('../lib/dashboard/cron-heartbeat-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadCronHeartbeats: mocks.loadCronHeartbeats,
@@ -105,6 +108,7 @@ const SUMMARY = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.listPendingAmountRequests.mockResolvedValue({ rows: [{}, {}], truncated: false });
   // 預設 = 第 3 層(旗標關、票非 v:2)+ 已選到人。
   // ⚠️ **不寫「= 今天正式站的世界」**(codex 關卡2 R3 角度A must-fix):
   //    `ADMIN_REQUIRE_REAL_IDENTITY` 的線上值**我們讀不到**,而
@@ -157,7 +161,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', () => {
-  it('五格都在、零印 0、退款非 0 走紅、每格帶連結;工程數字收在 details 裡', async () => {
+  it('六格都在(G1 甲 09-27 加改價待審)、零印 0、退款非 0 走紅、每格帶連結;工程數字收在 details 裡', async () => {
     const { container } = render(await AdminHomePage());
     const todo = container.querySelector('[data-testid="today-todo"]');
     expect(todo).not.toBeNull();
@@ -168,6 +172,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
       '/orders?b=1',
       '/orders?c=1',
       '/orders/refund-exceptions',
+      '/orders/amount-requests',
     ]);
     expect(links.map((a) => a.textContent)).toEqual([
       '新單7',
@@ -175,8 +180,10 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
       '待訂貨0',
       '到貨待出貨5',
       '退款待處理2',
+      '改價待審2',
     ]);
     expect(links[4]!.querySelector('p')!.className).toContain('text-destructive');
+    expect(links[5]!.querySelector('p')!.className).toContain('text-destructive');
     expect(links[2]!.querySelector('p')!.className).not.toContain('text-destructive');
     // 版面順序:今天要做的事 → 今日對帳 → 發票月統計 → details(工程數字)
     const html = container.innerHTML;
@@ -241,7 +248,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     const { container } = render(await AdminHomePage());
     const todo = container.querySelector('[data-testid="today-todo"]')!;
     const links = Array.from(todo.querySelectorAll('a'));
-    expect(links).toHaveLength(5);
+    expect(links).toHaveLength(6);
     expect(links[1]!.textContent).toBe('待收款(匯款)讀取失敗');
     expect(links[1]!.getAttribute('href')).toContain('/orders?');
     expect(links[0]!.textContent).toBe('新單7');
@@ -917,5 +924,17 @@ describe('退休鍵計數卡片', () => {
 
     expect(t).toContain('目前沒有被換掉的識別鍵');
     expect(t).not.toContain('量不到');
+  });
+});
+
+describe('AdminHomePage · 改價待審(G1 甲 2026-09-27)', () => {
+  it('讀不到 ⇒ 那一格印「讀取失敗」不印 0, 其他格照舊', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.listPendingAmountRequests.mockRejectedValue(new Error('boom'));
+    const { container } = render(await AdminHomePage());
+    const card = container.querySelector('a[href="/orders/amount-requests"]')!;
+    expect(card.textContent).toBe('改價待審讀取失敗');
+    expect(container.querySelector('a[href="/orders/refund-exceptions"]')!.textContent).toBe('退款待處理2');
+    spy.mockRestore();
   });
 });
