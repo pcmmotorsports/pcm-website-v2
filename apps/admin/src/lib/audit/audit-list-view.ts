@@ -69,6 +69,10 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'product.override.change': '修改商品文字',
   // 商品分類(20260928050000:改分類、改回由同步決定)
   'product.category.change': '修改商品分類',
+  // 新增手動商品(20260928210000)
+  'product.manual.create': '新增手動商品',
+  // 主管改規格價格與特價(20260928220000)
+  'product.price.change': '修改商品價格',
   // 特價功能退回時清空所有特價(20260928200000-rollback.sql)
   'product.sale_price.clear_all': '清空所有特價(退回)',
   // 後台建單把收件地址存進客人地址簿(20260927120000)
