@@ -69,9 +69,9 @@ export function ProductKeywordSearch({
             defaultValue={filter.keyword ?? ''}
             /* 🔴 提示文字寫出 `*` —— 它【本來就是】萬用字元(PostgREST 把 `*` 當 `%` 的別名,
                2026-08-19 對正式庫實測:`bremb*o` 與 `brembo` 同為 35 件),而本層擋不掉它
-               (理由見 `lib/products/product-repository.ts` 的 buildProductKeywordOrFilter 檔頭)。
+               (規則在 migration 20260928150000 admin_products_by_keyword;商品頁乙 D2 起搜尋也比對車款)。
                ⇒ 寫出來讓它從「意外」變成「功能」;不寫的話員工會在不知情下拿到萬用字元行為。 */
-            placeholder='料號 / 商品名稱(可用 * 當萬用字元)'
+            placeholder='料號 / 商品名稱 / 車款(可用 * 當萬用字元)'
             className='border-input bg-background h-9 w-56 rounded-md border px-3 text-sm'
           />
         </div>

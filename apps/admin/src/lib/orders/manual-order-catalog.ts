@@ -89,7 +89,7 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // ── ⚠️ 本片只做 SKU 比對,**不做商品名搜尋** ─────────────────────────────────
 //   理由:名稱住在 `products`,對內嵌關聯下 filter 要 `!inner` 那一套機制,
 //   而本片的用途是「員工手上有料號」。**名稱搜尋要做的話是另一片**,不在這裡偷偷長出來。
-//   既有的 `buildProductKeywordOrFilter`(`products/product-repository.ts:223`)是給
+//   既有的 `buildProductKeywordOrFilter`(`products/product-repository.ts`;商品頁乙 D2 已移除, 後台商品搜尋改走 admin_products_by_keyword)是給
 //   `products` 表用的,直接搬過來會對到錯的表。
 
 /**

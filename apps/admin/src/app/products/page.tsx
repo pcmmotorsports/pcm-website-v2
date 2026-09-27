@@ -157,7 +157,7 @@ export default async function ProductsPage({
 
   const emptyText =
     filter.keyword !== undefined
-      ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
+      ? `找不到符合「${filter.keyword}」的商品。換個料號、商品名稱或車款再試一次。`
       : filter.attention !== undefined
         ? `目前沒有「${filter.attention.map((k) => PRODUCT_ATTENTION_LABEL[k]).join('」或「')}」的商品。`
         : '目前沒有商品。';

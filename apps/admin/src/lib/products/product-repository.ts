@@ -185,63 +185,9 @@ export interface AdminProductPage {
  *
  * `count: 'exact'` 取總數供分頁列顯示。
  */
-/**
- * `#661`:把員工打的搜尋詞組成 PostgREST `.or()` 的條件字串(料號 OR 商品名)。
- *
- * **抽成純函式是刻意的** —— 它有兩層跳脫,而兩層都不能靠「看起來對」驗:
- * 抽出來才測得到(`product-repository.test.ts` 直接對它斷言,不需要 DB)。
- *
- * 🔴 **第一層:ILIKE 的萬用字元** `\` `%` `_`
- *    ILIKE 預設的跳脫字元就是反斜線(寫法取自 Supabase 官方 `pg-meta` 的 `escapeIlikeLiteral`)。
- *    不跳脫的話,員工搜尋 `50%` 會變成「50 開頭的任何東西」,而**畫面上看起來只是命中很多**。
- *
- * 🔴 **第二層:PostgREST 的保留字元** `,` `(` `)` `"` `\`
- *    官方文件逐字:值含保留字元「必須 **PostgREST 風格雙引號**包起來,否則伺服器會把它讀成
- *    條件或清單的邊界」(例 `name=eq."Doe, Jane"`)。
- *    ⇒ **不是**用反斜線跳脫逗號 —— 那是本檔第一版寫的,**錯的**。
- *    不處理的話,員工搜尋 `A,B` 會被拆成兩個條件,而**畫面上看起來只是「找不到」**。
- *
- * ⚠️ **順序不可換**:先做 ILIKE 跳脫(它會產生反斜線),再做雙引號內跳脫
- *    (把那些反斜線再跳一次)。反過來做,第一層產生的反斜線就不會被第二層保護。
- *
- * 🔴🔴 **第三個字元 `*` —— 它【穿透兩層】,而且【本層處理不了】**(`#661` R1 must-verify,GR 抓到)
- *
- *    PostgREST 對 like/ilike 的值有「`*` 可代替 `%`」的別名替換,而**它發生在雙引號解掉之後**。
- *    2026-08-19 對正式庫實測(dev server 連正式站,SQL 跑在 Supabase 的 Linux Postgres):
- *    ```
- *    ?q=brembo   ⇒ 共 35 件
- *    ?q=brembo*  ⇒ 共 35 件
- *    ?q=bremb*o  ⇒ 共 35 件   ← 🔴 決定性的那一發
- *    ```
- *    `bremb*o` 若是字面比對,應該是 0(沒有商品名含「bremb*o」)⇒ **它被當成萬用字元了。**
- *
- *    🔴 **而它無法在這一層修掉**:替換發生在引號之後 ⇒
- *    - 不跳脫 ⇒ 員工打 `M4*` 得到「M4 開頭任何東西」(= `50%` 那個病從第三個門進來)
- *    - 用反斜線跳脫 ⇒ `\*` 會先被替換成 `\%` ⇒ 員工打 `*` 反而搜到**字面的 `%`**,更錯
- *    ⇒ **用 PostgREST 的 `.or()` 字串 API,字面的 `*` 是表達不出來的。**
- *
- *    **現行處置(刻意,不是遺漏)**:接受 `*` 是萬用字元,並**在輸入框的提示文字寫出來**
- *    (`product-keyword-search.tsx` 的 placeholder),讓它從「意外」變成「功能」。
- *    🔴🔴 **下面那格測試釘住的是【我方的處置】,不是 PostgREST 的行為 —— 這兩件不要混**
- *    (`#661` R2 must-fix;本檔上一版逐字寫「哪天 PostgREST 改掉別名,那一格會紅」,**那是假的**:
- *     那是單元測試,從頭到尾沒碰 PostgREST ⇒ 它改掉別名時 builder 的輸出不變 ⇒ **那格照樣綠**,
- *     而員工照 placeholder 打 `M4*` 會突然搜不到,零測試紅。)
- *    · **它真守得住的方向**:有人把 `*` 加進跳脫字集、或把它 strip 掉 ⇒ 那格紅(R2 兩發突變證過)。
- *    · **PostgREST 那一側只在 2026-08-19 被量過一次**(上面那三發)⇒
- *      **要再聽到它的行為變了,必須重跑 probe,不能等測試通知。**
- *    📎 同一個行為在顧客站也存在且同樣未處理(`product-query-support.ts:44-46`,GR 查)。
- *    ⚠️ 要不要改成「一律當字面」是產品面的取捨,不是這一片能定的(改法會是換查詢 API 走 RPC,另一片)。
- *       **落點 = 待主視窗裁(掛 `#110` 或開新條)** —— 🔴 寫「已回報主視窗」不算落點,
- *       **通道不是載體**(R2 nit)。
- */
-export function buildProductKeywordOrFilter(keyword: string): string {
-  const ilikeSafe = keyword.replace(/([\\%_])/g, '\\$1');
-  const inner = ilikeSafe.replace(/(["\\])/g, '\\$1');
-  // 前後各一個 `%` = 子字串比對;它們在引號**內**,是 pattern 的一部分。
-  const pattern = `"%${inner}%"`;
-  // 2026-09-28 商品頁乙 A1:員工改過的標題(staff_overrides.title)也要搜得到,不然列表上看得到的名字搜不到。
-  return `external_id.ilike.${pattern},title.ilike.${pattern},staff_overrides->>title.ilike.${pattern}`;
-}
+// `#661` 的 buildProductKeywordOrFilter(PostgREST .or() 字串, 兩層跳脫)在商品頁乙 D2 移除:
+// 搜尋改走 admin_products_by_keyword(見 filteredProducts)。`*` 當萬用字元、\ % _ 當字面的規則搬到
+// migration 20260928150000 的 SQL(量法與理由寫在那支檔頭);逗號、括號、引號的問題因為改成函式參數而消失。
 
 /**
  * `listProductsForAdmin` 吃的篩選軸。**一個物件而不是四個位置參數,這是刻意的。**
@@ -353,10 +299,33 @@ export async function listProductsForAdmin(
  * 篩選那一段(不含排序與分頁),列表與「要處理」件數共用 ⇒ 件數與清單套的是同一組條件。
  * 🔴 回傳包在物件裡:PostgREST builder 是 thenable,async 函式直接回它會被 await 當場送出查詢。
  */
+/** 排序會用到的欄(見 queryProductsForAdmin 的 .order)。 */
+const SORT_COLUMNS = ['created_at', 'updated_at', 'price_general', 'external_id', 'id'] as const;
+
+/**
+ * 搜尋那條路(/rpc/admin_products_by_keyword)的 select:補上排序用的欄。
+ * 🔴 2026-09-28 本機真 PostgREST 14.16 實撞「column products.created_at does not exist」:
+ *    /rpc 的結果 PostgREST 先只留 select= 列出的欄(pgrst_source CTE), 排序在外層 ⇒ 沒選的排序欄找不到。
+ *    已經列出的不再加(同名欄出現兩次, 外層排序會「欄名不明確」)。只看最外層、沒有別名的欄名。
+ */
+function withSortColumns(columns: string): string {
+  const present = new Set(columns.split(',').map((c) => c.trim()).filter((c) => /^\w+$/.test(c)));
+  const missing = SORT_COLUMNS.filter((c) => !present.has(c));
+  return missing.length === 0 ? columns : `${columns}, ${missing.join(', ')}`;
+}
+
 async function filteredProducts(columns: string, head: boolean, query: AdminProductQuery) {
-  let q = createSupabaseServiceClient()
-    .from('products')
-    .select(columns, { count: 'exact', head });
+  const client = createSupabaseServiceClient();
+  const fromProducts = () => client.from('products').select(columns, { count: 'exact', head });
+  // 商品頁乙 D2:有搜尋詞 ⇒ 資料來源換成 admin_products_by_keyword(料號、供應商標題、員工改過的標題、車款;
+  //   migration 20260928150000, 已貼), 下面其餘篩選、排序、分頁照舊疊上去 ⇒ 篩選規則只有一份。
+  //   搜尋詞當函式參數送(不是篩選語法)⇒ 逗號、括號、引號不會被 PostgREST 拆成條件。
+  //   🔴 型別轉換:這支函式還沒進 database.types(型別重產後拿掉);它回的是 products 整列, 與 from('products') 同形。
+  let q: ReturnType<typeof fromProducts> = query.keyword
+    ? (client
+        .rpc('admin_products_by_keyword' as never, { p_term: query.keyword } as never, { count: 'exact', head })
+        .select(withSortColumns(columns)) as unknown as ReturnType<typeof fromProducts>)
+    : fromProducts();
 
   // 🔴 **篩選一定要走 DB,不能在頁面上過濾陣列。**
   //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
@@ -364,9 +333,7 @@ async function filteredProducts(columns: string, head: boolean, query: AdminProd
   if (query.setBy) q = q.eq('listing_set_by', query.setBy);
   if (query.categoryLocked) q = q.eq('category_locked', true);
 
-  // 🔴 `#661` 搜尋同樣走 DB,理由同上那條 —— 而它多一個:
-  //    在客戶端過濾會讓「共 N 件」是**全表數**,員工看到「共 20341 件」配一頁 2 筆。
-  if (query.keyword) q = q.or(buildProductKeywordOrFilter(query.keyword));
+  // 🔴 `#661` 搜尋同樣走 DB(在客戶端過濾會讓「共 N 件」是全表數)—— D2 起搜尋在上面換資料來源時就做掉了。
 
   // 🔴 品牌與分類同理走 DB。兩欄都有索引
   //    (`20260507004826_init_products.sql:59-60` idx_products_brand_id / idx_products_category_id)。
