@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { ShipmentDispatchAllButton, ShipmentPickBox, ShipmentPickProvider } from '@/components/shipments/shipment-pick';
+import { Fragment } from 'react';
+import { ShipmentDispatchAllButton, ShipmentPickBox, ShipmentPickProvider, ShipmentPickResultRow } from '@/components/shipments/shipment-pick';
 import { AutoApplySubmit } from '@/components/shared/auto-apply-submit';
 import { ShipmentHctQueryProbe } from '@/components/shipments/shipment-hct-query-probe';
 import { resolveManagePermission } from '../../lib/session/resolve-manage-permission';
@@ -12,6 +13,7 @@ import {
   printOrderId,
   shipmentListDate,
   shipmentListOrders,
+  shipmentListProgress,
   shipmentListStatus,
   shipmentListTracking,
 } from '../../lib/shipping/shipment-list-view';
@@ -86,7 +88,7 @@ function taipeiDayRange(day: string): { start: string; end: string } | null {
 export default async function ShipmentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ day?: string }>;
+  searchParams: Promise<{ day?: string; pick?: string }>;
 }) {
   const sp = await searchParams;
   const requested = typeof sp.day === 'string' ? sp.day : '';
@@ -96,6 +98,15 @@ export default async function ShipmentsPage({
   const effective = range ?? taipeiDayRange(day)!;
 
   const { rows, truncated } = await listShipmentsByDay(effective.start, effective.end);
+  // 2026-09-27 出貨流程甲片二:訂單列表「叫車」帶 `?pick=<箱 id>` 過來 ⇒ 那一箱先勾好。只收這一天、而且勾得了的箱。
+  const now = new Date();
+  const picked = rows
+    .filter((r) => r.shipmentId === sp.pick)
+    .filter((r) => {
+      const b = dispatchButton(r, now);
+      return b.show && b.enabled;
+    })
+    .map((r) => r.shipmentId);
   // 🔴 片 B 臨時(plan §3.4):QueryEDELNO 真打驗證入口。開關沒開 ⇒ 連管理者判定都不查;驗完整段刪。
   const showHctProbe =
     process.env.HCT_QUERY_PROBE_ENABLED === 'true' &&
@@ -108,7 +119,7 @@ export default async function ShipmentsPage({
         「訂單明細」那張紙從這一頁退場 —— 它在明細頁的入口還在(`order-detail-header.tsx`),這一頁是出貨工作台。
      🔴 日期欄兩行(日期 + 那句 note)在稿上是一行 ⇒ note 改成同行小字。 */
   return (
-    <ShipmentPickProvider>
+    <ShipmentPickProvider initialSelected={picked}>
       <div className='pcm-plist mx-auto space-y-3'>
         <div className='pcm-head'>
           <h1>出貨清單</h1>
@@ -157,10 +168,11 @@ export default async function ShipmentsPage({
                   const { first, moreCount } = shipmentListOrders(row);
                   const orderId = printOrderId(row);
                   const voided = isVoided(row);
-                  const dispatch = dispatchButton(row, new Date());
+                  const dispatch = dispatchButton(row, now);
                   const printable = orderId !== null && !voided;
                   return (
-                    <tr key={row.shipmentId} className='border-t'>
+                    <Fragment key={row.shipmentId}>
+                    <tr className='border-t'>
                       <td className={TD}>
                         <ShipmentPickBox
                           shipmentId={row.shipmentId}
@@ -195,7 +207,19 @@ export default async function ShipmentsPage({
                         {tracking.note !== null && <span className='text-muted-foreground ml-1 text-[11.5px]'>{tracking.note}</span>}
                       </td>
                       <td className={`${TD} whitespace-nowrap`}>
-                        <span className={`${STATUS_CAPSULE} cap-n`}>{shipmentListStatus(row)}</span>
+                        {/* 2026-09-27 出貨流程甲片二:結果不確定的兩種用黃色膠囊, 叫車結果不確定再多一行看得到的下一步。 */}
+                        <span
+                          className={`${STATUS_CAPSULE} ${
+                            ['dispatch_uncertain', 'number_uncertain'].includes(shipmentListProgress(row)) ? 'cap-y' : 'cap-n'
+                          }`}
+                        >
+                          {shipmentListStatus(row)}
+                        </span>
+                        {shipmentListProgress(row) === 'dispatch_uncertain' && (
+                          <span className='mt-0.5 block text-[11.5px] font-medium whitespace-normal text-orange-700'>
+                            請打電話向新竹物流確認，不要再叫車
+                          </span>
+                        )}
                       </td>
                       <td className={`${TD} space-x-1 whitespace-nowrap`}>
                         {printable ? (
@@ -215,6 +239,8 @@ export default async function ShipmentsPage({
                         {!printable && <span className='text-muted-foreground ml-1 text-[11.5px]'>{voided ? '作廢不印' : '無訂單可印'}</span>}
                       </td>
                     </tr>
+                    <ShipmentPickResultRow shipmentId={row.shipmentId} colSpan={8} />
+                    </Fragment>
                   );
                 })}
               </tbody>

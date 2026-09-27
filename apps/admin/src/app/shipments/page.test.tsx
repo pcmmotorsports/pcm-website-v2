@@ -48,10 +48,17 @@ const DISPATCHED: ShipmentListRow = {
   recipientName: '永信二輪-周郁閔',
 };
 
-async function renderPage() {
-  const ui = await ShipmentsPage({ searchParams: Promise.resolve({ day: '2026-09-13' }) });
+async function renderPage(pick?: string) {
+  const ui = await ShipmentsPage({ searchParams: Promise.resolve({ day: '2026-09-13', ...(pick === undefined ? {} : { pick }) }) });
   return render(ui);
 }
+const UNCERTAIN: ShipmentListRow = {
+  ...BASE,
+  shipmentId: 's-unsure',
+  shipmentReference: '5SVYB6',
+  hctDispatchAttemptedAt: '2026-09-27T13:49:22.000Z',
+  hctDispatchedAt: null,
+};
 
 beforeEach(() => {
   mocks.list.mockResolvedValue({ rows: [DISPATCHED, BASE], truncated: false });
@@ -116,5 +123,47 @@ describe('出貨清單 · 稿 v22 §4', () => {
     const { container } = await renderPage();
     expect(container.textContent).toContain('沒有建立任何箱子');
     expect(container.querySelector('.pcm-head h1')).not.toBeNull();
+  });
+
+  // ── 2026-09-27 出貨流程甲片二(報告問題 3、4、12)──
+  it('🔴 狀態欄與訂單列表同一套說法:已叫車 / 已取得託運單號，還沒叫車 / 叫車結果未確認', async () => {
+    mocks.list.mockResolvedValue({ rows: [DISPATCHED, BASE, UNCERTAIN], truncated: false });
+    const { container } = await renderPage();
+    const status = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelectorAll('td')[6]?.textContent ?? '');
+    expect(status[0]).toContain('已叫車');
+    expect(status[1]).toContain('已取得託運單號，還沒叫車');
+    expect(status[2]).toContain('叫車結果未確認');
+  });
+
+  it('🔴 叫車結果不確定 ⇒ 畫面上【看得到】下一步(不是只寫在讀螢幕軟體才讀得到的 aria-label)', async () => {
+    mocks.list.mockResolvedValue({ rows: [UNCERTAIN], truncated: false });
+    const { container } = await renderPage();
+    const row = container.querySelector('tbody tr')!;
+    expect(row.textContent).toContain('請打電話向新竹物流確認，不要再叫車');
+  });
+
+  it('🔴 從訂單列表「叫車」帶 ?pick= 過來 ⇒ 那一箱已經勾好;勾不了的箱不勾', async () => {
+    const { container } = await renderPage('s-draft');
+    const boxes = [...container.querySelectorAll('tbody input[type="checkbox"]')] as HTMLInputElement[];
+    expect(boxes[1]!.checked).toBe(true);
+    const btn = [...container.querySelectorAll('.pcm-head button')].find((b) => b.textContent?.startsWith('新竹物流叫車'))!;
+    expect(btn.textContent).toBe('新竹物流叫車(1 箱)');
+    cleanup();
+    const again = await renderPage('s-done');
+    expect(([...again.container.querySelectorAll('tbody input[type="checkbox"]')] as HTMLInputElement[]).some((b) => b.checked)).toBe(false);
+  });
+
+  it('🔴 叫車結果印在那一箱下面的整列, 不擠在勾選框那一格', async () => {
+    mocks.dispatch.mockResolvedValue({ ok: false, kind: 'needs_human', message: '這一箱已向新竹送出叫車，但結果不確定' });
+    const { container } = await renderPage('s-draft');
+    const btn = [...container.querySelectorAll('.pcm-head button')].find((b) => b.textContent?.startsWith('新竹物流叫車')) as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const msg = [...container.querySelectorAll('[role="status"]')].find((e) => e.textContent?.includes('結果不確定'))!;
+    expect(msg).toBeDefined();
+    expect((msg.closest('td') as HTMLTableCellElement).colSpan).toBe(8);
   });
 });

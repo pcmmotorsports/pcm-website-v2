@@ -94,8 +94,8 @@ describe('狀態欄', () => {
     expect(shipmentListStatus(VOIDED)).toBe('已作廢');
   });
 
-  it('🔵 新竹收單 ≠ 我們標記出貨 —— 兩者刻意分開', () => {
-    expect(shipmentListStatus(BASE)).toBe('新竹已收單');
+  it('🔵 新竹給了單號 ≠ 我們標記出貨 —— 兩者刻意分開(2026-09-27 起與訂單列表同一套字:box-progress.ts)', () => {
+    expect(shipmentListStatus(BASE)).toBe('已取得託運單號，還沒叫車');
     expect(shipmentListStatus({ ...BASE, shippedAt: '2026-09-10T05:00:00Z' })).toBe('已出貨');
   });
 

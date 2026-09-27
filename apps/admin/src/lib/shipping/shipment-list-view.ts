@@ -1,3 +1,5 @@
+import { boxProgress, BOX_PROGRESS_LABEL, type BoxProgress } from './box-progress';
+
 // shipment-list-view.ts —— 出貨清單那一頁的**語意層**(純函式,不碰 DB、不碰 React)。
 //
 // ══ 規格出處 ═══════════════════════════════════════════════════════════════
@@ -189,11 +191,17 @@ export function shipmentListTracking(
  * ⚠️ **兩句話分開**:「今天到不了」是**實查的**;「日後會不會」是**推論**。
  *    ⇒ 要守的是那兩道閘, **不是在這一端再判一次** —— 在這端判, 守不到那個東西。
  */
+/**
+ * 🔵 2026-09-27 出貨流程甲片二:狀態字改由 `box-progress.ts` 判定, 與訂單列表的「下一步」同一套
+ *    (報告問題 3、4:「新竹已收單」會被讀成貨已被收走;叫車結果不確定時跟正常箱長得一樣)。
+ *    作廢蓋過一切、已出貨次之的順序照舊(box-progress 同序)。
+ */
+export function shipmentListProgress(row: ShipmentListRow): BoxProgress {
+  return boxProgress(row);
+}
+
 export function shipmentListStatus(row: ShipmentListRow): string {
-  if (row.voidedAt !== null && row.voidedAt !== '') return '已作廢';
-  if (row.shippedAt !== null && row.shippedAt !== '') return '已出貨';
-  if (row.carrierCode === 'hct' && row.hctStatus === 'submitted') return '新竹已收單';
-  return '已建立';
+  return BOX_PROGRESS_LABEL[boxProgress(row)];
 }
 
 /** 這一箱是不是作廢了(列印入口的唯一判準)。 */

@@ -21,8 +21,12 @@ type Api = {
 };
 const Ctx = createContext<Api | null>(null);
 
-export function ShipmentPickProvider({ children }: { children: ReactNode }) {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+/**
+ * `initialSelected`:2026-09-27 出貨流程甲片二 —— 訂單列表的「叫車」帶 `?pick=<箱 id>` 過來, 那一箱先勾好。
+ * 🔴 只放勾得了的箱(頁層判), 勾不了的箱不能因為網址而被勾起來。
+ */
+export function ShipmentPickProvider({ children, initialSelected = [] }: { children: ReactNode; initialSelected?: readonly string[] }) {
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(initialSelected));
   const [results, setResults] = useState<ReadonlyMap<string, DispatchActionResult>>(new Map());
   const [busy, start] = useTransition();
   const router = useRouter();
@@ -60,28 +64,38 @@ function useApi(): Api {
 
 export function ShipmentPickBox({ shipmentId, enabled, why }: { shipmentId: string; enabled: boolean; why: string | null }) {
   const api = useApi();
-  const r = api.results.get(shipmentId);
   return (
-    <span className='inline-flex flex-col gap-0.5'>
-      <input
-        type='checkbox'
-        className='size-4 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40'
-        checked={api.selected.has(shipmentId)}
-        disabled={!enabled || api.busy}
-        onChange={() => api.toggle(shipmentId)}
-        aria-label={enabled ? '選這一箱一起叫車' : (why ?? '這一箱不能叫車')}
-      />
-      {r !== undefined && (
+    <input
+      type='checkbox'
+      className='size-4 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40'
+      checked={api.selected.has(shipmentId)}
+      disabled={!enabled || api.busy}
+      onChange={() => api.toggle(shipmentId)}
+      aria-label={enabled ? '選這一箱一起叫車' : (why ?? '這一箱不能叫車')}
+    />
+  );
+}
+
+/**
+ * 叫車結果:2026-09-27 出貨流程甲片二 —— 印在那一箱下面的整列(報告問題 12:原本擠在勾選框那一格, 把整張表推歪)。
+ * 沒按過叫車 ⇒ 不畫這一列。
+ */
+export function ShipmentPickResultRow({ shipmentId, colSpan }: { shipmentId: string; colSpan: number }) {
+  const r = useApi().results.get(shipmentId);
+  if (r === undefined) return null;
+  return (
+    <tr>
+      <td colSpan={colSpan} className='px-3 pb-2'>
         <span
-          className={`text-[11.5px] leading-[1.4] whitespace-nowrap ${
+          className={`text-[12.5px] leading-[1.5] ${
             r.ok ? 'text-green-700' : r.kind === 'needs_human' ? 'font-medium text-orange-700' : 'text-muted-foreground'
           }`}
           role='status'
         >
           {r.ok ? `叫到車了(${r.edelno})` : r.message}
         </span>
-      )}
-    </span>
+      </td>
+    </tr>
   );
 }
 
