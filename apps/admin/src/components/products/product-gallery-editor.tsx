@@ -179,13 +179,13 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
             >
               <div className='bg-muted relative aspect-square'>
                 <img src={p.url} alt={`第 ${i + 1} 張照片`} loading='lazy' className='h-full w-full object-contain' draggable={false} />
-                <span data-gallery-n className='absolute top-1.5 left-1.5 rounded bg-black/60 px-1.5 text-xs text-white'>
+                <span data-gallery-n className='absolute top-1.5 left-1.5 rounded-sm bg-black/60 px-1.5 text-xs text-white'>
                   {i + 1}
                 </span>
                 {i === 0 && (
                   <span
                     data-gallery-cover
-                    className='bg-primary text-primary-foreground absolute top-1.5 right-1.5 rounded px-1.5 text-xs font-semibold'
+                    className='bg-primary text-primary-foreground absolute top-1.5 right-1.5 rounded-sm px-1.5 text-xs font-semibold'
                   >
                     封面
                   </span>
@@ -296,7 +296,7 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
           <ul className='mt-2 space-y-2'>
             {hidden.map((p) => (
               <li key={p.id} className='flex items-center gap-3'>
-                <img src={p.url} alt='已隱藏的供應商照片' loading='lazy' className='bg-muted h-16 w-16 rounded object-contain' />
+                <img src={p.url} alt='已隱藏的供應商照片' loading='lazy' className='bg-muted h-16 w-16 rounded-md object-contain' />
                 <span className='text-muted-foreground flex-1 text-xs'>隱藏後網站和報價單都不顯示；每天的同步不會把它加回來。</span>
                 <button
                   type='button'
