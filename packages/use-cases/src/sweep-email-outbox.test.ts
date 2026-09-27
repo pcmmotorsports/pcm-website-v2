@@ -4771,3 +4771,60 @@ describe('order_partially_cancelled —— 部分取消補寄信(Sean 2026-09-14
     });
   });
 });
+
+describe('order_return_received —— 退貨收回通知(Sean 2026-09-27 A3 甲甲甲)', () => {
+  const rrJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'order_return_received', subject: '我們已收到您寄回的商品（訂單 PCM-2026-9003）', payload });
+  const send = async (payload: Record<string, unknown>) => {
+    const outbox = outboxFake([rrJob(payload)]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    return { res, sender };
+  };
+  const OK = {
+    display_id: 'PCM-2026-9003',
+    return_id: 'c1a1b2c3-0000-4000-8000-000000000001',
+    received_at: '2026-09-27T10:00:00Z',
+    received_items: [
+      { title: '煞車拉桿組', quantity: 1 },
+      { title: null, quantity: 2 },
+    ],
+    event_version: 1,
+  };
+
+  it('🔴 全文逐字:已收到哪些商品 + 會盡快處理退款;不寫商品狀況、不寫金額(Q3 甲)', async () => {
+    const { sender } = await send(OK);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(input.subject).toBe('我們已收到您寄回的商品（訂單 PCM-2026-9003）');
+    expect(String(input.text)).toBe(
+      [
+        '您好，',
+        '',
+        '我們已收到您寄回的商品：',
+        '・煞車拉桿組 1 件',
+        '・(品名未記錄) 2 件',
+        '',
+        '退款會在確認後盡快處理，完成時會再通知您。',
+        '',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-9003',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
+        '',
+        'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
+      ].join('\n'),
+    );
+    expect(String(input.text)).not.toMatch(/NT\$|良好|損傷/);
+  });
+
+  it('🔴 fail-closed:缺 display_id 或品項為空 ⇒ 不寄、計 error', async () => {
+    for (const bad of [{ ...OK, display_id: '' }, { ...OK, received_items: [] }, { ...OK, received_items: [{ title: 'x', quantity: 0 }] }]) {
+      const { res, sender } = await send(bad);
+      expect(sender.send).not.toHaveBeenCalled();
+      expect(res.errors).toBe(1);
+    }
+  });
+});

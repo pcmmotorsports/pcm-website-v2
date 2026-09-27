@@ -53,6 +53,9 @@ import {
   ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE,
   ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE,
   ORDER_PARTIALLY_CANCELLED_COMPANY_LINES,
+  ORDER_RETURN_RECEIVED_HEADLINE,
+  ORDER_RETURN_RECEIVED_REFUND_SENTENCE,
+  orderReturnReceivedItemLine,
   orderPartiallyCancelledOverpaidSentence,
   orderPartiallyCancelledUnpaidSentence,
   orderPartiallyCancelledShortSentence,
@@ -694,6 +697,8 @@ function buildEmailContent(
   correctedTrackingPageUrl: string | null,
 ): EmailContent {
   switch (job.eventType) {
+    case 'order_return_received':
+      return buildOrderReturnReceivedText(job, siteUrl);
     case 'order_partially_cancelled':
       return buildOrderPartiallyCancelledText(job, siteUrl);
     case 'order_partially_refunded':
@@ -1430,6 +1435,44 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   // 🔴 聯絡資訊與取消信同一份來源(他的錢剛被動過, 而他要找得到我們)。
+  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
+}
+
+/**
+ * 退貨收回通知(`order_return_received`, 2026-09-27;Sean A3 甲甲甲)。
+ * 兩段:已收到哪些商品(實收數量)/ 會盡快處理退款。不寫商品狀況、不寫金額(Q3 甲)。
+ * 🔴 fail-closed:payload 缺 display_id 或品項為空 ⇒ throw 不寄。
+ */
+function buildOrderReturnReceivedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
+  const payload = job.payload;
+  const rec = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : null;
+  const rawDisplayId = rec?.['display_id'];
+  const displayId =
+    typeof rawDisplayId === 'string' && rawDisplayId.trim() !== '' ? sanitizeCustomerFacingReason(rawDisplayId) : null;
+  if (displayId === null) {
+    throw new Error('sweepEmailOutbox:order_return_received payload 缺 display_id、fail-closed 不寄');
+  }
+  const rawItems = rec?.['received_items'];
+  const items = Array.isArray(rawItems)
+    ? rawItems.flatMap((el) => {
+        if (el === null || typeof el !== 'object') return [];
+        const q = (el as { quantity?: unknown }).quantity;
+        const t = (el as { title?: unknown }).title;
+        if (typeof q !== 'number' || !Number.isSafeInteger(q) || q <= 0) return [];
+        const title = typeof t === 'string' && t.trim() !== '' ? sanitizeCustomerFacingReason(t) : null;
+        return [{ title: title ?? ORDER_LINE_TITLE_MISSING, quantity: q }];
+      })
+    : [];
+  if (items.length === 0) {
+    throw new Error('sweepEmailOutbox:order_return_received payload 品項為空、fail-closed 不寄');
+  }
+  const body: string[] = [
+    ORDER_RETURN_RECEIVED_HEADLINE,
+    ...items.map((i) => orderReturnReceivedItemLine(i.title, i.quantity)),
+    '',
+    ORDER_RETURN_RECEIVED_REFUND_SENTENCE,
+  ];
+  const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
 }
 

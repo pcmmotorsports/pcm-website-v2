@@ -72,6 +72,8 @@ describe('⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 每一種信都要表態:它印不印�
     bank_order_amount_changed: 'no-number',
     // 部分取消補寄信:講金額, 沒有箱、沒有號碼
     order_partially_cancelled: 'no-number',
+    // 退貨收回通知:講我們收到客人寄回的東西, 不是我們寄出的箱 ⇒ 沒有號碼
+    order_return_received: 'no-number',
   };
 
   it('🔴 分母 = 生產碼裡那個窮舉 Record, 不是我自己抄的一份清單', () => {

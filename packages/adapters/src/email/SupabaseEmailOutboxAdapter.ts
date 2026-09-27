@@ -64,6 +64,8 @@ import {
   buildOrderCancelledPayload,
   buildOrderPartiallyRefundedPayload,
   buildOrderPartiallyCancelledPayload,
+  buildOrderReturnReceivedPayload,
+  orderReturnReceivedSubject,
   buildOrderUnpaidCancelledPayload,
   buildShipmentTrackingCorrectedPayload,
   orderShippedSubject,
@@ -333,7 +335,8 @@ function composeEvent(input: EnqueueEmailInput): {
     | ReturnType<typeof buildOrderUnpaidCancelledPayload>
     | ReturnType<typeof buildBankOrderCreatedPayload>
     | ReturnType<typeof buildBankOrderAmountChangedPayload>
-    | ReturnType<typeof buildOrderPartiallyCancelledPayload>;
+    | ReturnType<typeof buildOrderPartiallyCancelledPayload>
+    | ReturnType<typeof buildOrderReturnReceivedPayload>;
   subject: string;
   dedupKey: string;
 } {
@@ -501,6 +504,21 @@ function composeEvent(input: EnqueueEmailInput): {
         payload,
         subject: orderPartiallyCancelledSubject(payload.display_id),
         dedupKey: `${input.cancellationId}:${input.orderId}`,
+      };
+    }
+    case 'order_return_received': {
+      // 2026-09-27 退貨收回通知(Sean A3 甲甲甲)。dedupKey = return_id:order_id —— 🔴 與 DB 的
+      // pcm_return_received_email_dedup_key(20260927080000)同一個算式, 改一邊要改兩邊;綁那一筆退貨 ⇒ 退兩次各寄一封。
+      const payload = buildOrderReturnReceivedPayload({
+        displayId: input.displayId,
+        returnId: input.returnId,
+        receivedAt: input.receivedAt,
+        receivedItems: input.receivedItems,
+      });
+      return {
+        payload,
+        subject: orderReturnReceivedSubject(payload.display_id),
+        dedupKey: `${input.returnId}:${input.orderId}`,
       };
     }
     case 'order_unpaid_cancelled': {

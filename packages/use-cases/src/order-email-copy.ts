@@ -149,6 +149,12 @@ export const ORDER_PARTIALLY_CANCELLED_COMPANY_LINES: readonly string[] = [
   '新北市新莊區化成路 736 巷 18 號 1 樓',
 ];
 
+// ── 退貨收回通知(2026-09-27;Sean A3 Q3 甲 = 照計畫第二節草稿)──────────────────
+// 不寫商品狀況、不寫金額;草稿最後那句「如有問題，請透過 LINE 官方帳號與我們聯絡」由 standardTail 的 LINE 那一行承接, 不重複印。
+export const ORDER_RETURN_RECEIVED_HEADLINE = '我們已收到您寄回的商品：';
+export const orderReturnReceivedItemLine = (title: string, quantity: number): string => `・${title} ${quantity} 件`;
+export const ORDER_RETURN_RECEIVED_REFUND_SENTENCE = '退款會在確認後盡快處理，完成時會再通知您。';
+
 /** 公司抬頭與統編。⚠️ 中間是**全形空白**(U+3000),不是兩個半形 —— 照排版那份逐字。 */
 export const PCM_COMPANY_LINE = '派達有限公司　統一編號 90003020';
 

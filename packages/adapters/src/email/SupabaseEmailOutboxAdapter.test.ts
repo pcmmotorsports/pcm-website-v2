@@ -1238,7 +1238,34 @@ const ALL_EVENT_INPUTS: EnqueueEmailInput[] = [
     cancelledItems: [{ title: '排氣管尾段', quantity: 1 }],
     effectiveSubtotal: 8750, effectiveShippingFee: 0, remainingReceivable: 8750, paidTotal: 13830,
   },
+  {
+    // 退貨收回通知(2026-09-27, Sean A3 甲甲甲):鍵公式 `{returnId}:{orderId}`(綁那一筆退貨)。
+    eventType: 'order_return_received',
+    orderId: 'ord-r', displayId: 'PCM-2026-0010', recipientEmail: 'r@example.com',
+    returnId: '66666666-6666-4666-8666-666666666666',
+    receivedAt: '2026-09-27T10:00:00Z',
+    receivedItems: [{ title: '煞車拉桿組', quantity: 1 }],
+  },
 ];
+
+describe('order_return_received —— 退貨收回通知的鍵與 payload(Sean 2026-09-27 A3)', () => {
+  it('🔴 dedup_key = returnId:orderId(與 DB pcm_return_received_email_dedup_key 同一個算式);主旨與 payload 照組裝', async () => {
+    const input = ALL_EVENT_INPUTS.find((i) => i.eventType === 'order_return_received')!;
+    const b = makeBuilder({ data: [{ id: 'e1' }], error: null });
+    await adapter(makeClient(b)).enqueue(input);
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+    expect(row.event_type).toBe('order_return_received');
+    expect(row.dedup_key).toBe('66666666-6666-4666-8666-666666666666:ord-r');
+    expect(row.subject).toBe('我們已收到您寄回的商品（訂單 PCM-2026-0010）');
+    expect(row.payload).toEqual({
+      display_id: 'PCM-2026-0010',
+      return_id: '66666666-6666-4666-8666-666666666666',
+      received_at: '2026-09-27T10:00:00Z',
+      received_items: [{ title: '煞車拉桿組', quantity: 1 }],
+      event_version: 1,
+    });
+  });
+});
 
 describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_type, dedup_key)', () => {
   /** RPC 假件:記下呼叫參數, 回一個指定的值。 */

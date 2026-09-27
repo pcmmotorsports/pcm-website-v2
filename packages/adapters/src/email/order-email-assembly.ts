@@ -619,3 +619,42 @@ export function buildOrderPartiallyCancelledPayload(src: {
     event_version: ORDER_PARTIALLY_CANCELLED_EVENT_VERSION,
   };
 }
+
+// ── 退貨收回通知(2026-09-27;Sean A3 甲甲甲)────────────────────────────────
+// 主旨照 Sean Q3 甲認可的草稿逐字(~/pcm-mailbox/計畫-退貨通知客人-20260927.md 第二節)。
+export function orderReturnReceivedSubject(displayId: string): string {
+  return `我們已收到您寄回的商品（訂單 ${displayId}）`;
+}
+
+export const ORDER_RETURN_RECEIVED_EVENT_VERSION = 1 as const;
+
+/**
+ * payload = 寄信端要印的全部內容;不帶金額、不帶商品狀況(Q3 甲)。
+ * 🔴 fail-closed:實收品項為空 ⇒ throw ⇒ 不排(沒有東西可以說「已收到」)。
+ */
+export function buildOrderReturnReceivedPayload(src: {
+  displayId: string;
+  returnId: string;
+  receivedAt: string;
+  receivedItems: ReadonlyArray<{ title: string | null; quantity: number }>;
+}): {
+  display_id: string;
+  return_id: string;
+  received_at: string;
+  received_items: Array<{ title: string | null; quantity: number }>;
+  event_version: typeof ORDER_RETURN_RECEIVED_EVENT_VERSION;
+} {
+  const items = src.receivedItems
+    .filter((i) => Number.isSafeInteger(i.quantity) && i.quantity > 0)
+    .map((i) => ({ title: i.title !== null && i.title.trim() !== '' ? i.title : null, quantity: i.quantity }));
+  if (items.length === 0) {
+    throw new Error('order_return_received:receivedItems 為空(沒有東西可講就不寄)');
+  }
+  return {
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_return_received'),
+    return_id: requireNonEmptyString(src.returnId, 'returnId', 'order_return_received'),
+    received_at: requireNonEmptyString(src.receivedAt, 'receivedAt', 'order_return_received'),
+    received_items: items,
+    event_version: ORDER_RETURN_RECEIVED_EVENT_VERSION,
+  };
+}
