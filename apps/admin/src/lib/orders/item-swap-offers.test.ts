@@ -21,7 +21,11 @@ vi.mock('@pcm/adapters/server', () => ({
     },
   }),
 }));
-vi.mock('./manual-order-catalog', () => ({ getManualOrderCatalogHitsByVariantIds: h.catalog }));
+vi.mock('./manual-order-catalog', async (orig) => ({
+  // rawGeneralPrice 用真的(商品頁乙 P13:換商品比原價)
+  rawGeneralPrice: ((await orig()) as { rawGeneralPrice: unknown }).rawGeneralPrice,
+  getManualOrderCatalogHitsByVariantIds: h.catalog,
+}));
 
 import { readItemSwapOffers } from './item-swap-offers';
 
@@ -48,6 +52,16 @@ describe('readItemSwapOffers', () => {
   it('完全還沒處理的品項都給入口, 帶原商品目前的目錄價', async () => {
     const m = await readItemSwapOffers(detail());
     expect(m?.get('i1')).toEqual({ sourceCatalogGeneral: 1050, sourceCatalogDealerUntaxed: 800 });
+    expect(m?.get('i2')).toEqual({ sourceCatalogGeneral: 900, sourceCatalogDealerUntaxed: null });
+  });
+
+  it('🔴 商品頁乙 P13:原商品在特價中(目錄帶入 800、原價 1,000)⇒ 換商品用原價 1,000(與 admin_swap_order_item 比的同一個數)', async () => {
+    h.catalog.mockResolvedValue([
+      { variantId: 'v1', sku: 'A', title: 'A', unitPrice: 800, listUnitPrice: 1000, dealerPriceUntaxed: 700 },
+      { variantId: 'v2', sku: 'B', title: 'B', unitPrice: 900, listUnitPrice: null, dealerPriceUntaxed: null },
+    ]);
+    const m = await readItemSwapOffers(detail());
+    expect(m?.get('i1')).toEqual({ sourceCatalogGeneral: 1000, sourceCatalogDealerUntaxed: 700 });
     expect(m?.get('i2')).toEqual({ sourceCatalogGeneral: 900, sourceCatalogDealerUntaxed: null });
   });
 

@@ -1,7 +1,7 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import type { AdminOrderDetail } from '@pcm/domain';
-import { getManualOrderCatalogHitsByVariantIds } from './manual-order-catalog';
+import { getManualOrderCatalogHitsByVariantIds, rawGeneralPrice } from './manual-order-catalog';
 
 // item-swap-offers.ts — 訂單頁要對哪些品項顯示「換商品」入口, 以及原商品目前的目錄價(plan 2026-09-22)。
 //
@@ -103,12 +103,13 @@ export async function readItemSwapOffers(
       const hit = variantId === undefined ? undefined : hitByVariant.get(variantId);
       if (hit === undefined) continue;
       // 與資料庫同一套取價(store ⇒ 經銷價, 沒有就一般價;其他 ⇒ 一般價);取不到 ⇒ 必定被擋 ⇒ 不給。0 元是合法價格。
-      const catalogPrice = tier === 'store' ? (hit.dealerPriceUntaxed ?? hit.unitPrice) : hit.unitPrice;
+      // 商品頁乙 P13:一般價取【原價】(不含特價),與 admin_swap_order_item 比的同一個數。
+      const catalogPrice = tier === 'store' ? (hit.dealerPriceUntaxed ?? rawGeneralPrice(hit)) : rawGeneralPrice(hit);
       if (catalogPrice === null) continue;
       // 兩個價各自原樣交給畫面顯示(含稅 / 未稅兩欄分開), 不拿經銷價當單價。
       // manual-order-tax-basis.test.ts 逐行找「單價 … 經銷價」同一行 ⇒ 分兩行寫, 一行一個來源。
       offers.set(id, {
-        sourceCatalogGeneral: hit.unitPrice,
+        sourceCatalogGeneral: rawGeneralPrice(hit),
         sourceCatalogDealerUntaxed: hit.dealerPriceUntaxed,
       });
     }

@@ -39,6 +39,7 @@
 // 🟢 **2026-09-28 網站施工窗 86:同一條慣例 —— 商品頁乙價格段 P-M4(20260928230000,2026-09-28 已貼正式庫)。**
 //    `products_public` / `products_list_public` / `product_variants_public` 三個 view 的 Row 加 `original_price`
 //    (代表款或該規格特價生效時的原價,否則 null)。只加 Row(讀路徑);照 migration 手打、字母序。🔵 同上:**不進下面那個計數**。
+//    同批補 `product_variants.sale_price_general`(P-M1 20260928200000 加的欄,當時漏補型別)× Row/Insert/Update。
 // 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
 //    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
 //    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
@@ -6221,6 +6222,7 @@ export type Database = {
           price_general: number | null
           price_store: number | null
           product_id: string
+          sale_price_general: number | null
           sku: string
           sort_order: number
           spec: Json
@@ -6236,6 +6238,7 @@ export type Database = {
           price_general?: number | null
           price_store?: number | null
           product_id: string
+          sale_price_general?: number | null
           sku: string
           sort_order?: number
           spec?: Json
@@ -6251,6 +6254,7 @@ export type Database = {
           price_general?: number | null
           price_store?: number | null
           product_id?: string
+          sale_price_general?: number | null
           sku?: string
           sort_order?: number
           spec?: Json
