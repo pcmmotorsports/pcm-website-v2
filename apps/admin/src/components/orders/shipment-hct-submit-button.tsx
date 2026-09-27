@@ -56,8 +56,14 @@ export function ShipmentHctSubmitButton({
   shipmentReference,
   shipped,
   hctStatus,
+  dispatchBelow = false,
 }: {
   shipmentId: string;
+  /**
+   * 2026-09-27 出貨流程乙第 1 項:箱子彈窗裡同一箱下面就有「新竹物流叫車」⇒ 指引改說「按下面那顆」,
+   * 不再叫人換到出貨清單。訂單明細頁那一處沒有叫車鈕, 維持原本的指路句(預設 false)。
+   */
+  dispatchBelow?: boolean;
   shipmentReference: string;
   /**
    * 🔵 **2026-09-16 加:只用來決定要不要印「還沒叫車」那一句。**
@@ -158,8 +164,14 @@ export function ShipmentHctSubmitButton({
           //    ⇒ 而他按完看到的是「已經送成功過了」—— 那句話**沒有告訴他接下來要去哪裡**。
           // 🔴 **要帶路徑(「左邊選單的」), 不是只寫「到出貨清單」** —— 他找不到的正是那個位置。
           <span className='text-xs font-medium text-amber-700'>
-            已向新竹申請託運單號。請到<strong>左側選單的「出貨清單」</strong>，按「{HCT_DISPATCH_BUTTON}」安排取件；
-            取得單號不代表已完成叫車。
+            {dispatchBelow ? (
+              <>已向新竹申請託運單號。請按下面的「{HCT_DISPATCH_BUTTON}」安排取件；取得單號不代表已完成叫車。</>
+            ) : (
+              <>
+                已向新竹申請託運單號。請到<strong>左側選單的「出貨清單」</strong>，按「{HCT_DISPATCH_BUTTON}」安排取件；
+                取得單號不代表已完成叫車。
+              </>
+            )}
           </span>
         ) : null}
       </div>

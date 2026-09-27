@@ -29,6 +29,7 @@
 //    給了才渲染。判身分與那顆參數名歸 A1/A2(設計窗),本檔不判。
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { useBulkBoxCreate } from './shipment-launcher';
 import {
   NEXT_MULTI_MAX,
   ORDER_NEXT_DO_PARAM,
@@ -118,7 +119,10 @@ const BTN =
  */
 export function BatchActionBar({ nextBase, costItemsParam }: { nextBase: string; costItemsParam?: string }) {
   const s = useSelection();
-  if (s.picked.length === 0) return null;
+  // 2026-09-27 出貨流程乙第 7 項:多張單「只建箱, 各一箱」(邏輯在 launcher 的 useBulkBoxCreate)。
+  const bulk = useBulkBoxCreate();
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  if (s.picked.length === 0 && bulk.outcomes.length === 0) return null;
 
   const n = s.picked.length;
   const m = s.orderIds.length;
@@ -152,9 +156,41 @@ export function BatchActionBar({ nextBase, costItemsParam }: { nextBase: string;
             一起到貨登記
           </a>
           {m > 1 ? (
-            <button type='button' className={BTN} disabled title={shipTitle} aria-label={`一起出貨(${shipTitle})`}>
-              一起出貨
-            </button>
+            <>
+              <button type='button' className={BTN} disabled title={shipTitle} aria-label={`一起出貨(${shipTitle})`}>
+                一起出貨
+              </button>
+              {/* 2026-09-27 出貨流程乙第 7 項(Sean 答 Q1 甲):跨單不能裝同一箱, 但可以一次替每張單各建一箱(新竹, 先不出貨)。 */}
+              {confirmBulk ? (
+                <span className='inline-flex items-center gap-2'>
+                  <span>將為 {m} 張單各建一箱（新竹物流），先不出貨。</span>
+                  <button
+                    type='button'
+                    className={BTN}
+                    data-testid='bulk-box-confirm'
+                    onClick={() => {
+                      setConfirmBulk(false);
+                      const groups = s.orderIds.map((orderId) => ({
+                        orderId,
+                        itemIds: s.picked.filter((p) => p.orderId === orderId).map((p) => p.itemId),
+                      }));
+                      void bulk.run(groups);
+                    }}
+                  >
+                    確認
+                  </button>
+                  <button type='button' className={BTN} onClick={() => setConfirmBulk(false)}>
+                    取消
+                  </button>
+                </span>
+              ) : (
+                <button type='button' className={BTN} disabled={bulk.running} onClick={() => setConfirmBulk(true)}>
+                  {bulk.running && bulk.progress !== null
+                    ? `建箱中 ${bulk.progress.done} / ${bulk.progress.count}`
+                    : `只建箱(${m} 張單，各一箱)`}
+                </button>
+              )}
+            </>
           ) : (
             <a className={BTN} href={href('ship')}>
               一起出貨
@@ -166,6 +202,15 @@ export function BatchActionBar({ nextBase, costItemsParam }: { nextBase: string;
             </a>
           )}
         </>
+      )}
+      {bulk.outcomes.length > 0 && (
+        <ul className='max-h-40 w-full overflow-y-auto text-[12px] leading-[1.5]' data-testid='bulk-box-results'>
+          {bulk.outcomes.map((o) => (
+            <li key={o.orderId} className={o.ok ? 'text-emerald-300' : 'text-amber-300'}>
+              {o.label ?? '這張單'}：{o.text}
+            </li>
+          ))}
+        </ul>
       )}
       <button
         type='button'

@@ -169,3 +169,13 @@ describe('三態', () => {
     expect((screen.getByRole('button', { name: /跟新竹要託運單號/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+// 2026-09-27 出貨流程乙第 1 項:箱子彈窗裡叫車鈕就在下面 ⇒ 不再叫人換頁。
+describe('dispatchBelow', () => {
+  it('🔴 箱子彈窗(dispatchBelow)⇒ 說「按下面的」, 不說「左側選單的出貨清單」', () => {
+    render(<ShipmentHctSubmitButton shipmentId='s1' shipmentReference='BCDFGH' shipped={false} hctStatus='submitted' dispatchBelow />);
+    expect(screen.getByText(/請按下面的「新竹物流叫車」/)).toBeTruthy();
+    expect(screen.queryByText(/左側選單的「出貨清單」/)).toBeNull();
+  });
+});
+

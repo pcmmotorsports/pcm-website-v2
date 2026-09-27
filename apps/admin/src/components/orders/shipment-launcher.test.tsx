@@ -656,3 +656,42 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     expect(document.querySelector('[data-testid="shipment-balance-warning"]')).toBeNull();
   });
 });
+
+// ── 2026-09-27 出貨流程乙第 2 項:新竹「只建箱」之後直接接到箱子那一頁(要號 → 叫車), 不關回列表 ──
+// 送出鈕照 09-13「一律確認」不改名;改的是「只建箱」成功之後的去向。
+describe('新竹只建箱 ⇒ 接著到箱子那一頁', () => {
+  function Probe({ carrier }: { carrier?: string }) {
+    const { openDialog, dialog } = useShipmentLauncher(['o1'], undefined, { onClose: (created, info) => onCloseSpy(created, info) });
+    return (
+      <div>
+        <button type='button' onClick={() => void openDialog()}>開</button>
+        {dialog}
+        <span data-testid='carrier'>{carrier}</span>
+      </div>
+    );
+  }
+  const onCloseSpy = vi.fn();
+  const openAndBoxOnly = async (carrier: 'hct' | 'sf') => {
+    fetchShipmentCandidates.mockResolvedValue({ items: [CANDIDATE], customerUserId: 'cu-A', recipient: RECIPIENT });
+    submitShipment.mockResolvedValue({ ok: true, shipmentReference: 'K7X2MP', shipped: false });
+    render(<Probe />);
+    fireEvent.click(screen.getByText('開'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeNull());
+    if (carrier !== 'hct') fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: carrier } });
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(onCloseSpy).toHaveBeenCalled());
+  };
+
+  it('🔴 新竹 + 只建箱 ⇒ 告訴呼叫端「接著到箱子那一頁」', async () => {
+    onCloseSpy.mockReset();
+    await openAndBoxOnly('hct');
+    expect(onCloseSpy).toHaveBeenCalledWith(true, { continueToBox: true });
+  });
+
+  it('順豐 + 只建箱 ⇒ 照舊關回列表(沒有要號、叫車那兩步)', async () => {
+    onCloseSpy.mockReset();
+    await openAndBoxOnly('sf');
+    expect(onCloseSpy).toHaveBeenCalledWith(true, { continueToBox: false });
+  });
+});
+

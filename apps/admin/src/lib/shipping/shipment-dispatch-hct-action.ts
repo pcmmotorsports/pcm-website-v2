@@ -39,7 +39,7 @@ import {
 } from './shipment-repository';
 import { markShipmentShipped } from './shipment-repository';
 import { dispatchOrder, hctDispatchGateOpen } from './hct-client';
-import { dispatchButton, planFromDispatch, uncertainDispatchMessage } from './hct-dispatch-flow';
+import { dispatchButton, dispatchedButUnrecordedMessage, planFromDispatch, uncertainDispatchMessage } from './hct-dispatch-flow';
 
 export type DispatchActionResult =
   | { ok: true; kind: 'dispatched'; edelno: string }
@@ -73,6 +73,9 @@ function readDeps(): { fetchImpl: typeof fetch; endpoint: string; account: strin
 function readEmark(): string {
   return (process.env.HCT_DISPATCH_EMARK ?? '').trim();
 }
+
+/** 佔位到送出 HTTP 之間最多等多久(計畫第二節第 8 項)。 */
+const DISPATCH_SEND_DEADLINE_MS = 30_000;
 
 export async function dispatchShipmentAction(args: {
   shipmentId: string;
@@ -115,7 +118,23 @@ export async function dispatchShipmentAction(args: {
     const edelno = row.hctRequestId ?? '';
 
     // ── ① 佔位。丟例外 = 這一箱不准送 ⇒ 不往下打。
+    //    2026-09-27 出貨流程乙:佔位前記下這台伺服器的時間, 送 HTTP 前再看一次(見 ①b)。
+    const claimStartedAt = Date.now();
     await claimHctDispatch({ shipmentReference: row.shipmentReference, edelno });
+
+    // ── ①b 佔位之後超過 30 秒就不送(計畫第二節第 8 項:一個佔位後卡住的舊請求醒來不能再叫車;
+    //    「重新叫車」要等 10 分鐘, 靠的就是這一道加上頁面 60 秒的執行上限)。只用同一個時鐘, 不跟資料庫比。
+    if (Date.now() - claimStartedAt > DISPATCH_SEND_DEADLINE_MS) {
+      auditLog('shipment.hct_dispatch', auth, 'fail', { shipment_id: args.shipmentId });
+      return {
+        ok: false,
+        kind: 'needs_human',
+        // 這一種我們確定【沒有】送出(不是結果不明), 但佔位已寫 ⇒ 這一箱會顯示「叫車結果未確認」。
+        message:
+          '這一箱沒有叫到車：系統在送出叫車前等太久，這次沒有送出。' +
+          '這一箱會暫時顯示為「叫車結果未確認」，請聯絡系統管理員處理。（send_deadline）',
+      };
+    }
 
     // ── ② 叫車。
     const out = await dispatchOrder(deps, [{ epino: row.shipmentReference, edelno }], emark);
@@ -157,7 +176,7 @@ export async function dispatchShipmentAction(args: {
       return {
         ok: false,
         kind: 'rejected',
-        message: `新竹物流拒絕了這一箱的叫車，車沒有叫到（原因：${only.message}）。這一箱暫時無法再按叫車，請聯絡系統管理員處理。`,
+        message: `新竹物流拒絕了這一箱的叫車，車沒有叫到（原因：${only.message}）。處理好原因之後，10 分鐘後可以到訂單的這一箱按「新竹說沒派到車：重新叫車」；不確定原因請聯絡系統管理員。`,
       };
     }
     if (only.action === 'needs_human') {
@@ -170,20 +189,26 @@ export async function dispatchShipmentAction(args: {
     }
 
     // ── ③ 補記。🔴 這一發失敗**不得吞掉** —— 車已經叫了。
-    await recordHctDispatch({ shipmentReference: row.shipmentReference, edelno: only.edelno });
+    // 2026-09-28 R1 Fable 建議:③④ 失敗要說「車已叫到」, 不能只給資料庫原話(那箱之後會出現「重新叫車」)。
+    try {
+      await recordHctDispatch({ shipmentReference: row.shipmentReference, edelno: only.edelno });
 
-    // ── ④ 標出貨(寄信在它下游)。
-    // 🔴 稽核的 actor / requestId(板 20260916190000):**叫車這條路也會標出貨**,
-    //    少接這裡的話,新竹自動叫車出的那些箱在稽核表裡會是一片空白。
-    //    (這一格是 typecheck 抓到的 —— 我盤點時只數了 shipment-actions.ts 那五個呼叫端。)
-    //    requestId 走動態 import,理由同 `shipment-actions.ts`(`../audit/context` 是 server-only)。
-    await markShipmentShipped({
-      idempotencyKey: `dispatch:${args.shipmentId}`,
-      shipmentId: args.shipmentId,
-      trackingNumber: only.edelno,
-      actor: auth.actorId,
-      requestId: await (await import('../audit/context')).getRequestId(),
-    });
+      // ── ④ 標出貨(寄信在它下游)。
+      // 🔴 稽核的 actor / requestId(板 20260916190000):**叫車這條路也會標出貨**,
+      //    少接這裡的話,新竹自動叫車出的那些箱在稽核表裡會是一片空白。
+      //    (這一格是 typecheck 抓到的 —— 我盤點時只數了 shipment-actions.ts 那五個呼叫端。)
+      //    requestId 走動態 import,理由同 `shipment-actions.ts`(`../audit/context` 是 server-only)。
+      await markShipmentShipped({
+        idempotencyKey: `dispatch:${args.shipmentId}`,
+        shipmentId: args.shipmentId,
+        trackingNumber: only.edelno,
+        actor: auth.actorId,
+        requestId: await (await import('../audit/context')).getRequestId(),
+      });
+    } catch (e) {
+      auditLog('shipment.hct_dispatch', auth, 'fail', { shipment_id: args.shipmentId });
+      return { ok: false, kind: 'needs_human', message: dispatchedButUnrecordedMessage(only.edelno, toMessage(e)) };
+    }
     revalidatePath('/shipments');
     auditLog('shipment.hct_dispatch', auth, 'ok', {
       shipment_id: args.shipmentId,

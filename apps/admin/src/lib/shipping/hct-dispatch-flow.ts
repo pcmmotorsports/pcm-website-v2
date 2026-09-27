@@ -91,6 +91,18 @@ export function uncertainDispatchMessage(edelno: string, what: string, code: str
   );
 }
 
+/**
+ * 新竹已回「叫到車」, 而系統記結果或標出貨失敗(2026-09-28 R1 Fable 建議)。
+ * 🔴 一定要說「車已叫到、不要重新叫車」—— 這一箱之後會顯示「叫車結果未確認」, 10 分鐘後會出現「重新叫車」。
+ */
+export function dispatchedButUnrecordedMessage(edelno: string, cause: string): string {
+  return (
+    `新竹已回覆叫到車（貨號 ${edelno}），但系統沒有記下結果或沒有標記出貨。請不要重新叫車，否則可能叫來兩台車。` +
+    `貨被收走後，請到訂單的這一箱按「新竹說已收走：標記出貨」或「填單號並標記出貨」，單號填 ${edelno}。` +
+    `若按了仍失敗，請聯絡系統管理員。（${cause}）`
+  );
+}
+
 export type DispatchEligibility = { ok: true } | { ok: false; message: string };
 
 export function canDispatch(boxes: readonly {
@@ -162,6 +174,10 @@ export function dispatchButton(
   // 🔵 不是新竹的箱, 這顆鈕**整個不出現** —— 一顆永遠按不下去的鈕只會讓人一直問它。
   if (row.carrierCode !== 'hct') return { show: false };
   if (row.voidedAt !== null && row.voidedAt !== '') return { show: false };
+  // 2026-09-27 出貨流程乙(Codex R1 必修 3):已出貨的箱不再叫車(資料庫的佔位函式另補同一個條件)。
+  if (row.shippedAt !== null && row.shippedAt !== '') {
+    return { show: true, enabled: false, why: '這一箱已經出貨，不需要叫車。' };
+  }
 
   // 🔴 **已經叫過(或叫到一半)⇒ 顯示而不給按**, 並且說得出是哪一種。
   //    📌 這兩種在 DB 上是不同的兩欄, 而在畫面上是**兩句不同的話** ——
