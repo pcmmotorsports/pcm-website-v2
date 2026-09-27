@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveManualProductPricesAction } from '../../lib/products/manual-product-price-actions';
 
@@ -29,9 +29,18 @@ function toInt(v: string): number | null {
 
 export function ManualProductPriceEditor({ productId, rows, canEdit }: { productId: string; rows: ManualPriceRow[]; canEdit: boolean }) {
   const router = useRouter();
-  const [draft, setDraft] = useState(() =>
-    rows.map((r) => ({ general: r.priceGeneral === null ? '' : String(r.priceGeneral), store: r.priceStore === null ? '' : String(r.priceStore) })),
-  );
+  const fromRows = (rs: ManualPriceRow[]) =>
+    rs.map((r) => ({ general: r.priceGeneral === null ? '' : String(r.priceGeneral), store: r.priceStore === null ? '' : String(r.priceStore) }));
+  const [draft, setDraft] = useState(() => fromRows(rows));
+  // 「目前資料庫裡的價格」:比對有沒有改、送出時附上的「載入時的價格」都看它。
+  //   存成功就立刻換成剛存的值,不等 router.refresh() 回來(本機走查:重新整理還沒回來時再改一次,
+  //   會拿舊價比對 ⇒ 誤判「沒有變動」或誤判「別人改過」)。
+  const [base, setBase] = useState(() => rows.map((r) => ({ priceGeneral: r.priceGeneral, priceStore: r.priceStore })));
+  // 重新整理回來 ⇒ 換成資料庫現在的價格(Codex P9 R1 必修:輸入框不能留著沒存的數字)
+  useEffect(() => {
+    setDraft(fromRows(rows));
+    setBase(rows.map((r) => ({ priceGeneral: r.priceGeneral, priceStore: r.priceStore })));
+  }, [rows]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -39,6 +48,11 @@ export function ManualProductPriceEditor({ productId, rows, canEdit }: { product
     setStatus(null);
     const input = [];
     for (const [i, r] of rows.entries()) {
+      // 只送真的改了的規格,附上頁面載入時看到的價格(Codex P8 R1 必修:不把別人剛改好的價格蓋回去)
+      const b = base[i]!;
+      const unchanged = draft[i]!.general.trim() === (b.priceGeneral === null ? '' : String(b.priceGeneral)) &&
+        draft[i]!.store.trim() === (b.priceStore === null ? '' : String(b.priceStore));
+      if (unchanged) continue;
       const general = toInt(draft[i]!.general);
       const store = toInt(draft[i]!.store);
       if (general === null || Number.isNaN(general)) {
@@ -49,12 +63,18 @@ export function ManualProductPriceEditor({ productId, rows, canEdit }: { product
         setStatus({ kind: 'error', text: `「${r.label}」的經銷價要是 0 以上的整數，或不填。` });
         return;
       }
-      input.push({ variantId: r.id, priceGeneral: general, priceStore: store });
+      input.push({ variantId: r.id, priceGeneral: general, priceStore: store, before: b });
+    }
+    if (input.length === 0) {
+      setStatus({ kind: 'ok', text: '價格沒有變動。' });
+      return;
     }
     setBusy(true);
     try {
       const res = await saveManualProductPricesAction(productId, input);
       if (res.ok) {
+        const sent = new Map(input.map((c) => [c.variantId, { priceGeneral: c.priceGeneral, priceStore: c.priceStore }]));
+        setBase(rows.map((r, i) => sent.get(r.id) ?? base[i]!));
         setStatus({
           kind: 'ok',
           text:
@@ -99,6 +119,7 @@ export function ManualProductPriceEditor({ productId, rows, canEdit }: { product
                   <input
                     aria-label={`${r.label} 一般價`}
                     inputMode='numeric'
+                    disabled={busy}
                     className={INPUT}
                     value={draft[i]!.general}
                     onChange={(e) => setDraft(draft.map((d, j) => (j === i ? { ...d, general: e.target.value } : d)))}
@@ -112,6 +133,7 @@ export function ManualProductPriceEditor({ productId, rows, canEdit }: { product
                   <input
                     aria-label={`${r.label} 經銷價`}
                     inputMode='numeric'
+                    disabled={busy}
                     className={INPUT}
                     value={draft[i]!.store}
                     onChange={(e) => setDraft(draft.map((d, j) => (j === i ? { ...d, store: e.target.value } : d)))}

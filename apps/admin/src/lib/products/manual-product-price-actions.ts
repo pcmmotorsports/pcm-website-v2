@@ -12,7 +12,7 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { getSessionActorWithSource } from '../session/actor';
 import { isActiveManager } from '../staff';
 import { getRequestId } from '../audit/context';
-import { setVariantPrices, type VariantPriceChange } from './manual-product-repository';
+import { loadManualProductPrices, setVariantPrices, type VariantPriceChange } from './manual-product-repository';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,6 +20,8 @@ export interface ManualPriceInput {
   variantId: string;
   priceGeneral: number;
   priceStore: number | null;
+  /** 頁面載入時看到的價格(Codex P8 R1 必修):和資料庫現在的不同 ⇒ 別人剛改過,不送、請重新整理。 */
+  before: { priceGeneral: number | null; priceStore: number | null };
 }
 
 export type SaveManualPricesResult =
@@ -49,9 +51,29 @@ export async function saveManualProductPricesAction(productId: string, input: Ma
     if (typeof c?.variantId !== 'string' || !UUID.test(c.variantId)) return { ok: false, message: '沒有儲存：規格資料不對，請重新整理頁面。' };
     if (!isPrice(c.priceGeneral)) return { ok: false, message: `沒有儲存：第 ${n} 個規格的一般價要是 0 以上的整數。` };
     if (c.priceStore !== null && !isPrice(c.priceStore)) return { ok: false, message: `沒有儲存：第 ${n} 個規格的經銷價要是 0 以上的整數，或不填。` };
+    const b = c.before;
+    if (typeof b !== 'object' || b === null || (b.priceGeneral !== null && !isPrice(b.priceGeneral)) || (b.priceStore !== null && !isPrice(b.priceStore))) {
+      return { ok: false, message: '沒有儲存：頁面資料不完整，請重新整理頁面後再試。' };
+    }
     changes.push({ variant_id: c.variantId, price_general: c.priceGeneral, price_store: c.priceStore });
   }
   if (new Set(changes.map((c) => c.variant_id)).size !== changes.length) return { ok: false, message: '沒有儲存：同一個規格出現兩次，請重新整理頁面。' };
+
+  // 🔴 兩位主管同時開著同一頁(Codex P8 R1 必修):送出前核對「頁面載入時看到的價格」和資料庫現在的一樣,
+  //   不一樣 ⇒ 別人剛改過 ⇒ 整筆不送,請重新整理,不把別人的價格蓋回去。
+  //   ponytail: 核對與寫入不在同一個交易,兩次之間還有極短的空窗;要完全關掉得讓 RPC 自己收 expected 值(migration)。
+  let current;
+  try {
+    current = new Map((await loadManualProductPrices(productId)).map((r) => [r.id, r]));
+  } catch {
+    return { ok: false, message: '沒有儲存：目前的價格讀不到，請重新整理頁面後再試。' };
+  }
+  for (const c of input) {
+    const now = current.get(c.variantId);
+    if (!now || now.priceGeneral !== c.before.priceGeneral || now.priceStore !== c.before.priceStore) {
+      return { ok: false, message: '沒有儲存：這件商品的價格剛被別人改過。請重新整理頁面，確認目前的價格後再改。' };
+    }
+  }
 
   const requestId = await getRequestId();
   try {

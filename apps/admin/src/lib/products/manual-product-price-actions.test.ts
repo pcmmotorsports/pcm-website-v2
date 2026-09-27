@@ -6,27 +6,34 @@ let authed: { sid: string; actorId: string } | null = { sid: 's1', actorId: 'sta
 let source: { actor: { id: string } | null; source: string } = { actor: { id: 'staff_a' }, source: 'ticket' };
 let manager = true;
 const setPrices = vi.fn();
+const loadPrices = vi.fn();
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: async () => authed }));
 vi.mock('../session/actor', () => ({ getSessionActorWithSource: async () => source }));
 vi.mock('../staff', () => ({ isActiveManager: async () => manager }));
 vi.mock('../audit/context', () => ({ getRequestId: async () => 'req-1' }));
-vi.mock('./manual-product-repository', () => ({ setVariantPrices: (a: unknown) => setPrices(a) }));
+vi.mock('./manual-product-repository', () => ({ setVariantPrices: (a: unknown) => setPrices(a), loadManualProductPrices: (id: unknown) => loadPrices(id) }));
 
 const { saveManualProductPricesAction } = await import('./manual-product-price-actions');
 const P = '11111111-1111-4111-8111-111111111111';
 const V1 = '22222222-2222-4222-8222-222222222222';
 const V2 = '33333333-3333-4333-8333-333333333333';
 const input = () => [
-  { variantId: V1, priceGeneral: 7200, priceStore: 6000 },
-  { variantId: V2, priceGeneral: 5000, priceStore: null },
+  { variantId: V1, priceGeneral: 7200, priceStore: 6000, before: { priceGeneral: 6800, priceStore: null } },
+  { variantId: V2, priceGeneral: 5000, priceStore: null, before: { priceGeneral: 4800, priceStore: null } },
+];
+const current = () => [
+  { id: V1, sku: 'A', label: 'A', priceGeneral: 6800, priceStore: null, salePrice: null },
+  { id: V2, sku: 'B', label: 'B', priceGeneral: 4800, priceStore: null, salePrice: null },
 ];
 
 beforeEach(() => {
   authed = { sid: 's1', actorId: 'staff_a' };
   source = { actor: { id: 'staff_a' }, source: 'ticket' };
   manager = true;
+  loadPrices.mockReset();
+  loadPrices.mockResolvedValue(current());
   setPrices.mockReset();
   setPrices.mockResolvedValue([
     { variantId: V1, outcome: 'UPDATED' },
@@ -66,20 +73,37 @@ describe('商品頁乙 P8:主管改手動商品價格 server action', () => {
   });
 
   it('一般價不能空、不能是小數或負數;經銷價可以不填;規格不能重複;1 到 50 個', async () => {
+    const before = { priceGeneral: 6800, priceStore: null };
     const bad = [
-      [{ variantId: V1, priceGeneral: null as unknown as number, priceStore: null }],
-      [{ variantId: V1, priceGeneral: 12.5, priceStore: null }],
-      [{ variantId: V1, priceGeneral: -1, priceStore: null }],
-      [{ variantId: V1, priceGeneral: 100, priceStore: -5 }],
-      [{ variantId: 'not-uuid', priceGeneral: 100, priceStore: null }],
+      [{ variantId: V1, priceGeneral: null as unknown as number, priceStore: null, before }],
+      [{ variantId: V1, priceGeneral: 12.5, priceStore: null, before }],
+      [{ variantId: V1, priceGeneral: -1, priceStore: null, before }],
+      [{ variantId: V1, priceGeneral: 100, priceStore: -5, before }],
+      [{ variantId: 'not-uuid', priceGeneral: 100, priceStore: null, before }],
       [
-        { variantId: V1, priceGeneral: 100, priceStore: null },
-        { variantId: V1, priceGeneral: 200, priceStore: null },
+        { variantId: V1, priceGeneral: 100, priceStore: null, before },
+        { variantId: V1, priceGeneral: 200, priceStore: null, before },
       ],
+      [{ variantId: V1, priceGeneral: 100, priceStore: null } as never],
       [],
     ];
     for (const b of bad) expect((await saveManualProductPricesAction(P, b)).ok).toBe(false);
     expect((await saveManualProductPricesAction('bad', input())).ok).toBe(false);
+    expect(setPrices).not.toHaveBeenCalled();
+  });
+
+  it('🔴 別的主管剛改過(資料庫現在的價格和頁面載入時不同)⇒ 整筆不送、請重新整理', async () => {
+    loadPrices.mockResolvedValue([{ ...current()[0]!, priceGeneral: 7000 }, current()[1]!]);
+    expect(await saveManualProductPricesAction(P, input())).toEqual({
+      ok: false,
+      message: '沒有儲存：這件商品的價格剛被別人改過。請重新整理頁面，確認目前的價格後再改。',
+    });
+    expect(setPrices).not.toHaveBeenCalled();
+  });
+
+  it('目前的價格讀不到 ⇒ 不送', async () => {
+    loadPrices.mockRejectedValue(new Error('down'));
+    expect((await saveManualProductPricesAction(P, input())).ok).toBe(false);
     expect(setPrices).not.toHaveBeenCalled();
   });
 
