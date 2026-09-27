@@ -73,6 +73,8 @@ import { loadOrderItemCostCells, type OrderItemCostCells } from '../../lib/order
 import { COST_CURRENCY_CODES } from '../../lib/orders/item-costs-view';
 import { TruncationReveal } from '../../components/orders/truncation-reveal';
 import { OrderExportButton } from '../../components/orders/order-export-button';
+import { OrderExportAllLink } from '../../components/orders/order-export-all-link';
+import { orderExportAllHref } from '../../lib/orders/order-export-all';
 import { orderExportBlockedReason } from '../../lib/orders/order-export';
 import {
   buildOrderPageCsv,
@@ -784,7 +786,18 @@ export default async function OrdersPage({
         keywordTruncated={result?.keywordTruncated ?? false}
         /* `#24` 片B:匯出吃的是同一個 `orders` 陣列(下面那張表渲染的那一份)⇒ 匯出 = 畫面上這一頁。
            列表讀失敗 ⇒ 不給(沒有東西可匯)。位置:只看列右端(稿沒有它,主視窗:「放搜尋框右邊小字或更多,你裁」)。 */
-        exportSlot={loadFailed ? null : <OrderExportButton {...exportProps} />}
+        exportSlot={
+          loadFailed ? null : (
+            <span className='flex items-center gap-2'>
+              <OrderExportButton {...exportProps} />
+              {/* M-4a-24 第一片:匯出全部篩選結果(Sean 2026-09-27 F1 甲);同一組篩選, 由 /orders/export 在 server 端組檔 */}
+              <OrderExportAllLink
+                href={orderExportAllHref(buildOrderListHref(filter, display, 1, PANEL_CLOSED))}
+                total={result?.total ?? 0}
+              />
+            </span>
+          )
+        }
         /* 🆕 A1:「老闆:成本」勾 —— **只有 manager 的請求會 render**(上面 `canBoss`, 非管理者這格是 null)。
            連結翻轉 `display.boss`, 其餘篩選 / 頁碼 / 展開的單原樣帶著走(同一支 `buildOrderListHref`)。位置 = 稿 `label.boss`(＋ 新增左邊)。 */
         bossSlot={
