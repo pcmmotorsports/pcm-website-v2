@@ -10,7 +10,7 @@ import { revalidatePath } from 'next/cache';
 import { authorizeAdminMutation } from '../session/authorize';
 import { getSessionActorWithSource } from '../session/actor';
 import { getRequestId } from '../audit/context';
-import { createManualProduct } from './product-repository';
+import { createManualProduct, type ManualVariantRow } from './manual-product-repository';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -63,7 +63,7 @@ export async function createManualProductAction(input: {
   if (!Array.isArray(input.variants) || input.variants.length === 0 || input.variants.length > 50) {
     return { ok: false, message: '沒有建立：規格要有 1 到 50 個。' };
   }
-  const variants: { sku: string; label: string; price_general: number; price_store: number | null; availability: string }[] = [];
+  const variants: ManualVariantRow[] = [];
   for (const [i, v] of input.variants.entries()) {
     const n = i + 1;
     const sku = normalizeSku(v?.sku);

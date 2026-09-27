@@ -10,7 +10,7 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: async () => authed }));
 vi.mock('../session/actor', () => ({ getSessionActorWithSource: async () => source }));
 vi.mock('../audit/context', () => ({ getRequestId: async () => 'req-1' }));
-vi.mock('./product-repository', () => ({ createManualProduct: (a: unknown) => create(a) }));
+vi.mock('./manual-product-repository', () => ({ createManualProduct: (a: unknown) => create(a) }));
 
 const { createManualProductAction } = await import('./manual-product-actions');
 const B = '11111111-1111-4111-8111-111111111111';
