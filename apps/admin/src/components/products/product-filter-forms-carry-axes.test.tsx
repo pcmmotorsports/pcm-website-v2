@@ -21,6 +21,7 @@ const ALL: AdminProductFilter = {
   categoryPath: '引擎部品',
   skus: ['SKU-1'],
   attention: ['out_of_stock', 'image_missing'],
+  sort: 'price_desc',
 };
 
 /** 畫出來的 HTML 裡,每個 hidden 欄位的 name → value。 */

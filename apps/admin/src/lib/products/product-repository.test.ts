@@ -269,7 +269,7 @@ describe('#20 片1a — 讀取層守門', () => {
     //    ⇒ 通過。而**內嵌關聯不會夾帶未指名的欄位**:PostgREST 只回 `select` 裡點名的,
     //      2026-08-19 本機實跑回的正是 `{"brands":{"name":"BREMBO"}}` 單欄。
     expect(code).toContain(
-      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title'",
+      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title, thumb:images->>0, image_missing:admin_card_image_missing, availability'",
     );
     // 片1b-1 新增的詳情欄位清單,同樣釘值不釘呼叫字面。
     expect(code).toContain('supplier_slug, handle, brand_id, category_id');
@@ -524,6 +524,24 @@ describe('商品頁乙 A2:「要處理」篩選與件數', () => {
     expect(q.calls.filter((c) => c[0] === 'eq' && c[1] === 'listing_set_by')).toHaveLength(5);
     // 每一顆都有自己的期限,卡住的那一顆不會拖住整頁(A2 Codex 必修 2)
     expect(q.calls.filter((c) => c[0] === 'abortSignal')).toHaveLength(5);
+  });
+});
+
+describe('商品頁乙 A5:排序', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+  });
+
+  it.each([
+    [undefined, ['created_at', { ascending: false }]],
+    ['updated', ['updated_at', { ascending: false }]],
+    ['price_asc', ['price_general', { ascending: true, nullsFirst: false }]],
+    ['price_desc', ['price_general', { ascending: false, nullsFirst: false }]],
+    ['sku', ['external_id', { ascending: true }]],
+  ] as const)('sort=%s ⇒ 第一鍵照選的排,第二鍵一律 id(分頁不漂)', async (sort, first) => {
+    await listProductsForAdmin(20, 0, { sort });
+    const orders = q.calls.filter((c) => c[0] === 'order').map((c) => c.slice(1));
+    expect(orders).toEqual([[...first], ['id', { ascending: true }]]);
   });
 });
 

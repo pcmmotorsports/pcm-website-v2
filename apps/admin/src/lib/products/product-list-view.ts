@@ -70,6 +70,26 @@ export const CATEGORY_PARAM = 'category';
  *      而產生連結時一律只寫 `?category=<raw_path>` ⇒ **網址是正規化的、只有一種寫法**。
  */
 export const SUBCATEGORY_PARAM = 'subcategory';
+/** 商品頁乙 C3:改分類一次最多幾件。與 20260928050000 的上限同一個數;server action 與 RPC 兩邊都擋。 */
+export const MAX_CATEGORY_BATCH = 200;
+
+/**
+ * 商品頁乙 A5:排序。`undefined` = 預設(最新建立的在前,同 A5 之前的行為)。
+ * 🔴 排序不是 where 條件,但放在 AdminProductFilter 裡:它要跟篩選一樣被每一張表單、每一個連結帶著走,
+ *    放在這裡才吃得到 filterHiddenFields 與「三張表單都要帶齊」那一格測試的保護。
+ */
+export const SORT_PARAM = 'sort';
+export const PRODUCT_SORT_KEYS = ['updated', 'price_asc', 'price_desc', 'sku'] as const;
+export type ProductSort = (typeof PRODUCT_SORT_KEYS)[number];
+export const PRODUCT_SORT_LABEL: Record<ProductSort | 'default', string> = {
+  default: '最新建立',
+  // 更新時間也包含每日同步寫入的時間(GPT-6 審視提醒),不叫「最近人工修改」
+  updated: '最近更新(含每日同步)',
+  price_asc: '售價低到高',
+  price_desc: '售價高到低',
+  sku: '料號',
+};
+
 /** 商品頁乙 A2:「要處理」篩選(可複選,逗號串)。 */
 export const ATTENTION_PARAM = 'attn';
 
@@ -170,6 +190,8 @@ export interface AdminProductFilter {
   readonly skus: readonly string[] | undefined;
   /** `?attn=`;「要處理」條件,彼此是「或」。`undefined` = 不篩(不是空陣列)。 */
   readonly attention: readonly ProductAttention[] | undefined;
+  /** `?sort=`;`undefined` = 預設排序(最新建立的在前)。 */
+  readonly sort: ProductSort | undefined;
 }
 
 /**
@@ -513,6 +535,12 @@ export function parseProductAttention(value: string | string[] | undefined): rea
   return keys.length > 0 ? keys : undefined;
 }
 
+/** `?sort=` → 認得的排序;認不得或沒帶 ⇒ `undefined`(預設排序)。 */
+export function parseProductSort(value: string | string[] | undefined): ProductSort | undefined {
+  const v = Array.isArray(value) ? value[0] : value;
+  return PRODUCT_SORT_KEYS.find((k) => k === v);
+}
+
 export function parseProductListParams(raw: SearchParams): {
   filter: AdminProductFilter;
   view: AdminProductView;
@@ -528,6 +556,7 @@ export function parseProductListParams(raw: SearchParams): {
       ),
       skus: parseProductSkus(raw[SKU_PARAM]),
       attention: parseProductAttention(raw[ATTENTION_PARAM]),
+      sort: parseProductSort(raw[SORT_PARAM]),
     },
     view: {
       page: parseProductPage(raw[PAGE_PARAM]),
@@ -586,6 +615,7 @@ export function filterHrefEntries(
     //    📌 我原本在這裡寫「網址用逗號、人看得懂」—— **那句對【連結】為真,對【表單送出】為假。**
     skus: [SKU_PARAM, filter.skus === undefined ? undefined : filter.skus.join(',')],
     attention: [ATTENTION_PARAM, filter.attention === undefined ? undefined : filter.attention.join(',')],
+    sort: [SORT_PARAM, filter.sort],
   };
 }
 

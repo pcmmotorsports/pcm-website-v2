@@ -20,7 +20,7 @@ const F = (over: Partial<AdminProductFilter> = {}): AdminProductFilter => ({
   keyword: undefined,
   brandIds: undefined,
   categoryPath: undefined,
-  skus: undefined, attention: undefined,
+  skus: undefined, attention: undefined, sort: undefined,
   ...over,
 });
 

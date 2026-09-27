@@ -1,6 +1,6 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
-import { PRODUCT_ATTENTION_KEYS, type ProductAttention } from './product-list-view';
+import { PRODUCT_ATTENTION_KEYS, type ProductAttention, type ProductSort } from './product-list-view';
 import type { ProductMediaRow } from './product-media';
 import type { BrandOptionRow, CategoryOptionRow } from './product-taxonomy-options';
 
@@ -89,6 +89,12 @@ export interface AdminProductListRow extends AdminProductRow {
   readonly categories: { readonly raw_path: string } | null;
   /** 員工改過的標題(`staff_overrides->>title`);沒改過是 `null`。列表顯示用 `displayTitle`。 */
   readonly override_title: string | null;
+  /** 商品頁乙 A4:第一張圖網址(`images->>0`),縮圖用。 */
+  readonly thumb: string | null;
+  /** 商品頁乙 A4:代表圖待補(20260928030000 計算欄,與「要處理」那顆同一個判斷)。 */
+  readonly image_missing: boolean | null;
+  /** 商品頁乙 A4:庫存狀態(`in-stock` / `out-of-stock`),缺貨標記用。 */
+  readonly availability: string | null;
 }
 
 /** 客人看到的標題:員工改過的優先,沒有才用供應商的(同前台 products_public,20260927040000)。 */
@@ -101,7 +107,7 @@ export function displayTitle(row: Pick<AdminProductListRow, 'title' | 'override_
  * 這串字面被 product-repository.test.ts 釘住。
  */
 const PRODUCT_LIST_COLUMNS =
-  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title' as const;
+  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title, thumb:images->>0, image_missing:admin_card_image_missing, availability' as const;
 
 /** 上下架狀態的 domain 形狀(頁面與表格只認這個,不認 DB 欄)。 */
 export type ProductListingState = 'listed' | 'delisted';
@@ -292,6 +298,8 @@ export interface AdminProductQuery {
   readonly skus?: readonly string[];
   /** 商品頁乙 A2:「要處理」條件,彼此是「或」;和其他軸是「而且」。空陣列不得傳進來。 */
   readonly attention?: readonly ProductAttention[];
+  /** 商品頁乙 A5:排序;`undefined` = 最新建立的在前。 */
+  readonly sort?: ProductSort;
 }
 
 /**
@@ -439,8 +447,19 @@ export async function queryProductsForAdmin<Row>(
   query: AdminProductQuery,
 ): Promise<{ items: Row[]; total: number }> {
   const { q } = await filteredProducts(columns, false, query);
-  const { data, error, count } = await q
-    .order('created_at', { ascending: false })
+  // 商品頁乙 A5:排序。🔴 一律再加 `id` 當第二鍵:第一鍵同值時單靠它分頁會漂(見上面那段)。
+  //   售價沒填的排最後(nullsFirst: false),不管升冪降冪。
+  const sorted =
+    query.sort === 'updated'
+      ? q.order('updated_at', { ascending: false })
+      : query.sort === 'price_asc'
+        ? q.order('price_general', { ascending: true, nullsFirst: false })
+        : query.sort === 'price_desc'
+          ? q.order('price_general', { ascending: false, nullsFirst: false })
+          : query.sort === 'sku'
+            ? q.order('external_id', { ascending: true })
+            : q.order('created_at', { ascending: false });
+  const { data, error, count } = await sorted
     .order('id', { ascending: true })
     .range(offset, offset + limit - 1);
 
@@ -707,4 +726,37 @@ export async function setProductOverride(args: {
     return data;
   }
   throw new Error('admin_set_product_override RPC 回傳非預期碼');
+}
+
+// ─────────────── 商品頁乙 C3:改分類(一件或整批)───────────────
+
+export type ProductCategoryOutcome = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
+
+/**
+ * 呼叫 20260928050000 `admin_set_product_category`。整批在同一個交易裡:資料庫明確拒絕 = 整批沒寫;
+ * 連線中斷或回應讀不到時,資料庫可能已經寫好 ⇒ 呼叫端不能把丟錯一律當成「沒寫」。
+ * `categoryId = null` 且 `unlock = true` ⇒「改回由同步決定」。
+ */
+export async function setProductCategory(args: {
+  productIds: readonly string[];
+  categoryId: string | null;
+  unlock: boolean;
+  actor: string;
+  requestId: string;
+}): Promise<{ productId: string; outcome: ProductCategoryOutcome }[]> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_product_category', {
+    p_product_ids: [...args.productIds],
+    p_category_id: args.categoryId,
+    p_unlock: args.unlock,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as { product_id: string; outcome: string }[];
+  return rows.map((r) => {
+    if (r.outcome !== 'UPDATED' && r.outcome !== 'NO_CHANGE' && r.outcome !== 'NOT_FOUND') {
+      throw new Error('admin_set_product_category RPC 回傳非預期碼');
+    }
+    return { productId: r.product_id, outcome: r.outcome };
+  });
 }

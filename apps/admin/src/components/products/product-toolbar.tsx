@@ -1,3 +1,4 @@
+import { ProductSortSelect } from './product-filter-chips';
 import { ProductKeywordSearch } from './product-keyword-search';
 import { ProductSkuFilter } from './product-sku-filter';
 import { DEFAULT_PAGE_SIZE, buildProductListHref, type AdminProductFilter } from '../../lib/products/product-list-view';
@@ -35,6 +36,7 @@ export function ProductToolbar({
         </details>
       )}
       <span className='pcm-sp' />
+      {!loadFailed && <ProductSortSelect filter={filter} size={size} />}
       {!loadFailed && <span className='pcm-count'>共 {total.toLocaleString('zh-TW')} 件</span>}
       {/* 2026-09-27 商品清單匯出(M-4a-24 第二片):一般連結,檔案由 `/products/export` 在 server 端組。
           🔴 文字不用「全部」(訂單工具列 Sean 09-16 拍甲那條,商品頁也避開)。超過上限就不給連結,直接說怎麼做。 */}

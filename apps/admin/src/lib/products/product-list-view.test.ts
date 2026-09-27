@@ -4,6 +4,7 @@ import {
   buildProductListHrefResetPage,
   parseProductKeyword,
   parseProductAttention,
+  parseProductSort,
   parseProductListParams,
   parseProductPage,
   parseProductSetBy,
@@ -33,7 +34,7 @@ const NONE: AdminProductFilter = {
   keyword: undefined,
   brandIds: undefined,
   categoryPath: undefined,
-      skus: undefined, attention: undefined,
+      skus: undefined, attention: undefined, sort: undefined,
 };
 
 describe('parseProductPage', () => {
@@ -467,5 +468,14 @@ describe('商品頁乙 A2:?attn= 要處理篩選', () => {
     expect(href).toContain('attn=delisted%2Csource_missing');
     const back = parseProductListParams(Object.fromEntries(new URL(href, 'http://x').searchParams));
     expect(back.filter.attention).toEqual(['delisted', 'source_missing']);
+  });
+});
+
+describe('商品頁乙 A5:?sort= 排序', () => {
+  it('認得的四種照收;認不得或沒帶 ⇒ 預設排序(undefined)', () => {
+    expect(parseProductSort('price_desc')).toBe('price_desc');
+    expect(parseProductSort(['sku', 'updated'])).toBe('sku');
+    expect(parseProductSort('drop table')).toBeUndefined();
+    expect(parseProductSort(undefined)).toBeUndefined();
   });
 });

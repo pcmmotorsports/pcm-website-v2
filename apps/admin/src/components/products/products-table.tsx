@@ -39,7 +39,20 @@ function priceCell(row: AdminProductListRow) {
   return price === null ? null : `NT$ ${price.toLocaleString('zh-TW')}`;
 }
 
+/** 商品頁乙 A4:縮圖。代表圖待補(佔位圖或沒有圖)就畫空框寫「待補」,一眼看得出哪件沒照片。 */
+function thumbCell(row: AdminProductListRow) {
+  if (row.image_missing !== false || !row.thumb) {
+    return (
+      <span className='border-border text-muted-foreground inline-flex h-9 w-9 items-center justify-center rounded-md border border-dashed text-[10px]'>
+        待補
+      </span>
+    );
+  }
+  return <img src={row.thumb} alt='' loading='lazy' className='bg-muted h-9 w-9 rounded-md object-contain' />;
+}
+
 const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
+  { key: 'thumb', header: '圖', cell: thumbCell },
   {
     key: 'title',
     header: '商品名稱',
@@ -89,6 +102,10 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
           <span className='pcm-cap pcm-cap--on'>上架中</span>
         ) : (
           <span className='pcm-cap'>已下架</span>
+        )}
+        {/* 商品頁乙 A4:缺貨另外標,不跟「已下架」「原廠已無此品」合併 —— 缺貨的可能還在架上。 */}
+        {resolveListingState(row) === 'listed' && row.availability === 'out-of-stock' && (
+          <span className='pcm-cap'>缺貨</span>
         )}
         <span className='text-muted-foreground text-xs'>
           {SET_BY_LABEL[resolveListingSetBy(row)]}
