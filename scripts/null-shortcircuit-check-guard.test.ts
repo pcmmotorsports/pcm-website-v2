@@ -147,6 +147,10 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   //    逐格證據寫在 `PROBED_OR_CHECKS` 裡那兩列的註解。
   ['home_banners', 'status'],
   ['home_banners', 'rights_confirmed'],
+  // 2026-09-27 進度86(`20260927040000`,作者就是我):`products_staff_overrides_shape` 整條 AND 串的起點是
+  //   `jsonb_typeof(staff_overrides) = 'object'` ⇒ 欄是 NULL 時整條求值成 NULL ⇒ CHECK 放行。擋住它的是這根 NOT NULL。
+  //   逐格證據寫在 `PROBED_OR_CHECKS` 裡那一列的註解。
+  ['products', 'staff_overrides'],
 ] as const;
 
 /**
@@ -165,6 +169,15 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 2026-09-27 進度86(`20260927040000_m4b_products_staff_overrides.sql`;作者就是我)。
+  //   形狀:jsonb_typeof(x)='object' AND (x - 三個鍵)='{}' AND (NOT x?'title' OR typeof(x->'title')='string') AND …(subtitle / highlights 同形)
+  //   🔬 壞形狀跑過兩處:
+  //     · 拋棄式 PG(migrations-replay-from-zero --keep-db 後套本支):'{"cost":100}' · '{"title":123}' · '{"highlights":"不是陣列"}'
+  //       · '["不是物件"]' 四發都紅在 products_staff_overrides_shape;NULL 紅在 not-null;'{"title":"合法"}' 進得去。
+  //     · 同一條運算式純求值(不碰表):'{"title":null}' · '{"subtitle":null}' · '{"highlights":null}' · 'null' · '{"cost":1}'
+  //       · '{"title":1}' 全部 f(不是 NULL);'{}' 與 '{"title":"ok","highlights":["a"]}' 為 t。
+  //   🔴 NULL 面:輸入是 SQL NULL 時整條求值成 NULL(實測 IS NULL = t)⇒ 靠 NOT NULL 撐,已列進 LOAD_BEARING_NOT_NULL。
+  'products.products_staff_overrides_shape',
   // 🔴 2026-09-13 設計窗補(`20260913070000_m4b_fx_rates.sql`;作者就是我)。
   //    形狀:(currency_code <> 'TWD' OR rate_to_twd = 1)—— 兩欄都 NOT NULL ⇒ 沒有 NULL 短路面。
   //    🔬 壞形狀跑過:`scripts/20260913070000-verify.sh` 那格「直接 INSERT TWD=2 撞 CHECK」
