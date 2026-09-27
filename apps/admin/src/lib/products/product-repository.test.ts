@@ -27,7 +27,7 @@ const q = vi.hoisted(() => ({
 }));
 vi.mock('@pcm/adapters/server', () => {
   const builder: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'maybeSingle', 'abortSignal']) {
+  for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'limit', 'maybeSingle', 'abortSignal']) {
     builder[m] = (...args: unknown[]) => {
       q.calls.push([m, ...args]);
       return builder;
@@ -58,6 +58,7 @@ import {
   listProductsForAdmin,
   resolveListingState,
   resolvePrice,
+  saleLabel,
   type AdminProductRow,
 } from './product-repository';
 
@@ -551,16 +552,18 @@ describe('商品頁乙 A2:「要處理」篩選與件數', () => {
     expect(ATTENTION_CONDITION.image_missing).toBe('admin_card_image_missing.is.true');
   });
 
-  it('件數:五顆各查一次、只算數不撈列、只帶自己那一種,其他篩選照帶', async () => {
+  it('件數:六顆各查一次、只算數不撈列、只帶自己那一種,其他篩選照帶', async () => {
     await countProductAttention({ setBy: 'staff', attention: ['delisted'] });
     const ors = q.calls.filter((c) => c[0] === 'or').map((c) => c[1] as string);
-    expect([...ors].sort()).toEqual(Object.values(ATTENTION_CONDITION).sort());
-    const selects = q.calls.filter((c) => c[0] === 'select');
-    expect(selects).toHaveLength(5);
-    expect(selects.every((c) => (c[2] as { head: boolean }).head === true)).toBe(true);
-    expect(q.calls.filter((c) => c[0] === 'eq' && c[1] === 'listing_set_by')).toHaveLength(5);
+    // 商品頁乙 P15:第六顆「特價中」的條件是先查規格表再變成 id 條件(id.in.(…) 或一件都不中的 id.is.null)
+    expect(ors).toHaveLength(6);
+    for (const cond of Object.values(ATTENTION_CONDITION)) expect(ors).toContain(cond);
+    expect(ors.filter((o) => o.startsWith('id.'))).toHaveLength(1);
+    const heads = q.calls.filter((c) => c[0] === 'select' && (c[2] as { head?: boolean } | undefined)?.head === true);
+    expect(heads).toHaveLength(6);
+    expect(q.calls.filter((c) => c[0] === 'eq' && c[1] === 'listing_set_by')).toHaveLength(6);
     // 每一顆都有自己的期限,卡住的那一顆不會拖住整頁(A2 Codex 必修 2)
-    expect(q.calls.filter((c) => c[0] === 'abortSignal')).toHaveLength(5);
+    expect(q.calls.filter((c) => c[0] === 'abortSignal')).toHaveLength(6);
   });
 });
 
@@ -633,7 +636,8 @@ describe('D2 搜尋接到 admin_products_by_keyword', () => {
     await listProductsForAdmin(20, 0, { keyword: 'panigale' });
     expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'panigale' }, { count: 'exact', head: false }]);
     expect(q.calls.filter((c) => c[0] === 'or')).toEqual([]);
-    expect(q.calls.filter((c) => c[0] === 'from')).toEqual([]);
+    // 商品列表不從 products 表讀(規格表那兩次是 P15 的特價標記,另外查)
+    expect(q.calls.filter((c) => c[0] === 'from' && c[1] === 'products')).toEqual([]);
   });
 
   it('🔴 其他篩選照樣疊在搜尋結果上(品牌、要處理、排序、分頁同一段程式)', async () => {
@@ -646,7 +650,7 @@ describe('D2 搜尋接到 admin_products_by_keyword', () => {
   it('🔴 「要處理」件數在有搜尋詞時也走同一個來源(只算數)', async () => {
     await countProductAttention({ keyword: 'panigale' });
     const rpcs = q.calls.filter((c) => c[0] === 'rpc');
-    expect(rpcs).toHaveLength(5);
+    expect(rpcs).toHaveLength(6);
     expect(rpcs.every((c) => (c[3] as { head: boolean }).head === true)).toBe(true);
   });
 
@@ -785,5 +789,37 @@ describe('🔴🔴 listProductFilterOptions:內嵌聚合 → 「有商品的分�
     await listProductFilterOptions();
     const selects = q.calls.filter((c) => c[0] === 'select').map((c) => String(c[1]));
     expect(selects.some((sel) => sel.includes('products(count)'))).toBe(true);
+  });
+});
+
+describe('商品頁乙 P15:特價中', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+    q.rows = null;
+  });
+
+  it('「特價中」= 規格表有特價的商品 id(去重)⇒ id.in.(…);一件都沒有 ⇒ id.is.null(一件都不中,不是不篩)', async () => {
+    q.rows = [{ product_id: 'p1' }, { product_id: 'p1' }, { product_id: 'p2' }];
+    await listProductsForAdmin(20, 0, { attention: ['on_sale'] });
+    expect(q.calls).toContainEqual(['from', 'product_variants']);
+    expect(q.calls).toContainEqual(['not', 'sale_price_general', 'is', null]);
+    expect(q.calls).toContainEqual(['or', 'id.in.(p1,p2)']);
+
+    q.calls.length = 0;
+    q.rows = [];
+    await listProductsForAdmin(20, 0, { attention: ['on_sale'] });
+    expect(q.calls).toContainEqual(['or', 'id.is.null']);
+  });
+
+  it('和其他「要處理」同一個「或」', async () => {
+    q.rows = [{ product_id: 'p1' }];
+    await listProductsForAdmin(20, 0, { attention: ['delisted', 'on_sale'] });
+    expect(q.calls).toContainEqual(['or', 'delisted_at.not.is.null,id.in.(p1)']);
+  });
+
+  it('列表標籤:有特價 ⇒「特價 NT$ 1,200」;沒有 ⇒ null', () => {
+    expect(saleLabel({ sale_price: 1200 })).toBe('特價 NT$ 1,200');
+    expect(saleLabel({ sale_price: null })).toBeNull();
+    expect(saleLabel({})).toBeNull();
   });
 });

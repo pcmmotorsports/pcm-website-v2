@@ -13,6 +13,7 @@ import {
   isSourceMissing,
   resolveListingState,
   resolvePrice,
+  saleLabel,
   type AdminProductListRow,
 } from '../../lib/products/product-repository';
 
@@ -29,7 +30,10 @@ import {
 /** 售價顯示:`null` 回 null ⇒ AdminDataTable 自己渲染「—」,不在這裡編一個假的 0。 */
 function priceCell(row: AdminProductListRow) {
   const price = resolvePrice(row);
-  return price === null ? null : `NT$ ${price.toLocaleString('zh-TW')}`;
+  // 商品頁乙 P15:售價照舊是原價;有特價時後面接「特價 NT$…」(客人在商品卡上看到的那個)
+  const sale = saleLabel(row);
+  if (price === null) return sale;
+  return sale === null ? `NT$ ${price.toLocaleString('zh-TW')}` : `NT$ ${price.toLocaleString('zh-TW')} · ${sale}`;
 }
 
 /** 商品頁乙 A4:縮圖。代表圖待補(佔位圖或沒有圖)就畫空框寫「待補」,一眼看得出哪件沒照片。 */
@@ -149,6 +153,7 @@ function ProductRowSummary({ row, closeHref, detailHref }: { row: AdminProductLi
     <div className='bg-muted/40 mt-2 space-y-2 rounded-md border p-3 text-sm whitespace-normal' data-product-row-summary>
       <div className='flex flex-wrap gap-x-4 gap-y-1'>
         <span>售價 {price === null ? '未設定' : `NT$ ${price.toLocaleString('zh-TW')}`}</span>
+        {saleLabel(row) !== null && <span>{saleLabel(row)}</span>}
         <span>分類 {row.categories?.raw_path ?? '未設定'}</span>
         <span>{listed ? '上架中' : '已下架'}</span>
         <span>{row.availability === 'out-of-stock' ? '缺貨' : '有庫存'}</span>

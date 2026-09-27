@@ -1,7 +1,9 @@
 import 'server-only';
 import { toCsv } from '../orders/order-export';
 import { taipeiParts } from '../orders/order-list-view';
-import { queryProductsForAdmin, type AdminProductQuery } from './product-repository';
+import { queryProductsForAdmin, representativeSalePrice, type AdminProductQuery } from './product-repository';
+
+export { representativeSalePrice };
 import { readProductOverrides } from './product-overrides-view';
 
 // product-export.ts — 商品清單匯出(M-4a-24 第二片;Sean 2026-09-27 F1 甲 / F2 甲 CSV / F3「都放」)。
@@ -99,33 +101,6 @@ export function basisDealerPrice(variants: readonly ProductExportVariant[] | nul
     return a.sku < b.sku ? -1 : a.sku > b.sku ? 1 : 0;
   })[0]!;
   return basis.price_store;
-}
-
-/**
- * 商品頁乙 P13:客人在商品卡上看到的特價。規則同前台 view(20260928230000):
- * 代表款 = 實際一般價(一般價與特價取較低、一般價空 ⇒ 空)最低那一款,空值排最後,同價取 sku 最小(COLLATE "C");
- * 它的特價正在生效(比一般價低)⇒ 特價;否則 null(這一欄留空)。「一般價」那一欄照舊是原價。
- */
-export function representativeSalePrice(variants: readonly ProductExportVariant[] | null): number | null {
-  if (!variants || variants.length === 0) return null;
-  const effective = (v: ProductExportVariant) =>
-    v.price_general === null
-      ? null
-      : v.sale_price_general == null || v.sale_price_general >= v.price_general
-        ? v.price_general
-        : v.sale_price_general;
-  const rep = [...variants].sort((a, b) => {
-    const ea = effective(a);
-    const eb = effective(b);
-    if (ea !== eb) {
-      if (ea === null) return 1;
-      if (eb === null) return -1;
-      return ea - eb;
-    }
-    return a.sku < b.sku ? -1 : a.sku > b.sku ? 1 : 0;
-  })[0]!;
-  const e = effective(rep);
-  return e !== null && e !== rep.price_general ? e : null;
 }
 
 function money(v: number | null): string {

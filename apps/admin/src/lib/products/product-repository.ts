@@ -63,6 +63,11 @@ export interface AdminProductRow {
  */
 export interface AdminProductListRow extends AdminProductRow {
   /**
+   * 商品頁乙 P15:客人在商品卡上看到的特價(代表款的特價,規則同前台 view 20260928230000);沒有特價 ⇒ null。
+   * 不是資料庫欄位:列表讀完一頁之後另外查規格表補上(`listProductsForAdmin`)。讀不到 ⇒ 沒有這個欄位(不標)。
+   */
+  readonly sale_price?: number | null;
+  /**
    * PostgREST **內嵌 to-one 關聯**的品牌名(`brands(name)`)。
    *
    * 🔴 **檔頭那條「品牌/分類用另外兩支查詢、不用內嵌關聯」的理由已經【失效】,而它失效得有憑據**:
@@ -256,13 +261,38 @@ export interface AdminProductQuery {
  * · 代表圖待補 / 標題無中文字 = 20260928030000 的兩個計算欄(規則住在資料庫,與前台無圖排最後同一份)。
  * 🔴 同步寫進來的 images 永遠有一張(rpm-transform.ts:735),所以不能用「images 是空的」判。
  */
-export const ATTENTION_CONDITION: Record<ProductAttention, string> = {
+export const ATTENTION_CONDITION: Record<Exclude<ProductAttention, 'on_sale'>, string> = {
   delisted: 'delisted_at.not.is.null',
   out_of_stock: 'and(delisted_at.is.null,availability.eq.out-of-stock)',
   image_missing: 'admin_card_image_missing.is.true',
   title_no_cjk: 'admin_title_lacks_cjk.is.true',
   source_missing: 'source_missing_at.not.is.null',
 };
+
+/**
+ * 商品頁乙 P15「特價中」:任何一個規格設了特價(`product_variants.sale_price_general` 不是空的)的商品。
+ * 特價住在規格表,商品表沒有這一欄 ⇒ 先把商品 id 撈出來,再變成 `id.in.(…)` 放進「要處理」那個「或」。
+ * 沒有任何特價 ⇒ `id.is.null`(一件都不中,不是「不篩」)。
+ * ponytail: 一次把 id 全撈回來、塞進網址;特價商品超過 SALE_ID_CAP 件就改成資料庫計算欄(像 admin_card_image_missing)。
+ */
+export const SALE_ID_CAP = 500;
+async function onSaleCondition(): Promise<string> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('product_variants')
+    .select('product_id')
+    .not('sale_price_general', 'is', null)
+    .limit(SALE_ID_CAP * 10);
+  if (error) throw new Error(`特價中商品讀取失敗: ${error.message}`);
+  // 讀滿上限 ⇒ 可能被截斷,件數不可信 ⇒ 一樣停
+  if ((data ?? []).length >= SALE_ID_CAP * 10) throw new Error(`特價中的規格太多,這個篩選要改成資料庫計算欄`);
+  const ids = [...new Set((data ?? []).map((r) => r.product_id))];
+  if (ids.length > SALE_ID_CAP) throw new Error(`特價中商品超過 ${SALE_ID_CAP} 件,這個篩選要改成資料庫計算欄`);
+  return ids.length === 0 ? 'id.is.null' : `id.in.(${ids.join(',')})`;
+}
+
+async function attentionCondition(key: ProductAttention): Promise<string> {
+  return key === 'on_sale' ? onSaleCondition() : ATTENTION_CONDITION[key];
+}
 
 /**
  * 料號清單 → 商品 id 集合。**回空陣列是一個合法答案**(= 這些料號一個都不存在)。
@@ -292,7 +322,75 @@ export async function listProductsForAdmin(
   offset: number,
   query: AdminProductQuery = {},
 ): Promise<AdminProductPage> {
-  return queryProductsForAdmin<AdminProductListRow>(PRODUCT_LIST_COLUMNS, limit, offset, query);
+  const page = await queryProductsForAdmin<AdminProductListRow>(PRODUCT_LIST_COLUMNS, limit, offset, query);
+  // 商品頁乙 P15:這一頁有設特價的商品標「特價 NT$…」。讀不到 ⇒ 不標,列表照常(售價那一格照舊是原價)。
+  const sale = await salePricesFor(page.items.map((r) => r.id)).catch((error: unknown) => {
+    console.error('[admin/products] 列表特價讀取失敗(這一頁不標特價)', error);
+    return null;
+  });
+  if (sale === null) return page;
+  return { ...page, items: page.items.map((r) => ({ ...r, sale_price: sale.get(r.id) ?? null })) };
+}
+
+/** 一頁商品 ⇒ 代表款的特價(兩次查詢:先找哪幾件有特價,再讀那幾件的全部規格算代表款)。 */
+async function salePricesFor(productIds: readonly string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (productIds.length === 0) return out;
+  const client = createSupabaseServiceClient();
+  const { data: onSale, error } = await client
+    .from('product_variants')
+    .select('product_id')
+    .in('product_id', [...productIds])
+    .not('sale_price_general', 'is', null);
+  if (error) throw new Error(error.message);
+  const saleIds = [...new Set((onSale ?? []).map((r) => r.product_id))];
+  if (saleIds.length === 0) return out;
+  const { data: variants, error: vError } = await client
+    .from('product_variants')
+    .select('product_id, sku, price_general, sale_price_general')
+    .in('product_id', saleIds);
+  if (vError) throw new Error(vError.message);
+  const byProduct = new Map<string, { sku: string; price_general: number | null; sale_price_general: number | null }[]>();
+  for (const v of variants ?? []) byProduct.set(v.product_id, [...(byProduct.get(v.product_id) ?? []), v]);
+  for (const [id, vs] of byProduct) {
+    const price = representativeSalePrice(vs);
+    if (price !== null) out.set(id, price);
+  }
+  return out;
+}
+
+/**
+ * 商品頁乙 P13 / P15:客人在商品卡上看到的特價(匯出的「特價」欄與列表的「特價 NT$…」共用)。規則同前台 view(20260928230000):
+ * 代表款 = 實際一般價(一般價與特價取較低、一般價空 ⇒ 空)最低那一款,空值排最後,同價取 sku 最小(COLLATE "C");
+ * 它的特價正在生效(比一般價低)⇒ 特價;否則 null(這一欄留空)。「一般價」那一欄照舊是原價。
+ */
+export function representativeSalePrice(
+  variants: readonly { sku: string; price_general: number | null; sale_price_general?: number | null }[] | null,
+): number | null {
+  if (!variants || variants.length === 0) return null;
+  const effective = (v: { price_general: number | null; sale_price_general?: number | null }) =>
+    v.price_general === null
+      ? null
+      : v.sale_price_general == null || v.sale_price_general >= v.price_general
+        ? v.price_general
+        : v.sale_price_general;
+  const rep = [...variants].sort((a, b) => {
+    const ea = effective(a);
+    const eb = effective(b);
+    if (ea !== eb) {
+      if (ea === null) return 1;
+      if (eb === null) return -1;
+      return ea - eb;
+    }
+    return a.sku < b.sku ? -1 : a.sku > b.sku ? 1 : 0;
+  })[0]!;
+  const e = effective(rep);
+  return e !== null && e !== rep.price_general ? e : null;
+}
+
+/** 列表上「特價 NT$…」那幾個字;沒有特價 ⇒ null。表格、展開摘要、卡片共用。 */
+export function saleLabel(row: Pick<AdminProductListRow, 'sale_price'>): string | null {
+  return row.sale_price == null ? null : `特價 NT$ ${row.sale_price.toLocaleString('zh-TW')}`;
 }
 
 /**
@@ -372,7 +470,7 @@ async function filteredProducts(columns: string, head: boolean, query: AdminProd
   // 商品頁乙 A2:「要處理」幾種條件之間是「或」;和上面各軸是「而且」
   //   (PostgREST 同時帶兩個 or= 會取交集,2026-09-28 本機 PostgREST 實測)。
   if (query.attention && query.attention.length > 0) {
-    q = q.or(query.attention.map((key) => ATTENTION_CONDITION[key]).join(','));
+    q = q.or((await Promise.all(query.attention.map(attentionCondition))).join(','));
   }
   return { q };
 }
