@@ -1694,6 +1694,29 @@ export const fetchProductIdsByHandles = cache(
 );
 
 /**
+ * 商品頁乙 P11:購物車與結帳頁的【一般會員】規格單價,每次直接讀 `product_variants_public`(不走下面那個 60 秒快取)。
+ * 為什麼:下單時 `create_order` 會拿畫面單價比對現在的價格(20260928230000),不同就不建單、請客人確認新金額;
+ *   要是畫面價來自 60 秒快取,主管改價或特價結束後的一分鐘內,客人重讀購物車也只會拿到舊價,一直被擋。
+ * 一次查詢、最多 200 個 id(購物車上限),走公開 view(母商品下架時 RLS 會濾掉它的規格 ⇒ 不在回傳的 Map 裡)。
+ * 經銷會員不走這裡(那一半由 `fetchEffectivePrices` 每發都算)。
+ * @throws 查詢失敗時往上拋,呼叫端決定要不要退回快取價。
+ */
+export async function fetchVariantPricesFresh(variantIds: readonly string[]): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (variantIds.length === 0) return out;
+  const client = createCatalogAnonClient();
+  const { data, error } = await client
+    .from('product_variants_public')
+    .select('id, price_general')
+    .in('id', [...variantIds]);
+  if (error) throw new Error('product_variants_public 讀取失敗');
+  for (const row of data ?? []) {
+    if (typeof row.id === 'string') out.set(row.id, row.price_general ?? null);
+  }
+  return out;
+}
+
+/**
  * PDP 商品本體的跨請求快取(2026-09-14 主視窗裁甲, plan `docs/plans/2026-09-14-pdp-data-cache-plan.md` L1)。
  * 🔴 快取的是【已經 `toUIProduct(product, 'general')` strip 過】的 UI 物件 —— 裡面本來就沒有經銷價
  *    (`:225-226` 變體 server-side strip、不帶 priceByTier)。經銷價是 route 端 `app/products/[slug]/page.tsx:116-`

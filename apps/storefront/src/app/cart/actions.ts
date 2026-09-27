@@ -26,7 +26,7 @@
 
 import { fetchProductByHandle } from '@/lib/products';
 // ⟦auth-DEALERTIERPRICING⟧ M-2-08 B2a —— 見下方 `applyTierPrices` 那段。
-import { fetchProductIdsByHandles } from '@/lib/products';
+import { fetchProductIdsByHandles, fetchVariantPricesFresh } from '@/lib/products';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { resolveOrderTier } from '@/lib/site-order-guard';
 import {
@@ -294,6 +294,20 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
     throw new Error('tier price: 身分查不出來 ⇒ 不得結帳(畫面的價與 server 要收的價可能不同)');
   }
   const tier = tierResolved.tier;
+  // 商品頁乙 P11:一般會員(含未登入)的規格單價改讀現在的價格(不走 60 秒快取)。這個值也是下單時送去給
+  //   create_order 比對的畫面單價;用快取價的話,價格一變客人會連續被擋一分鐘。
+  //   讀不到 ⇒ 保留快取價(錢由 create_order 算,比對不符只會擋單、不會收錯);一般價空 ⇒ null(不能結帳)。
+  if (tier !== 'store') {
+    const variantIds = [...new Set(out.filter((l) => l.found && l.variantId).map((l) => l.variantId as string))];
+    try {
+      const fresh = await fetchVariantPricesFresh(variantIds);
+      for (const line of out) {
+        if (line.found && line.variantId && fresh.has(line.variantId)) line.unitPrice = fresh.get(line.variantId) ?? null;
+      }
+    } catch (err) {
+      console.error('[cart] 讀即時單價失敗 ⇒ 這次先用快取價', { name: err instanceof Error ? err.name : typeof err });
+    }
+  }
   if (tier === 'store' && out.length > 0) {
     const found = out.filter((l) => l.found);
     // 🔴 商品那半要 uuid, 而 UI 型別裡沒有 ⇒ 另外要一次(見 `fetchProductIdsByHandles` 檔頭)。

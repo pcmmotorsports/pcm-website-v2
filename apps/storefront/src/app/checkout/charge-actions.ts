@@ -109,6 +109,8 @@ const MSG = {
   //    🛑 我上一次在同族的字面上加過兩個字(「多付, 待人工【處理】」), 而那兩個字是我加的
   //       ⇒ 📌 **選項的文字是我們寫的, 而【他挑的那一句】是他的。**
   cartAlreadyPaid: '該訂單已付款完成',
+  // 商品頁乙 P11:create_order 算出的單價和客人畫面上的不同(20260928230000 的 P2C21)⇒ 沒有建單、沒有扣款。
+  priceChanged: '商品價格有更新，這次沒有建立訂單，也沒有扣款。請確認新的金額後再送出。',
 } as const;
 
 /**
@@ -124,7 +126,7 @@ const MSG = {
 const IN_FLIGHT_SETTLE_THROTTLE_SECONDS = 10;
 
 export type ChargePaymentActionResult =
-  | { fieldErrors?: CheckoutFieldErrors; formError?: string } // 驗證/登入/建單失敗(零扣款)
+  | { fieldErrors?: CheckoutFieldErrors; formError?: string; priceChanged?: true } // 驗證/登入/建單失敗(零扣款);priceChanged = 單價核對不符(P11)
   | { ok: true; displayId: string } // paid(含冪等)→ ②-⑤ 完成頁(僅同步 flag-off 路徑)
   | { redirect: true; redirectUrl: string } // 🔴 3DS-6a:3DS 啟動成功 → client 整頁跳轉 TapPay(非 paid、付款狀態非終態)
   | { ok: false; payment: 'charge_failed'; displayId: string; message: string }
@@ -401,6 +403,8 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
           variantId: l.variantId,
           quantity: l.quantity,
           ...(l.vehicle !== undefined ? { vehicle: l.vehicle } : {}),
+          // 商品頁乙 P11:畫面單價,只給 create_order 比對(不同 ⇒ P2C21、不建單),不當價格
+          ...(l.expectedUnitPrice !== undefined ? { expectedUnitPrice: l.expectedUnitPrice } : {}),
         }),
       ),
       addressId: parsedCheckout.data.addressId,
@@ -461,6 +465,14 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     };
     const orderRepo = await getOrderRepo();
     const placed = await placeOrder(orderRepo, placeOrderInput);
+    // 商品頁乙 P11b 的量測(計畫第八節第 2 節):P-M5 要改成「沒帶核對單價就拒絕」之前,
+    //   要連續三天確認【建單成功的】沒帶的是 0、有帶的大於 0。所以印在建單成功之後(Codex P11 R1 必修:
+    //   印在前面會把缺 prime、驗證失敗這類沒建單的請求也算進去)。Vercel 紀錄只留 1 天 ⇒ 每天查一次。
+    //   只印件數,不印價格與身分。
+    safeLog('info', '[checkout] 建單成功 核對單價', {
+      lines: parsedLines.data.length,
+      missingExpectedUnitPrice: parsedLines.data.filter((l) => l.expectedUnitPrice === undefined).length,
+    });
 
     // ⑤ 🔴 server read-back orders.total = 單一金額來源(client 永不送價;null → 拒、此時零扣款)。
     const total = await orderRepo.findTotal(placed.orderId);
@@ -667,6 +679,11 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     //    那句話對這個情境是誤導的(客人再按一百次都不會成功, 他要做的是把券碼拿掉或換一張)。
     //    理由字串來自 DB 的 DETAIL(`coupon_rejected:<reason>`);🔵 DB 那一側已經把
     //    not_found / inactive / exhausted 收斂成 `unavailable`(券碼枚舉防線在 SQL 邊界, 不在這裡)。
+    // 商品頁乙 P11:單價和畫面上的不同(20260928230000 `create_order` 的 P2C21、DETAIL price_changed)
+    //   ⇒ 單沒有建、卡沒有刷(扣款在建單之後)。請客人看新金額再送;畫面那端會重新讀購物車價格。
+    if (rpcErrorCode === 'P2C21') {
+      return { formError: MSG.priceChanged, priceChanged: true };
+    }
     if (rpcErrorCode === 'P2C20') {
       const detail = String((err as { details?: unknown } | null)?.details ?? '');
       const reason = detail.startsWith(COUPON_REJECTED_PREFIX)

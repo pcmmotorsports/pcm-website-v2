@@ -669,6 +669,45 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
     expect(dropped.lines).toEqual([{ variantId: VARIANT, quantity: 2 }]); // 單照建、vehicle 不進
   });
 
+  it('商品頁乙 P11:畫面單價 expectedUnitPrice 原樣進 placeOrder;形狀不對 ⇒ 丟欄不擋單', async () => {
+    const action = await getAction();
+    await action(validInput({ lines: [{ variantId: VARIANT, quantity: 2, expectedUnitPrice: 1200 }] }));
+    const [, withPrice] = mockPlaceOrder.mock.calls[0]!;
+    expect(withPrice.lines).toEqual([{ variantId: VARIANT, quantity: 2, expectedUnitPrice: 1200 }]);
+
+    for (const bad of ['1200', 12.5, -1]) {
+      mockPlaceOrder.mockClear();
+      await action(validInput({ lines: [{ variantId: VARIANT, quantity: 2, expectedUnitPrice: bad }] }));
+      const [, dropped] = mockPlaceOrder.mock.calls[0]!;
+      expect(dropped.lines, `expectedUnitPrice=${String(bad)}`).toEqual([{ variantId: VARIANT, quantity: 2 }]);
+    }
+  });
+
+  it('商品頁乙 P11b 量測:只在建單成功後印件數(沒建單的請求不算),只印兩個數字', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const action = await getAction();
+    await action(validInput({ prime: undefined, lines: [{ variantId: VARIANT, quantity: 2, expectedUnitPrice: 1200 }] }));
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(info.mock.calls.filter((c) => c[0] === '[checkout] 建單成功 核對單價')).toHaveLength(0);
+
+    await action(validInput({ lines: [{ variantId: VARIANT, quantity: 2, expectedUnitPrice: 1200 }] }));
+    const logged = info.mock.calls.filter((c) => c[0] === '[checkout] 建單成功 核對單價');
+    expect(logged).toHaveLength(1);
+    expect(logged[0]![1]).toEqual({ lines: 1, missingExpectedUnitPrice: 0 });
+    info.mockRestore();
+  });
+
+  it('🔴 商品頁乙 P11:create_order 回 P2C21(單價和畫面不同)⇒ 說沒有建單也沒有扣款、標 priceChanged、零扣款', async () => {
+    mockPlaceOrder.mockRejectedValue(Object.assign(new Error('create_order: 單價已變更'), { code: 'P2C21', details: 'price_changed' }));
+    const action = await getAction();
+    const res = await action(validInput({ lines: [{ variantId: VARIANT, quantity: 2, expectedUnitPrice: 1200 }] }));
+    expect(res).toEqual({
+      formError: '商品價格有更新，這次沒有建立訂單，也沒有扣款。請確認新的金額後再送出。',
+      priceChanged: true,
+    });
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
   it('🔴 3DS-7:缺 cart_session_id → formError、零 placeOrder/charge(fail-closed)', async () => {
     const action = await getAction();
     const res = await action(validInput({ cartSessionId: undefined }));
