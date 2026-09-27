@@ -299,6 +299,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   //    before / after 都是 { field, value };value = null 代表「用供應商的」。
   field: '欄位',
   value: '內容',
+  // ── 商品分類(20260928050000 admin_set_product_category)──
+  //    before / after 都是 { category_id, locked };locked = true 代表分類是員工設定的,每日同步不會改回去。
+  category_id: '分類',
+  locked: '分類由員工設定',
   // ── 員工設定(`StaffRow`)/ 供應商共用 ─────────────────────
   id: '代號',
   label: '名稱',
