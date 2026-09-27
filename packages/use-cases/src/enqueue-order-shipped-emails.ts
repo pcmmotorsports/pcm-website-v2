@@ -173,7 +173,8 @@ export async function enqueueOrderShippedEmails(
   for (const [rows, target] of [
     [freshScan.rows, freshInputs],
     [staleScan.rows, staleInputs],
-  ] as const) for (const row of rows) {
+  ] as const) {
+  for (const row of rows) {
     // 與 order_created 同一條 fallback:訂單欄 NULL → 取 customers.email。
     // 🔴 空字串也要當成沒有:`enqueue` 對空 recipient 會 throw,而那會被下面吞成 errors ——
     //    一個「本來就沒有信箱」的配對不該長期佔著 errors,它是 noRecipient。
@@ -220,6 +221,7 @@ export async function enqueueOrderShippedEmails(
       continue;
     }
     target.push(input);
+  }
   }
 
   // ── 第二段:問一次「這批裡有幾個是真的新的」+ 閘 ──────────────────────

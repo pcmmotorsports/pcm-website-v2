@@ -426,5 +426,35 @@ describe('出貨信分批排:新的一輪最多 20 封, 其餘下一輪', () => 
     expect(r.enqueued).toBe(20);
     expect(r.deferred).toBe(0);
   });
+
+  it('🔴 延後幾封 = 滿 20 封時還沒輪到的列數(重複不算名額、也不算延後)', async () => {
+    const w = world(Array.from({ length: 25 }, (_, i) => at(10 + i)));
+    w.queued.add('ship-00:order-00');
+    w.queued.add('ship-01:order-01');
+    // 前兩列已在佇列:假 view 本來就不會再掃到它們 ⇒ 改成讓 enqueue 回 duplicate 來模擬「同一輪兩次掃到」
+    const scan = w.deps.scanner.listShippedWithoutShippedEmail as unknown as { mockImplementationOnce(f: () => Promise<unknown>): void };
+    const all = Array.from({ length: 25 }, (_, i) => row({ shipmentId: `ship-${String(i).padStart(2, '0')}`, orderId: `order-${String(i).padStart(2, '0')}`, shippedAt: at(10 + i), notificationEmail: `c${i}@example.com` }));
+    scan.mockImplementationOnce(async () => ({ rows: all, truncated: false }));
+    const r = await enqueueOrderShippedEmails(w.deps, opts);
+    expect(r.duplicate).toBe(2);
+    expect(r.enqueued).toBe(20);
+    expect(r.deferred).toBe(3);
+  });
+
+  it('🔴 新的那一批的失敗數只算新的 enqueue, 不含手動單留痕的失敗', async () => {
+    const w = world([...Array.from({ length: 25 }, () => at(-30)), at(10), at(11)]);
+    (w.deps.outbox.enqueueManualNoRecipient as unknown as { mockRejectedValue(e: unknown): void }).mockRejectedValue(new Error('trace boom'));
+    const manual = row({ shipmentId: 'ship-m', orderId: 'order-m', shippedAt: at(12), orderSource: 'manual_phone', notificationEmail: null, customerEmail: 'x@example.com' });
+    const scan = w.deps.scanner.listShippedWithoutShippedEmail as unknown as { mockImplementationOnce(f: () => Promise<unknown>): void };
+    scan.mockImplementationOnce(async () => ({ rows: [row({ shipmentId: 'ship-a', orderId: 'order-a', shippedAt: at(10) }), row({ shipmentId: 'ship-b', orderId: 'order-b', shippedAt: at(11) }), manual], truncated: false }));
+    let n = 0;
+    (w.deps.outbox.enqueue as unknown as { mockImplementation(f: () => Promise<unknown>): void }).mockImplementation(async () => {
+      n += 1;
+      if (n === 1) throw new Error('enqueue boom');
+      return { kind: 'enqueued', id: 'x' };
+    });
+    const err = await enqueueOrderShippedEmails(w.deps, opts).catch((e: unknown) => e);
+    expect(describeEnqueueBatchCap(err)).toMatchObject({ freshEnqueued: 1, freshErrors: 1 });
+  });
 });
 
