@@ -211,19 +211,24 @@ describe('🔴 冪等鍵 — 三支共用同一把,且本檔不得自己產', ()
     ).not.toMatch(/randomUUID|uuidv4|Date\.now\(\)/);
   });
 
-  it('🔴 鍵在**開窗**時生成一次(不是送出時)—— 生成點只有一個', () => {
+  // 🔴🔴 2026-09-28 改守門期望值(主視窗裁;理由:批次建箱 = Sean Q1 甲 + Codex R3 必修 3):
+  //    原本「randomUUID() 恰好 1 次、而且在 setOpen 旁邊」⇒ 改成「產生點只有 launcher 的 `newShipmentKey` 一處,
+  //    而它只准在兩個地方用:開單箱彈窗(setOpen)與批次建箱每張單開始(useBulkBoxCreate 傳給 createBoxForOrder)」。
+  //    守的東西沒放寬:一次建箱只產生一把鍵、重試不產生新鍵(後者由 lib/shipping/bulk-box.test.ts 那一格守)。
+  it('🔴 鍵只有一個產生點(launcher 的 newShipmentKey), 只在開窗與批次每張單開始兩處使用 —— 不在送出路徑上', () => {
     const hits = [...LAUNCHER.matchAll(/randomUUID\(\)/g)].length;
     expect(
       hits,
-      `shipment-launcher.tsx 裡 randomUUID() 出現 ${hits} 次,期望恰好 1(開窗那一處)。` +
+      `shipment-launcher.tsx 裡 randomUUID() 出現 ${hits} 次,期望恰好 1(newShipmentKey 那一處)。` +
         '出現在送出路徑上 = 每次重試換新鍵;完全不出現 = 沒有鍵可用。',
     ).toBe(1);
-    // 生成點必須在 setOpen(開窗)那一段,不在 submit 相關的 callback 裡
-    const at = LAUNCHER.indexOf('randomUUID()');
-    expect(
-      LAUNCHER.slice(Math.max(0, at - 200), at),
-      'randomUUID() 不在 setOpen(…) 附近 ⇒ 可能被移到了送出路徑上',
-    ).toMatch(/setOpen\(/);
+    expect(LAUNCHER, 'randomUUID() 必須只住在 newShipmentKey 裡').toMatch(/const newShipmentKey = \(\) => crypto\.randomUUID\(\);/);
+    const uses = [...LAUNCHER.matchAll(/newShipmentKey/g)].length;
+    expect(uses, 'newShipmentKey 出現次數 = 定義 1 + 開窗 1 + 批次 1').toBe(3);
+    // 開窗那一處:在 setOpen(…) 裡
+    expect(LAUNCHER, '開單箱彈窗時產生鍵').toMatch(/setOpen\(\{ key: newShipmentKey\(\), data \}\)/);
+    // 批次那一處:當作 createBoxForOrder 的 newKey 傳入(每張單開始才呼叫;重試讀存下來的那一把)
+    expect(LAUNCHER, '批次建箱每張單開始時產生鍵').toMatch(/newKey: newShipmentKey,/);
     // 🔴 舊生成點必須真的不見了 —— 只加新斷言、舊檔還留一份的話,線上會有兩個鍵源。
     expect(
       BAR,

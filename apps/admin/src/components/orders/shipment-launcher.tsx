@@ -24,7 +24,8 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useRouter, unstable_isUnrecognizedActionError } from 'next/navigation';
 import { ShipmentDialog, type ShipmentSubmit } from './shipment-dialog';
 import { toMessage } from '../../lib/shipping/error-message';
-import { fetchShipmentCandidates } from '../../lib/shipping/shipment-actions';
+import { fetchShipmentCandidates, submitShipment } from '../../lib/shipping/shipment-actions';
+import { createBoxForOrder, type BulkBoxOutcome } from '../../lib/shipping/bulk-box';
 // 🔴 從 `shipment-limits`(**沒有** `server-only`)拿,不要從 `shipment-candidates` 拿 ——
 //    後者帶 `server-only`,client 檔 import 它是**建置期錯誤**。
 import { MAX_SHIPMENT_CANDIDATE_ORDERS } from '../../lib/shipping/shipment-limits';
@@ -151,6 +152,56 @@ function noneShippableMessage(items: ShipmentCandidates['items'], boxesShownBelo
   return steps.length === 0 ? why : `${why}接下來:${steps.join('')}`;
 }
 
+/**
+ * 本檔唯一的建箱冪等鍵生成點(`shipping-selection.test.tsx` 守「randomUUID 恰好 1 次」)。
+ * 單箱彈窗在開窗時呼叫一次;批次建箱(`useBulkBoxCreate`)在「開始建這一張單」時呼叫一次, 重試沿用存下來的那一把。
+ */
+const newShipmentKey = () => crypto.randomUUID();
+
+/**
+ * 2026-09-27 出貨流程乙第 7 項(Sean 答 Q1 甲):訂單列表勾多張單「只建箱, 各一箱」。
+ * 🔴 住在本檔是刻意的:建箱的冪等鍵與取候選都只准在 launcher(守門見 `shipping-selection.test.tsx`)。
+ * 瀏覽器逐張依序呼叫 `createBoxForOrder`(一張單一次既有的 `submitShipment`), 每張單自己的品項、地址、鍵;
+ * 快照存 sessionStorage, 成功才清(`lib/shipping/bulk-box.ts` 檔頭)。只建箱不出貨 ⇒ 不寄信。
+ */
+export function useBulkBoxCreate() {
+  const router = useRouter();
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; count: number } | null>(null);
+  const [outcomes, setOutcomes] = useState<readonly BulkBoxOutcome[]>([]);
+  const run = useCallback(
+    async (groups: readonly { orderId: string; itemIds: readonly string[] }[]) => {
+      setRunning(true);
+      setOutcomes([]);
+      setProgress({ done: 0, count: groups.length });
+      let storage: Storage | null = null;
+      try {
+        storage = window.sessionStorage;
+      } catch {
+        storage = null;
+      }
+      for (let i = 0; i < groups.length; i += 1) {
+        const g = groups[i]!;
+        const o = await createBoxForOrder(g.orderId, g.itemIds, {
+          fetchCandidates: fetchShipmentCandidates,
+          submit: submitShipment,
+          storage,
+          newKey: newShipmentKey,
+        }).catch(
+          (): BulkBoxOutcome => ({ orderId: g.orderId, label: null, ok: false, text: '讀不到這張單的可出品項，沒有建箱。請重新整理後再試。' }),
+        );
+        setOutcomes((prev) => [...prev, o]);
+        setProgress({ done: i + 1, count: groups.length });
+      }
+      setProgress(null);
+      setRunning(false);
+      router.refresh();
+    },
+    [router],
+  );
+  return { run, running, progress, outcomes };
+}
+
 export type ShipmentLauncher = {
   loading: boolean;
   error: string | null;
@@ -263,7 +314,7 @@ export function useShipmentLauncher(
         setError('無法確認這批訂單屬於同一位客人，因此不能合併裝箱。同一箱只能包含同一位客人的商品。');
         return;
       }
-      setOpen({ key: crypto.randomUUID(), data });
+      setOpen({ key: newShipmentKey(), data });
     } catch (e) {
       // 🔴 **換版要單獨分流**:部署換版後,舊分頁編出來的 server action id 在新 deployment 上不存在
       //    ⇒ Next 丟 `UnrecognizedActionError`,而 `toMessage` 會把它的英文原文
