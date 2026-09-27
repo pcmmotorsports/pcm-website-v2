@@ -28,7 +28,7 @@ export type HctQueryActionResult =
   | { ok: true; kind: 'found'; edelno: string }
   | { ok: false; kind: 'not_found' | 'unknown' | 'disabled' | 'refused' | 'needs_human'; message: string };
 
-const UNVERIFIED = '(查詢還沒對新竹驗證過, 這個「查無」不能當成新竹沒收到的證據)';
+const UNVERIFIED = '（查詢功能尚未完成驗證，「查不到」不代表新竹沒收到。）';
 
 export async function queryHctUnknownAction(args: { shipmentId: string }): Promise<HctQueryActionResult> {
   const auth = await authorizeAdminMutation();
@@ -41,22 +41,22 @@ export async function queryHctUnknownAction(args: { shipmentId: string }): Promi
 
   const deps = readHctDepsFromEnv();
   if (deps === null) {
-    return fail({ ok: false, kind: 'disabled', message: '新竹未開通(缺 HCT_API_ENDPOINT / HCT_API_ACCOUNT / HCT_API_PASSWORD 其中之一)' });
+    return fail({ ok: false, kind: 'disabled', message: '新竹物流連線設定不完整，這次沒有送出查詢。請聯絡系統管理員。（HCT_API_ENDPOINT / HCT_API_ACCOUNT / HCT_API_PASSWORD）' });
   }
 
   let row: Awaited<ReturnType<typeof getHctShipment>>;
   try {
     row = await getHctShipment(args.shipmentId);
   } catch (e) {
-    return fail({ ok: false, kind: 'needs_human', message: `讀不到這一箱:${toMessage(e)} —— 不要重送。` });
+    return fail({ ok: false, kind: 'needs_human', message: `這一箱的資料載入失敗。請不要重送，稍後再查詢。（${toMessage(e)}）` });
   }
-  if (row === null) return fail({ ok: false, kind: 'needs_human', message: '找不到這一箱' });
-  if (row.voidedAt !== null) return fail({ ok: false, kind: 'refused', message: '這一箱已作廢,不查。' });
+  if (row === null) return fail({ ok: false, kind: 'needs_human', message: '找不到這一箱，請重新整理頁面。' });
+  if (row.voidedAt !== null) return fail({ ok: false, kind: 'refused', message: '這一箱已作廢，不需要查詢。' });
   if (row.hctStatus !== 'unknown') {
     return fail({
       ok: false,
       kind: 'refused',
-      message: `這一箱目前是 ${row.hctStatus},不是「送出結果未知」,不用查。請重新整理畫面。`,
+      message: `這一箱的狀態已經不是「送出結果未知」，不需要查詢。請重新整理畫面。（目前狀態：${row.hctStatus}）`,
     });
   }
 
@@ -68,7 +68,7 @@ export async function queryHctUnknownAction(args: { shipmentId: string }): Promi
   }
 
   if (q.kind === 'disabled') {
-    return fail({ ok: false, kind: 'disabled', message: '新竹查詢還沒開通(HCT_QUERY_ENABLED 未設為 true, 或這是本機開發環境)—— 一發都沒送出去。' });
+    return fail({ ok: false, kind: 'disabled', message: '向新竹查詢貨號的功能尚未開通，這次沒有送出查詢。請聯絡系統管理員。（HCT_QUERY_ENABLED）' });
   }
   if (q.kind === 'found') {
     try {
@@ -83,7 +83,7 @@ export async function queryHctUnknownAction(args: { shipmentId: string }): Promi
       return fail({
         ok: false,
         kind: 'needs_human',
-        message: `新竹【有】這張單(貨號 ${q.edelno}),但記進資料庫失敗了:${toMessage(e)} —— 不要重送,請回報這行字。`,
+        message: `新竹有這一箱的託運單（貨號 ${q.edelno}），但系統記錄失敗。請不要重送，並把這段訊息回報給系統管理員。（${toMessage(e)}）`,
       });
     }
     revalidatePath('/orders');
@@ -96,13 +96,13 @@ export async function queryHctUnknownAction(args: { shipmentId: string }): Promi
       ok: false,
       kind: 'not_found',
       message: carrierReplied
-        ? `新竹查無這張單,但新竹當時【回過話】⇒ 不自動處理、不放回草稿。請先打電話給新竹確認:新竹確認沒有這張單 ⇒ 把這一箱作廢(舊箱留紀錄),重新開一箱再跟新竹要一次託運單號。${UNVERIFIED}`
-        : `新竹查無這張單。請照 runbook 打電話向新竹確認後,再決定要不要「放回草稿」。${UNVERIFIED}`,
+        ? `新竹查不到這一箱的託運單，但新竹當時有回覆，所以系統不會自動處理，也不會放回草稿。請先打電話向新竹物流確認。新竹確認沒有這張託運單時，請作廢這一箱（舊箱會保留紀錄），重新建箱後再向新竹申請託運單號。${UNVERIFIED}`
+        : `新竹查不到這一箱的託運單。請先打電話向新竹物流確認，確認新竹沒有這張託運單後，再按「放回草稿」。${UNVERIFIED}`,
     });
   }
   return fail({
     ok: false,
     kind: 'unknown',
-    message: `這次查詢沒有拿到答案(${q.reason})—— 不要重送,稍後再查。`,
+    message: `這次查詢沒有得到新竹的回覆。請不要重送，稍後再查詢。（${q.reason}）`,
   });
 }

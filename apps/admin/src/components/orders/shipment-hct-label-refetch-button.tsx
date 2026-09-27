@@ -19,7 +19,7 @@ export function ShipmentHctLabelRefetchButton({ shipmentId, shipmentReference }:
     setBusy(false);
     if (out.ok) {
       setDone(true);
-      setMessage(`已從新竹拿回標籤圖(貨號 ${out.requestId})—— 現在可以列印。`);
+      setMessage(`已重新取得標籤（貨號 ${out.requestId}），現在可以列印。`);
       return;
     }
     setMessage(out.message);

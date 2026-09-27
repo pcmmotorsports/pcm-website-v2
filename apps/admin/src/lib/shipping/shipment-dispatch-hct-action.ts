@@ -39,7 +39,7 @@ import {
 } from './shipment-repository';
 import { markShipmentShipped } from './shipment-repository';
 import { dispatchOrder, hctDispatchGateOpen } from './hct-client';
-import { dispatchButton, planFromDispatch } from './hct-dispatch-flow';
+import { dispatchButton, planFromDispatch, uncertainDispatchMessage } from './hct-dispatch-flow';
 
 export type DispatchActionResult =
   | { ok: true; kind: 'dispatched'; edelno: string }
@@ -93,22 +93,22 @@ export async function dispatchShipmentAction(args: {
         kind: 'disabled',
         message:
           !hctDispatchGateOpen()
-            ? '叫車還沒開通(HCT_DISPATCH_ENABLED)—— 一發請求都沒送出去。'
+            ? '新竹物流叫車功能尚未開通，這一箱沒有送出叫車。請聯絡系統管理員。（HCT_DISPATCH_ENABLED）'
             : emark === ''
-              ? '派遣者(HCT_DISPATCH_EMARK)沒設 —— 它是新竹的必要欄位而且不可為空白, 所以不送。'
-              : '新竹連線設定不完整 —— 一發請求都沒送出去。',
+              ? '叫車設定缺少派遣人名稱，這一箱沒有送出叫車。請聯絡系統管理員。（HCT_DISPATCH_EMARK）'
+              : '新竹物流連線設定不完整，這一箱沒有送出叫車。請聯絡系統管理員。',
       };
     }
 
     const row = await getDispatchShipment(args.shipmentId);
     if (row === null) {
-      return { ok: false, kind: 'error', message: '查無這一箱' };
+      return { ok: false, kind: 'error', message: '找不到這一箱，請重新整理出貨清單。' };
     }
     // 🔴 畫面那道判準在這裡**再問一次** —— 畫面可能是幾分鐘前算的。
     //    🛑 而它**仍然不是安全網**:真正擋得住的是 `admin_claim_hct_dispatch` 那句原子 UPDATE。
     const btn = dispatchButton(row, new Date());
     if (!btn.show || !btn.enabled) {
-      const why = btn.show && !btn.enabled ? btn.why : '這一箱不能叫車';
+      const why = btn.show && !btn.enabled ? btn.why : '這一箱目前不能叫車。';
       auditLog('shipment.hct_dispatch', auth, 'fail', { shipment_id: args.shipmentId });
       return { ok: false, kind: 'rejected', message: why };
     }
@@ -127,7 +127,7 @@ export async function dispatchShipmentAction(args: {
       return {
         ok: false,
         kind: 'needs_human',
-        message: '叫車開關在送出前被關掉了 —— 這一箱沒有送出去, 而佔位已經寫下, 請人清一次。',
+        message: '這一箱沒有叫到車：叫車功能在送出前被關閉。系統已把這一箱記為叫車中，暫時無法再按叫車，請聯絡系統管理員處理。',
       };
     }
     if (plan.kind === 'all_unknown') {
@@ -142,31 +142,30 @@ export async function dispatchShipmentAction(args: {
       return {
         ok: false,
         kind: 'needs_human',
-        message:
-          `新竹回了一個我們看不懂的代碼(${plan.reason})。` +
-          `這【不代表車沒叫到】—— 送出去那一發確實發了, 只是我們讀不懂它的回覆。` +
-          `⇒ 打電話給新竹, 報貨號 ${edelno}, 問「這張有沒有派到車、今天會不會來收」。` +
-          `新竹客服 02-2837-1122 #5123(這支號碼取自新竹文件, 我們沒有確認過它還有沒有效)。` +
-          `這一箱先不要標出貨, 等問到答案再標。`,
+        message: uncertainDispatchMessage(edelno, '系統看不懂新竹的回覆', plan.reason),
       };
     }
 
     const only = plan.rows[0];
     if (only === undefined) {
-      return { ok: false, kind: 'needs_human', message: '新竹回了一個空的清單 —— 請人確認。' };
+      return { ok: false, kind: 'needs_human', message: uncertainDispatchMessage(edelno, '新竹沒有回傳這一箱的結果', null) };
     }
     if (only.action === 'leave_alone') {
       auditLog('shipment.hct_dispatch', auth, 'fail', { shipment_id: args.shipmentId });
       // 🔵 被拒絕的箱**佔位仍然在** —— 那是刻意的:我們已經對新竹送出過一發,
       //    而「送出過而被拒」與「沒送過」不是同一件事。要再送要有人看一眼。
-      return { ok: false, kind: 'rejected', message: `新竹拒絕了這一箱:${only.message}` };
+      return {
+        ok: false,
+        kind: 'rejected',
+        message: `新竹物流拒絕了這一箱的叫車，車沒有叫到（原因：${only.message}）。這一箱暫時無法再按叫車，請聯絡系統管理員處理。`,
+      };
     }
     if (only.action === 'needs_human') {
       auditLog('shipment.hct_dispatch', auth, 'fail', { shipment_id: args.shipmentId });
       return {
         ok: false,
         kind: 'needs_human',
-        message: `新竹回的那一列我們認不出來(${only.reason})—— 車可能已經叫到了, 請人確認。`,
+        message: uncertainDispatchMessage(edelno, '系統看不懂新竹回傳的這一箱結果', only.reason),
       };
     }
 

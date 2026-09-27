@@ -98,10 +98,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; shi
   if (row === null) return new NextResponse(null, { status: 404 });
   // 🔴 作廢的箱不給標籤 —— 貼上去的箱子收不回來。(同 `shipment-section.tsx` 那顆列印鈕的立場,
   //    而**那一層只是 UX**:網址可貼、可書籤 ⇒ 這一層才是守門。)
-  if (row.voidedAt !== null) return problem(409, '這一箱已作廢, 不提供託運標籤。');
+  if (row.voidedAt !== null) return problem(409, '這一箱已作廢，無法列印託運標籤。');
   // 🔵 `submitted` 之外的狀態**不是錯**, 是「還沒送新竹」⇒ 講人話, 不要回 500。
   if (row.hctStatus !== 'submitted') {
-    return problem(409, `這一箱還沒有新竹的標籤(目前狀態:${row.hctStatus})。請先按「${HCT_REQUEST_NUMBER_BUTTON}」, 要到號碼才會有圖。`);
+    return problem(409, `這一箱還沒有新竹的標籤，請先按「${HCT_REQUEST_NUMBER_BUTTON}」，取得託運單號後才能列印。（目前狀態：${row.hctStatus}）`);
   }
 
   const img = extractHctLabelImage(row.raw);
@@ -110,7 +110,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; shi
     //    ⛔ **絕不把 `row.raw` 或那串圖印進 log**:那一包裡有收件人姓名 / 電話 / 地址,
     //      而平台 log 是一個我們刪不掉的地方(P-2 的 codex R1 must-fix-3 就是這一格)。
     console.error(`[label.pdf] 取不到標籤圖 order=${id} shipment=${shipmentId} reason=${img.reason}`);
-    return problem(409, `新竹回的那一包裡沒有看得懂的標籤圖(${img.reason})。請把這一行原樣回報。`);
+    return problem(409, `新竹回傳的資料裡沒有可用的標籤圖，無法產生標籤。請把這段訊息回報給系統管理員。（${img.reason}）`);
   }
 
   const pages = buildLabelPages({
@@ -126,7 +126,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; shi
   if (bad.length > 0) {
     const reasons = bad.map((b) => (b.kind === 'broken' ? b.reason : '')).join(',');
     console.error(`[label.pdf] 版面層判壞 order=${id} shipment=${shipmentId} reason=${reasons}`);
-    return problem(409, `這張標籤圖版面層判定壞掉(${reasons}), 不產檔。`);
+    return problem(409, `這張標籤圖的版面檢查沒有通過，沒有產生標籤檔。請把這段訊息回報給系統管理員。（${reasons}）`);
   }
 
   try {

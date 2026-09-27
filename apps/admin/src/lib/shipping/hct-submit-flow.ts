@@ -56,8 +56,7 @@ export function decideSubmit(current: HctCurrentStatus): SubmitDecision {
       return {
         action: 'refuse',
         reason:
-          '這張單已經送成功過了。在新竹那端「同日重送」是【更正】不是重試,' +
-          ' 而更正要帶新竹貨號走另一條流程。',
+          '這一箱已經向新竹申請過託運單號，不能再申請一次。需要標籤時，請按「重新取得標籤」。',
       };
   }
 }
@@ -119,9 +118,8 @@ export async function runHctSubmit(input: RunHctSubmitInput): Promise<FlowResult
       kind: 'needs_human',
       reason:
         q.kind === 'not_found'
-          ? '新竹查不到這張單的貨號。而「查無」有兩個世界(真的沒進去 / 新竹的查詢與建單不同步),' +
-            ' 我們分不出來 ⇒ 不自動重送, 請人確認。'
-          : `查詢本身沒有拿到答案(${q.reason})⇒ 我們對這張單的狀態仍然一無所知, 不重送。`,
+          ? '新竹查不到這一箱的託運單。可能是新竹真的沒收到，也可能是新竹的資料還沒更新，系統無法分辨，所以沒有自動重送。請打電話向新竹物流確認。'
+          : `向新竹查詢沒有得到結果，這一箱是否已送到新竹仍不確定，所以沒有重送。請稍後再試，或打電話向新竹物流確認。（${q.reason}）`,
     };
   }
 
@@ -143,8 +141,8 @@ export async function runHctSubmit(input: RunHctSubmitInput): Promise<FlowResult
         requestId: out.edelno,
         raw: out.raw,
         reason:
-          '新竹回「修改成功」而不是「新增成功」⇒ 它那邊【本來就有一張】這個訂單編號的單,' +
-          ' 我們剛剛把它更正掉了。貨號已記, 而請人確認那張單的內容是不是我們要的。',
+          '新竹回覆「修改成功」，表示新竹那邊原本就有這一箱的託運單，這次送出的資料已更正那張單。' +
+          '貨號已記下，請打電話向新竹物流確認託運單內容是否正確。',
       };
     case 'rejected':
       // 🔵 明確被拒 ⇒ `failed`。而 `errMsg` 進 raw, 讓人看得到新竹說了什麼。

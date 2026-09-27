@@ -68,7 +68,7 @@ export function ShipmentHctResetButton({
   if (done) {
     return (
       <p className='text-muted-foreground mt-1 text-xs' role='status'>
-        已放回草稿 —— 現在可以重新送出。
+        已放回草稿，現在可以重新向新竹申請託運單號。
       </p>
     );
   }
@@ -81,7 +81,7 @@ export function ShipmentHctResetButton({
         onClick={() => setOpen(true)}
         aria-label={`放回草稿 ${shipmentReference}`}
       >
-        我已向新竹確認【沒有】這張單 —— 放回草稿
+        我已向新竹確認沒有這張託運單，放回草稿
       </button>
     );
   }

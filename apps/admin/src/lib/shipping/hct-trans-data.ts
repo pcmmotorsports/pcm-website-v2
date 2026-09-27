@@ -257,7 +257,7 @@ export function phoneAdvisories(raw: string): string[] {
   const hasCountryCode =
     t.startsWith('+') || digits.startsWith('886') || digits.startsWith('00886');
   if (hasCountryCode) {
-    out.push('收貨人電話帶了國碼(+886 / 886)—— 新竹只收 0 開頭的號碼,送出去可能被退');
+    out.push('收件人電話有國碼（+886 或 886），新竹只收 0 開頭的號碼，送出後可能被退回');
   }
   // 🔴🔴 **這裡換過路 —— 而【換路本身】才是這一段最該讀的東西。**
   //    我追過三版分機寫法,每一版 codex 都給我一個新的漏網:
@@ -278,10 +278,10 @@ export function phoneAdvisories(raw: string): string[] {
   //    上面那條 `{2,}` 抓不到它,而它是常見的分機寫法。
   //    (`8x12` 的 `x` 左邊是數字 ⇒ 左邊只擋字母,不擋數字。)
   if (/#|分機|轉\s*\d|(?<![A-Za-z])x\s*\d/iu.test(t)) {
-    out.push('收貨人電話裡有分機(# / 分機 / 轉 / x)—— 新竹的欄位不吃分機,送出去可能被退');
+    out.push('收件人電話有分機（# / 分機 / 轉 / x），新竹不接受分機，送出後可能被退回');
   }
   if (/[A-Za-z]{2,}/u.test(t)) {
-    out.push('收貨人電話裡有英文字 —— 新竹只收數字的號碼,送出去可能被退');
+    out.push('收件人電話有英文字，新竹只收數字，送出後可能被退回');
   }
   // 🛑 **天花板(codex R3 實測,寫下來不宣稱抓得全)**:`0912345678 e.x.t.12` 與
   //    `0912345678 x.12` **兩者都不出聲** —— 前者沒有連續兩個字母,後者的 `x` 後面接的是 `.`。
@@ -290,7 +290,7 @@ export function phoneAdvisories(raw: string): string[] {
   // 🔵 空字串不在這裡報 —— 那是 `AddressInput` 的責任(它已經擋空與純空白),
   //    在這裡再報一次會讓同一個問題出現兩句話。
   if (!hasCountryCode && digits !== '' && !digits.startsWith('0')) {
-    out.push('收貨人電話不是 0 開頭 —— 新竹要求市話區碼前面要代 0(例 0288888888),送出去可能被退');
+    out.push('收件人電話不是 0 開頭，新竹要求市話區碼前面加 0（例如 0288888888），送出後可能被退回');
   }
   return out;
 }
@@ -315,11 +315,11 @@ export function addressAdvisories(raw: string): string[] {
   const t = raw.normalize('NFKC');
   const out: string[] = [];
   if (/大樓|大廈/u.test(t)) {
-    out.push('收貨地址裡有「大樓／大廈」—— 新竹不收建築物名稱,送出去可能被退');
+    out.push('收件地址有「大樓／大廈」，新竹不接受建築物名稱，送出後可能被退回');
   }
   // 🔵 門檻設 2 個以上連續英文字母:`5F` / `B1` 的單一字母不報,`No.` / `Building` 會報。
   if (/[A-Za-z]{2,}/u.test(t)) {
-    out.push('收貨地址裡有英文 —— 新竹只收中文地址,送出去可能被退');
+    out.push('收件地址有英文，新竹只收中文地址，送出後可能被退回');
   }
   return out;
 }
@@ -340,8 +340,8 @@ export function buildHctTransData(input: BuildHctTransDataInput): BuildHctTransD
     //    這個 throw 會經 `shipment-actions.ts` 的 `toMessage(e)` **直接印在後台員工的畫面上**。
     //    ⇒ 一句他做得了的事 + 一個給值班的定位字串;**為什麼**寫在上面那段註解裡, 不進訊息。
     throw new Error(
-      `這箱的箱號格式不對, 不能跟新竹要託運單號(收到 ${JSON.stringify(input.shipmentReference)})—— ` +
-        '這不是你操作錯, 請回報並附這行字。[epino/shipment_reference]',
+      '這一箱的箱號格式不正確，無法向新竹申請託運單號。請把這段訊息回報給系統管理員。' +
+        `（收到 ${JSON.stringify(input.shipmentReference)}；epino/shipment_reference）`,
     );
   }
 

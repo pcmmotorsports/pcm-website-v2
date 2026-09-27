@@ -39,7 +39,7 @@ describe('⟦ship-DISPATCHORDER⟧ 逐箱各自結算 —— 失敗方向要是�
     // 🔴 承重:空白會被讀成「沒問題」。
     expect(
       planFromDispatch({ kind: 'answered', raw: {}, rows: [{ kind: 'rejected', epino: 'E1', errMsg: '' }] }),
-    ).toEqual({ kind: 'plan', rows: [{ action: 'leave_alone', epino: 'E1', message: '新竹拒絕了這一箱, 而它沒有給原因' }] });
+    ).toEqual({ kind: 'plan', rows: [{ action: 'leave_alone', epino: 'E1', message: '新竹沒有提供原因' }] });
   });
 
   it('🔴🔴 **那一箱不確定 ⇒ `needs_human`, 而【不是】leave_alone** —— 拒絕是答案, 不確定不是', () => {
@@ -140,7 +140,7 @@ describe('⟦ship-DISPATCHORDER⟧ 那顆鈕:按下去【之前】就看得出�
     const half = dispatchButton(R({ hctDispatchAttemptedAt: 'x' }), NOW);
     expect(done).toEqual({ show: true, enabled: false, why: '已叫車' });
     // 🔴 承重:合成一句會讓「車可能在路上而我們不知道」長得像「已經好了」。
-    expect(half.show && !half.enabled && half.why).toContain('請人確認');
+    expect(half.show && !half.enabled && half.why).toContain('向新竹物流確認');
     expect(half).not.toEqual(done);
   });
 

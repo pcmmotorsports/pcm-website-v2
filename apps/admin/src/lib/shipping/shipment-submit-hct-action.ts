@@ -33,7 +33,16 @@ import { extractHctLabelImage } from './hct-label-image';
 import { canRefetchHctLabelNow } from './hct-submitted-today';
 import { submitTransData } from './hct-client';
 import { buildHctRemark } from './hct-remark';
-import { buildHctTransData } from './hct-trans-data';
+import { buildHctTransData, type HctTransDataFields } from './hct-trans-data';
+
+/** 會被截短的欄位給員工看的名稱(只有 `take()` 截的那五欄會出現;其他欄照原名顯示)。 */
+const HCT_FIELD_LABEL: Partial<Record<keyof HctTransDataFields, string>> = {
+  epino: '箱號',
+  ercsig: '收件人姓名',
+  ertel1: '收件人電話',
+  eraddr: '收件地址',
+  emark: '備註',
+};
 import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
 import { hctSubmitGateOpen, readHctDepsFromEnv } from './hct-client';
 
@@ -104,7 +113,7 @@ function hctErrHint(raw: unknown): string {
       if (typeof v === 'string' && v.trim() !== '') return v.slice(0, 200);
     }
   }
-  return '(它的回應裡沒有可讀的錯誤訊息)';
+  return '新竹沒有提供原因';
 }
 
 const HCT_STATUSES = ['draft', 'submitted', 'failed', 'unknown'] as const;
@@ -130,7 +139,7 @@ export async function submitShipmentToHctAction(args: {
     return {
       ok: false,
       kind: 'disabled',
-      message: '新竹未開通(缺 HCT_API_ENDPOINT / HCT_API_ACCOUNT / HCT_API_PASSWORD 其中之一)',
+      message: '新竹物流連線設定不完整，這一箱沒有送出申請。請聯絡系統管理員。（HCT_API_ENDPOINT / HCT_API_ACCOUNT / HCT_API_PASSWORD）',
     };
   }
 
@@ -143,7 +152,7 @@ export async function submitShipmentToHctAction(args: {
     }
     if (row.voidedAt !== null) {
       auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
-      return { ok: false, kind: 'refused', message: '這一箱已作廢,不能跟新竹要託運單號' };
+      return { ok: false, kind: 'refused', message: '這一箱已作廢，不能向新竹申請託運單號。' };
     }
 
     // 🔴 ⟦ship-HCTREMARK⟧(Sean 2026-09-10 逐字「`[PCM] 訂單編號 + 該商品名稱 + 料號`」)——
@@ -174,7 +183,7 @@ export async function submitShipmentToHctAction(args: {
     //    ⇒ 🛑 **那一箱卡死, 要人工改 DB。** 📌 一個為了「不重送」而做的保護, 把單子鎖死了。
     if (!hctSubmitGateOpen()) {
       auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
-      return { ok: false, kind: 'disabled', message: '新竹未開通(HCT_SUBMIT_ENABLED 未設為 true)' };
+      return { ok: false, kind: 'disabled', message: '向新竹申請託運單號的功能尚未開通，這一箱沒有送出申請。請聯絡系統管理員。（HCT_SUBMIT_ENABLED）' };
     }
 
     // 🔴🔴 **截斷要被看見 —— code-reviewer MF3。**
@@ -213,18 +222,18 @@ export async function submitShipmentToHctAction(args: {
       auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
       const parts: string[] = [];
       if (built.truncated.length > 0) {
-        parts.push(`這幾欄超長、送出去會被截掉:${built.truncated.join(' / ')}`);
+        parts.push(`以下資料超過新竹的字數上限，送出時超出的部分會被截掉：${built.truncated.map((k) => HCT_FIELD_LABEL[k] ?? k).join('、')}`);
       }
       // 🔵 ⟦ship-HCTREMARK⟧:**確認畫面本來就要跳的時候, 順手把備註印出來。**
       //    🛑 而它【不會自己讓確認畫面跳】—— 見 `remark` 那個欄位的註解。
       if (remark !== '' && (row.carrierNote === null || row.carrierNote.trim() === '')) {
-        parts.push(`備註會送(系統預填, 你可以在貨運備註那一格自己改):${remark}`);
+        parts.push(`會一起送出系統預填的備註「${remark}」，要修改請到「貨運備註」欄位`);
       }
-      if (built.advisories.length > 0) parts.push(built.advisories.join(' · '));
+      parts.push(...built.advisories);
       return {
         ok: false,
         kind: 'needs_confirm',
-        message: `${parts.join(' —— ')} —— 看過再按一次就送`,
+        message: `${parts.join('。')}。確認沒問題後，請再按一次送出。`,
         truncated: built.truncated,
         confirmToken: truncatedNow,
       };
@@ -301,8 +310,8 @@ export async function submitShipmentToHctAction(args: {
               // 🔴 **安全提示排在最前面** —— 它是這一刻唯一會改變人行為的那句話。
               //    技術細節放後面, 而**不是**取代它(那正是舊版做錯的事)。
               message:
-                '送出去了而不知道結果 —— 不要重按,請用查詢補問新竹貨號。' +
-                `(而這次連原因都沒能記進資料庫:${toMessage(reasonErr)} —— 請回報這行字)`,
+                '這一箱已送出申請，但無法確認新竹是否收到。請不要重按，先按「向新竹查詢貨號」確認。' +
+                `系統也沒能記下這次的原因，請把這段訊息回報給系統管理員。（${toMessage(reasonErr)}）`,
             };
             // 🛑 副作用各自包起來 —— 它們**不得**改變上面那句話回不回得去。
             try {
@@ -359,12 +368,12 @@ export async function submitShipmentToHctAction(args: {
               // 🔴 **codex must-fix:新竹拒絕的【原因】原本被吞掉了。**
               //    「公司名稱或密碼錯誤」與「地址格式不合」都印同一句「可以再按一次」
               //    ⇒ 員工會一直按, 而按幾次都不會變。
-              message: `新竹回了失敗:${hctErrHint(result.raw)} —— 修好再按一次`,
+              message: `新竹物流沒有接受這次申請（原因：${hctErrHint(result.raw)}）。請依原因修正資料後，再按一次。`,
             }
           : {
               ok: false,
               kind: 'unknown',
-              message: '送出去了而不知道結果 —— 不要重按,請用查詢補問新竹貨號',
+              message: '這一箱已送出申請，但無法確認新竹是否收到。請不要重按，先按「向新竹查詢貨號」確認。',
             };
       case 'recovered':
         await recordHctSubmit({
@@ -396,7 +405,7 @@ export async function submitShipmentToHctAction(args: {
       //    而空白與「沒有人按過」是同一個東西。
       case 'disabled':
         auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
-        return { ok: false, kind: 'disabled', message: '新竹未開通' };
+        return { ok: false, kind: 'disabled', message: '向新竹申請託運單號的功能尚未開通，這一箱沒有送出申請。請聯絡系統管理員。' };
       case 'refused':
         auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
         return { ok: false, kind: 'refused', message: result.reason };
@@ -436,7 +445,7 @@ export async function refetchHctLabelAction(args: { shipmentId: string }): Promi
   const deps = readHctDepsFromEnv();
   if (deps === null || !hctSubmitGateOpen()) {
     auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
-    return { ok: false, kind: 'disabled', message: '新竹未開通(缺 env 或 HCT_SUBMIT_ENABLED 未設為 true)' };
+    return { ok: false, kind: 'disabled', message: '重新取得標籤的功能尚未開通，這一箱沒有送出。請聯絡系統管理員。（HCT_SUBMIT_ENABLED）' };
   }
   try {
     const row = await getHctShipment(args.shipmentId);
@@ -446,19 +455,19 @@ export async function refetchHctLabelAction(args: { shipmentId: string }): Promi
     }
     if (row.voidedAt !== null) {
       auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
-      return { ok: false, kind: 'refused', message: '這一箱已作廢,不能向新竹重取標籤' };
+      return { ok: false, kind: 'refused', message: '這一箱已作廢，不能重新取得標籤。' };
     }
     if (row.hctStatus !== 'submitted' || row.hctRequestId === null || row.hctRequestId === '') {
       auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
       return {
         ok: false,
         kind: 'refused',
-        message: `這一箱還沒送成功(目前 ${row.hctStatus}),重取標籤只給已經要到號碼的箱;請走「${HCT_REQUEST_NUMBER_BUTTON}」。`,
+        message: `這一箱還沒取得新竹託運單號，無法重新取得標籤。請先按「${HCT_REQUEST_NUMBER_BUTTON}」。（目前狀態：${row.hctStatus}）`,
       };
     }
     if (extractHctLabelImage(row.hctRawResponse).ok) {
       auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
-      return { ok: false, kind: 'refused', message: '這一箱已經有標籤圖了,直接印即可;不用再跟新竹要一次。' };
+      return { ok: false, kind: 'refused', message: '這一箱已經有標籤，可以直接列印，不需要重新取得。' };
     }
     // 送出去的內容與「送新竹」那顆同一套(備註 / 收件人 / 件數), 新竹才會把它當同一張單的更正。
     const remark =
@@ -480,28 +489,28 @@ export async function refetchHctLabelAction(args: { shipmentId: string }): Promi
         ok: false,
         kind: 'refused',
         message:
-          '這一箱不是今天送到新竹的(或系統沒記到是哪一天、或已經接近午夜)。新竹只把【同一天】的重傳當更正, 隔天再送會變成一張新單 ⇒ 不送。' +
-          ' 請打電話向新竹要這張單的標籤, 或用他們的網站 / 手打。',
+          '這一箱不是今天向新竹申請的（或系統沒有記錄申請日期、或已接近午夜）。新竹只把同一天的重送當成更正，隔天再送會多建一張託運單，所以這次沒有送出。' +
+          '請打電話向新竹物流索取這張託運單的標籤，或改用新竹網站、手打託運單。',
       };
     }
     const out = await submitTransData(deps, built.fields);
     switch (out.kind) {
       case 'disabled':
         auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
-        return { ok: false, kind: 'disabled', message: '新竹未開通' };
+        return { ok: false, kind: 'disabled', message: '重新取得標籤的功能尚未開通，這一箱沒有送出。請聯絡系統管理員。' };
       case 'unknown':
         auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
         return {
           ok: false,
           kind: 'unknown',
-          message: `向新竹重取標籤沒有拿到結果(${out.reason})。這一箱的狀態沒有變(仍是已送出), 等一下再按一次;連續失敗請回報這行字。`,
+          message: `重新取得標籤沒有成功，這一箱的狀態沒有改變（仍是已送出）。請稍後再按一次；連續失敗請聯絡系統管理員。（${out.reason}）`,
         };
       case 'rejected':
         auditLog('shipment.hct_label_refetch', auth, 'fail', { shipment_id: args.shipmentId });
         return {
           ok: false,
           kind: 'failed',
-          message: `新竹拒絕了這次更正:${out.errMsg || '(它的回應裡沒有可讀的錯誤訊息)'}`,
+          message: `新竹物流拒絕了這次重新取得標籤（原因：${out.errMsg || '新竹沒有提供原因'}）。請打電話向新竹物流確認。`,
         };
       case 'amended':
       case 'submitted': {
@@ -512,8 +521,8 @@ export async function refetchHctLabelAction(args: { shipmentId: string }): Promi
             ok: false,
             kind: 'needs_human',
             message:
-              `🛑 新竹回了另一個貨號(${out.edelno}),與這箱記著的(${row.hctRequestId})不同 —— 新竹那邊可能多了一張單。` +
-              ' 什麼都沒有寫進去;請打電話向新竹核對, 並回報這行字。',
+              `新竹回傳的貨號（${out.edelno}）和這一箱記錄的貨號（${row.hctRequestId}）不同，新竹那邊可能多了一張託運單。` +
+              '系統沒有更新任何資料。請打電話向新竹物流核對，並把這段訊息回報給系統管理員。',
           };
         }
         // 🛑 codex R1 must-fix:RPC 只看得出「image 是非空字串」, 看不出它解不解得開。
@@ -524,7 +533,7 @@ export async function refetchHctLabelAction(args: { shipmentId: string }): Promi
           return {
             ok: false,
             kind: 'failed',
-            message: `新竹回了同一個貨號, 但那一包裡的標籤圖解不開(${img.reason})—— 什麼都沒有寫進去。請回報這行字。`,
+            message: `新竹回傳了同一個貨號，但標籤圖讀取失敗，系統沒有更新任何資料。請把這段訊息回報給系統管理員。（${img.reason}）`,
           };
         }
         await recordHctLabelRaw({ shipmentReference: row.shipmentReference, edelno: out.edelno, raw: out.raw });

@@ -115,7 +115,7 @@ describe('queryHctUnknownAction', () => {
     if (!r.ok) {
       expect(r.message).toMatch(/打電話/);
       expect(r.message).toMatch(/放回草稿/);
-      expect(r.message).toMatch(/還沒對新竹驗證過/);
+      expect(r.message).toMatch(/尚未完成驗證/);
     }
     expect(recordHctSubmit).not.toHaveBeenCalled();
   });
@@ -126,11 +126,11 @@ describe('queryHctUnknownAction', () => {
     const r = await (await load())({ shipmentId: 'sid-1' });
     expect(r).toMatchObject({ ok: false, kind: 'not_found' });
     if (!r.ok) {
-      expect(r.message).toMatch(/回過話/);
-      expect(r.message).toMatch(/不放回草稿/);
+      expect(r.message).toMatch(/新竹當時有回覆/);
+      expect(r.message).toMatch(/不會放回草稿/);
       expect(r.message).toMatch(/作廢/);
-      expect(r.message).toMatch(/重新開一箱/);
-      expect(r.message).toMatch(/還沒對新竹驗證過/);
+      expect(r.message).toMatch(/重新建箱/);
+      expect(r.message).toMatch(/尚未完成驗證/);
     }
     expect(recordHctSubmit).not.toHaveBeenCalled();
   });

@@ -49,9 +49,9 @@ export const HCT_PICKUP_CONFIRM_LABEL = '新竹已經把貨收走了(這個單�
  *    🛑 中間那一步不能省:沒有託運單號, 出貨清單那顆叫車按下去新竹不知道要收哪一箱。
  */
 export const HCT_PICKUP_REQUIRED_MESSAGE =
-  '新竹物流的箱子要先勾「新竹已經把貨收走了」才能標出貨。' +
-  `還沒收走的話,先「只建箱」,再按「${HCT_REQUEST_NUMBER_BUTTON}」,` +
-  `然後到左邊選單的「出貨清單」按「${HCT_DISPATCH_BUTTON}」—— 叫到車系統會自己標出貨。`;
+  '新竹物流的箱子要先勾「新竹已經把貨收走了」，才能標記出貨。' +
+  `如果貨還沒被收走，請先按「只建箱」，再按「${HCT_REQUEST_NUMBER_BUTTON}」，` +
+  `然後到左側選單的「出貨清單」按「${HCT_DISPATCH_BUTTON}」。叫到車後，系統會自動標記出貨。`;
 
 /** 手打標出貨要不要先勾:只有新竹。順豐 / 其他照舊。 */
 export function needsHctPickupConfirm(carrierCode: string): boolean {

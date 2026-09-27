@@ -432,8 +432,8 @@ export async function resetHctUnknownToDraftAction(args: {
     return {
       ok: false,
       message:
-        '請先打電話向新竹確認【他們沒有這張單】, 並把確認結果打進去(例:「14:30 電話向新竹陳小姐確認, 查無此單」)。' +
-        ' 🔴 沒有那通電話就不要放回草稿 —— 放回去之後有人重送, 代價是客人收到兩箱。',
+        '請先打電話向新竹物流確認沒有這張託運單，並填寫確認結果（例如「14:30 電話向新竹陳小姐確認，查無此單」）。' +
+        '還沒向新竹確認前，請不要放回草稿，否則重新送出後客人可能收到兩箱。',
     };
   }
   // 🔴🔴 **⟦ship-EPINOBRAND⟧ 2026-09-06:這一處是 branded type 上線後【整個 monorepo 唯一紅的地方】,
@@ -449,7 +449,7 @@ export async function resetHctUnknownToDraftAction(args: {
     auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });
     return {
       ok: false,
-      message: '這箱的箱號格式不對, 不能放回草稿。這不是你操作錯, 請回報並附這行字。[shipment_reference]',
+      message: '這一箱的箱號格式不正確，無法放回草稿。請把這段訊息回報給系統管理員。（shipment_reference）',
     };
   }
   auditLog('shipment.hct_reset_unknown', auth, 'attempt', { shipment_id: args.shipmentId });
@@ -485,16 +485,16 @@ export async function resetHctUnknownToDraftAction(args: {
         return {
           ok: false,
           message:
-            `🛑 新竹那邊【有】這張單(貨號 ${q.edelno})—— 所以【沒有】放回草稿。` +
-            ' 已把貨號記成「已送出」;不要再送。標籤:同一天請按「重新取得標籤」;隔天 ⇒ 把這一箱作廢、重新開一箱再跟新竹要一次託運單號(舊的新竹單可以打電話請新竹取消,不取消也沒關係)。這是「新竹收到了而我們當時讀不懂回應」那一型。',
+            `新竹那邊有這一箱的託運單（貨號 ${q.edelno}），所以沒有放回草稿。系統已把這一箱改為「已送出」，請不要再送。` +
+            '需要標籤時：託運單是今天建立的，請按「重新取得標籤」；前一天或更早建立的，請作廢這一箱，重新建箱後再向新竹申請託運單號。舊的託運單可以打電話請新竹取消，不取消也沒關係。',
         };
       } catch (e) {
         auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });
         return {
           ok: false,
           message:
-            `🛑 新竹那邊【有】這張單(貨號 ${q.edelno}), 不能放回草稿;而把貨號記進資料庫失敗了:${toMessage(e)}` +
-            ' —— 請回報這行字, 不要重送。',
+            `新竹那邊有這一箱的託運單（貨號 ${q.edelno}），所以不能放回草稿，但系統記錄貨號失敗。` +
+            `請不要重送，並把這段訊息回報給系統管理員。（${toMessage(e)}）`,
         };
       }
     }

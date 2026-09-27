@@ -72,11 +72,12 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · decideSubmit —— 四個狀態, 三種�
     );
   });
 
-  it('🔴 submitted ⇒ 拒, 而理由要說得出「重送在新竹那端是更正」', () => {
+  it('🔴 submitted ⇒ 拒, 而理由要說得出「不能再申請」與下一步「重新取得標籤」', () => {
     const d = decideSubmit('submitted');
     expect(d.action).toBe('refuse');
     // 🔴 承重:一個只回 refuse 而不說理由的實作, 會讓員工以為是系統壞了而去找別的路。
-    expect((d as { reason: string }).reason).toContain('更正');
+    expect((d as { reason: string }).reason).toContain('不能再申請');
+    expect((d as { reason: string }).reason).toContain('重新取得標籤');
   });
 });
 
@@ -96,7 +97,7 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · unknown 那條路 —— 先查, 而查�
     const f = fakeFetch(() => soap([{ success: 'N', ErrMsg: '查無資料' }], 'QueryEDELNO_Json'));
     const r = await run('unknown', f.impl);
     expect(r.kind).toBe('needs_human');
-    expect((r as { reason: string }).reason, '訊息要說出「查無有兩個世界」').toContain('兩個世界');
+    expect((r as { reason: string }).reason, '訊息要說出「查不到有兩種可能、系統分不出來」').toContain('無法分辨');
     expect(f.calls.length, '查無之後又送了一發 ⇒ 可能建出第二張單').toBe(1);
   });
 
@@ -116,7 +117,7 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · unknown 那條路 —— 先查, 而查�
     expect(out.kind).toBe('needs_human');
     // 🎯 兩種都停在 needs_human, 而【理由必須不同】——
     //    否則人看到的訊息會把「我們包錯了」講成「新竹說沒有這張單」。
-    expect(out.kind === 'needs_human' ? out.reason : '').toContain('查詢本身沒有拿到答案');
+    expect(out.kind === 'needs_human' ? out.reason : '').toContain('查詢沒有得到結果');
     expect(out.kind === 'needs_human' ? out.reason : '').not.toContain('新竹查不到');
     // 🟢 負對照:一發送出都沒有(它只該查, 不該送)。
     expect(f.calls).toHaveLength(1);
@@ -155,7 +156,7 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · 送出那條路 —— 三態各自落到
     expect(out.kind).toBe('amended');
     expect(out.kind === 'amended' ? out.requestId : '').toBe('9990001234');
     // 🔴 而理由要說得出【它為什麼不是成功】—— 否則它會混進「今天送成功幾張」裡。
-    expect(out.kind === 'amended' ? out.reason : '').toContain('本來就有一張');
+    expect(out.kind === 'amended' ? out.reason : '').toContain('原本就有');
   });
 
   it('🟢 負對照:同一條路回 Y ⇒ recorded/submitted(證明上面那個 amended 不是恆真)', async () => {

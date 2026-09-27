@@ -60,7 +60,7 @@ export function planFromDispatch(out: HctDispatchOutcome): DispatchPlan {
         return {
           action: 'leave_alone',
           epino: r.epino,
-          message: r.errMsg === '' ? '新竹拒絕了這一箱, 而它沒有給原因' : r.errMsg,
+          message: r.errMsg === '' ? '新竹沒有提供原因' : r.errMsg,
         };
       }
       return { action: 'needs_human', epino: r.epino, reason: r.reason };
@@ -75,6 +75,22 @@ export function planFromDispatch(out: HctDispatchOutcome): DispatchPlan {
  * 🛑 **本函式不是安全網** —— 它省一次來回、給人看得懂的話;
  *    真正擋得住的是 `dispatchOrder` 自己那兩道 throw 與那道閘。
  */
+/**
+ * 叫車已送出、結果不確定時給員工看的那段話(2026-09-27 主視窗派工:白話改寫)。
+ * 🔴 保留四件事:不代表沒叫到、不要再按叫車(會叫兩台)、打給新竹報貨號(電話未確認)、貨已被收走的出口。
+ * ⚠️ 電話取自 `docs/reference/hct-logistics-api-reference.md`, 該檔第 8 節列為未確認 ⇒ 句子裡照實寫「尚未確認」。
+ */
+export function uncertainDispatchMessage(edelno: string, what: string, code: string | null): string {
+  return (
+    `這一箱已向新竹送出叫車，但${what}，無法確認是否叫到車，這不代表車沒叫到。` +
+    '請不要再按一次叫車，否則可能叫來兩台車。' +
+    `請打電話給新竹物流，提供貨號 ${edelno}，詢問這張託運單有沒有派到車、今天會不會來收。` +
+    '新竹客服電話 02-2837-1122 分機 5123（號碼取自新竹文件，尚未確認是否仍有效）。' +
+    `如果貨已經被收走，請到訂單的這一箱按「其他操作」，再按「填單號並標記出貨」，單號填 ${edelno}。` +
+    (code === null ? '' : `（${code}）`)
+  );
+}
+
 export type DispatchEligibility = { ok: true } | { ok: false; message: string };
 
 export function canDispatch(boxes: readonly {
@@ -153,21 +169,28 @@ export function dispatchButton(
   if (row.hctDispatchAttemptedAt !== null && row.hctDispatchAttemptedAt !== '') {
     return row.hctDispatchedAt !== null && row.hctDispatchedAt !== ''
       ? { show: true, enabled: false, why: '已叫車' }
-      : { show: true, enabled: false, why: '叫車途中中斷 —— 車可能已經在路上, 請人確認' };
+      : { show: true, enabled: false, why: '已送出叫車但結果未確認，車可能已經叫到。請打電話向新竹物流確認，不要再叫車。' };
   }
 
   if (row.hctStatus !== 'submitted') {
-    return { show: true, enabled: false, why: `託運單還沒在新竹建好(${row.hctStatus})` };
+    return {
+      show: true,
+      enabled: false,
+      why:
+        row.hctStatus === 'unknown'
+          ? `向新竹申請託運單號的結果未確認，請先到訂單的這一箱按「向新竹查詢貨號」。（目前狀態：${row.hctStatus}）`
+          : `這一箱還沒取得新竹託運單號，請先到訂單的這一箱按「跟新竹要託運單號」。（目前狀態：${row.hctStatus}）`,
+    };
   }
   if (row.hctRequestId === null || row.hctRequestId.trim() === '') {
-    return { show: true, enabled: false, why: '沒有新竹貨號 ⇒ 叫車那一發缺必要欄位' };
+    return { show: true, enabled: false, why: '這一箱沒有新竹貨號，無法叫車。請聯絡系統管理員。' };
   }
   const created = new Date(row.createdAt);
   if (Number.isNaN(created.getTime())) {
-    return { show: true, enabled: false, why: '建立時間讀不出來 ⇒ 判不出 30 天' };
+    return { show: true, enabled: false, why: '系統讀不到這一箱的建立時間，無法確認是否在 30 天內，暫時不能叫車。請聯絡系統管理員。' };
   }
   if (now.getTime() - created.getTime() > DISPATCH_WINDOW_MS) {
-    return { show: true, enabled: false, why: '超過 30 天 —— 新竹只收 30 天內的託運單' };
+    return { show: true, enabled: false, why: '這張託運單已超過 30 天，新竹物流不接受叫車。請作廢這一箱，重新建箱並申請託運單號。' };
   }
   return { show: true, enabled: true };
 }

@@ -204,7 +204,7 @@ describe('⟦ship-EPINOUNIQUE⟧ epino 的格式閘', () => {
   //    ⇒ 📌 **fixture 供應了真實世界不再送的東西** —— 我今晚才把這個坑寫進 traps, 然後自己踩了。
   it('🟡 舊格式訂單編號會被擋 —— 而**這只涵蓋舊格式**, 不要讀成「訂單編號都擋得住」', () => {
     expect(() => buildHctTransData({ ...BASE, shipmentReference: BAD('PCM-2026-0001') })).toThrow(
-      /\[epino\/shipment_reference\]/,
+      /epino\/shipment_reference/,
     );
   });
 
@@ -245,7 +245,7 @@ describe('⟦ship-EPINOUNIQUE⟧ epino 的格式閘', () => {
     const excluded = [...'0O1ILAEU'].map((c) => `B7K3M${c}`);
     for (const bad of [...excluded, 'B7K3M', 'B7K3MNN', 'b7k3mn', '', 'X'.repeat(200)]) {
       expect(() => buildHctTransData({ ...BASE, shipmentReference: BAD(bad) }), bad).toThrow(
-        /\[epino\/shipment_reference\]/,
+        /epino\/shipment_reference/,
       );
     }
   });

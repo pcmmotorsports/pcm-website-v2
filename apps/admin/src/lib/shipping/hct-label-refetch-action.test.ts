@@ -151,11 +151,11 @@ describe('② 新竹回來之後', () => {
     expect(recordHctLabelRaw).not.toHaveBeenCalled();
     expect(recordHctSubmit).not.toHaveBeenCalled();
   });
-  it('unknown ⇒ kind unknown, 沒寫任何東西, 訊息說得出「等一下再按」', async () => {
+  it('unknown ⇒ kind unknown, 沒寫任何東西, 訊息說得出「稍後再按」', async () => {
     submitTransData.mockResolvedValue({ kind: 'unknown', reason: 'timeout' });
     const r = await refetchHctLabelAction({ shipmentId: 's1' });
     expect((r as { kind: string }).kind).toBe('unknown');
-    expect((r as { message: string }).message).toContain('等一下再按一次');
+    expect((r as { message: string }).message).toContain('稍後再按一次');
     expect(recordHctLabelRaw).not.toHaveBeenCalled();
   });
   it('rejected ⇒ failed, 帶新竹的 ErrMsg', async () => {
@@ -178,7 +178,7 @@ describe('② 新竹回來之後', () => {
     submitTransData.mockResolvedValue({ kind: 'amended', edelno: '1001734834', raw: [{ image: 'zzzz-not-an-image' }] });
     const r = await refetchHctLabelAction({ shipmentId: 's1' });
     expect((r as { kind: string }).kind).toBe('failed');
-    expect((r as { message: string }).message).toContain('解不開');
+    expect((r as { message: string }).message).toContain('標籤圖讀取失敗');
     expect(recordHctLabelRaw).not.toHaveBeenCalled();
   });
   it('送出去的內容跟「送新竹」同一套:epino = 箱號, 備註同一支', async () => {
