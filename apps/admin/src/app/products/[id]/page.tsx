@@ -99,9 +99,10 @@ export default async function ProductDetailPage({
   //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
   //    (`#640` 守門在 `app/design-tokens.test.ts`)。
   // 商品編輯計畫片 9:「最近的變更」(Sean 09-27 C4 甲:全員可改、留變更紀錄)。讀不到只影響那一塊。
-  const history = product === null ? null : await loadProductHistory(product.id);
   // 共用圖庫 G5(Sean 09-27 C3):讀報價單 G2 API。env 沒設 ⇒ 'disabled',讀不到只影響「照片」那一塊。
-  const gallery = product === null ? null : await loadProductGallery(product);
+  // 兩個一起讀;報價單那一讀最多等 5 秒(gallery-api LIST_TIMEOUT_MS),卡住時整頁最多慢 5 秒,其餘照常(Fable R1 建議 2)。
+  const [history, gallery] =
+    product === null ? [null, null] : await Promise.all([loadProductHistory(product.id), loadProductGallery(product)]);
 
   return (
     <div className='mx-auto max-w-6xl space-y-4'>

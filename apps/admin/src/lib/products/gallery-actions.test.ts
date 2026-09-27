@@ -143,3 +143,21 @@ describe('上傳', () => {
     expect(r).toEqual({ ok: false, message: '照片空間尚未設定，暫時無法上傳。' });
   });
 });
+
+describe('上傳檢查順序與空檔(Fable R1 建議 4)', () => {
+  const form = (file: File) => {
+    const f = new FormData();
+    f.set('product_id', PID);
+    f.set('file', file);
+    return f;
+  };
+  it('沒登入 ⇒ 先說沒權限, 不先評論檔案', async () => {
+    m.auth.mockResolvedValueOnce(null);
+    const r = await uploadGalleryPhotoAction(form(new File(['x'], 'a.heic', { type: 'image/heic' })));
+    expect(r).toEqual({ ok: false, message: '沒有權限或登入已過期，請重新登入後再試。' });
+  });
+  it('空檔 ⇒ 說檔案是空的', async () => {
+    const r = await uploadGalleryPhotoAction(form(new File([], 'a.jpg', { type: 'image/jpeg' })));
+    expect(r).toEqual({ ok: false, message: '「a.jpg」沒有上傳：檔案是空的，請換一張照片。' });
+  });
+});

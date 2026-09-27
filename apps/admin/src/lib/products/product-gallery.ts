@@ -67,11 +67,18 @@ export type GalleryAction = 'reorder' | 'remove' | 'hide' | 'unhide' | 'upload';
  */
 export function galleryErrorMessage(action: GalleryAction, status: number, code: string): string {
   if (action === 'reorder' && status === 409) return '供應商剛更新了照片，請重新整理再排。';
+  if (action === 'remove' && code === 'GALLERY_WRONG_SOURCE') return '供應商照片不能刪除，可以隱藏。';
+  if (status === 400) {
+    // 報價單上傳 400 的原因是中文句子(報價單 lib/gallery/service.ts):「只收…」「檔案…」是照片本身的問題,
+    // 其餘(supplier_slug、main_sku、actor、request_id 格式)是網站送的參數錯 ⇒ 員工改照片也沒用(Fable R1 建議 3)。
+    // ponytail: 靠報價單訊息的開頭字判斷;報價單改用錯誤代碼後改成比對代碼。
+    if (action === 'upload' && /^(只收|檔案)/.test(code)) return '照片沒有上傳：格式或大小不符（只收 JPG、PNG、WebP，4MB 以內）。';
+    return '圖庫連線設定有誤，請聯絡系統管理員。';
+  }
   if (code === 'GALLERY_PRODUCT_NOT_FOUND') return '報價單找不到這件商品，暫時無法整理照片。';
   if (code === 'GALLERY_NOT_IN_PRODUCT') return '這張照片已經不在這件商品的圖庫裡，請重新整理頁面。';
   if (status === 409) return '照片剛被別人改過，請重新整理頁面後再試。';
   if (action === 'upload' && status === 503) return '照片空間尚未設定，暫時無法上傳。';
-  if (action === 'upload' && status === 400) return '照片沒有上傳：格式或大小不符（只收 JPG、PNG、WebP，4MB 以內）。';
   if (status === 401) return '圖庫連線設定有誤，請聯絡系統管理員。';
   if (action === 'remove') return '刪除的結果不確定，請重新整理頁面，確認這張照片是否還在。';
   if (action === 'upload') return '上傳的結果不確定，請重新整理頁面，確認照片是否已經上傳。';

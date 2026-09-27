@@ -19,7 +19,11 @@ export async function loadProductGallery(product: {
 }): Promise<ProductGalleryState> {
   const config = readGalleryApiConfig();
   if (!config) return { state: 'disabled' };
-  const actor = await getSessionActor();
+  // 讀身分也可能丟錯;這支不能讓整頁跟著壞(商品頁與變更紀錄一起 Promise.all)
+  const actor = await getSessionActor().catch((error: unknown) => {
+    console.error('[admin/products/[id]] 圖庫讀取時確認身分失敗', error);
+    return null;
+  });
   if (!actor) return { state: 'failed', message: '無法確認登入身分，請重新整理頁面。若仍無法載入，請重新登入。' };
   const r = await createGalleryApi(config).list(
     { supplierSlug: product.supplier_slug, mainSku: product.external_id },

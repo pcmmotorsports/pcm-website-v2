@@ -24,6 +24,8 @@ export type GalleryOp =
   | { op: 'reorder'; ids: string[] };
 
 const TIMEOUT_MS = 20_000;
+/** 打開商品頁時那一讀:報價單卡住也不能讓整頁跟著等(Fable R1 建議 2)。 */
+const LIST_TIMEOUT_MS = 5_000;
 
 export function readGalleryApiConfig(env: Record<string, string | undefined> = process.env): GalleryApiConfig | null {
   const base = env.PCM_GALLERY_API_BASE?.trim().replace(/\/+$/, '') ?? '';
@@ -52,14 +54,20 @@ function toPhotos(v: unknown): GalleryPhoto[] {
 }
 
 export function createGalleryApi(config: GalleryApiConfig, fetchImpl: typeof fetch = fetch) {
-  async function call(path: string, init: RequestInit): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; status: number; code: string }> {
+  async function call(
+    path: string,
+    init: RequestInit,
+    timeoutMs: number = TIMEOUT_MS,
+  ): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; status: number; code: string }> {
     let res: Response;
     try {
       res = await fetchImpl(`${config.base}${path}`, {
         ...init,
         headers: { ...(init.headers as Record<string, string> | undefined), authorization: `Bearer ${config.secret}` },
         cache: 'no-store',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        // 不跟隨轉址:轉到別的網址時密鑰標頭會跟著送出去(Fable R1 建議 1)
+        redirect: 'error',
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       console.error('[admin/gallery-api] 連不到報價單', path, error);
@@ -79,7 +87,7 @@ export function createGalleryApi(config: GalleryApiConfig, fetchImpl: typeof fet
 
   return {
     async list(key: GalleryKey, actor: string): Promise<GalleryApiResult<{ photos: GalleryPhoto[] }>> {
-      const r = await call(`/api/gallery?${new URLSearchParams(common(key, actor))}`, { method: 'GET' });
+      const r = await call(`/api/gallery?${new URLSearchParams(common(key, actor))}`, { method: 'GET' }, LIST_TIMEOUT_MS);
       return r.ok ? { ok: true, photos: toPhotos(r.body.photos) } : r;
     },
 

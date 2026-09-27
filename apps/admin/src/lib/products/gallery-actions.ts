@@ -75,16 +75,17 @@ export async function setGalleryHiddenAction(productId: string, id: string, hidd
 
 /** FormData:product_id、file(瀏覽器已縮到最長邊 1600)。一次一張。 */
 export async function uploadGalleryPhotoAction(form: FormData): Promise<GalleryActionResult> {
-  const productId = String(form.get('product_id') ?? '');
+  // 先驗登入與商品,再看檔案:沒權限的人不該先聽到檔案哪裡不對(Fable R1 建議 4)
+  const r = await prepare(String(form.get('product_id') ?? ''));
+  if (!r.ok) return r;
   const file = form.get('file');
   if (!(file instanceof File)) return { ok: false, message: INVALID };
   const rejected = uploadRejection(file);
   if (rejected) return { ok: false, message: rejected };
-  if (file.size === 0 || file.size > UPLOAD_MAX_BYTES) {
+  if (file.size === 0) return { ok: false, message: `「${file.name}」沒有上傳：檔案是空的，請換一張照片。` };
+  if (file.size > UPLOAD_MAX_BYTES) {
     return { ok: false, message: `「${file.name}」沒有上傳：縮小後仍超過 4MB，請換一張較小的照片。` };
   }
-  const r = await prepare(productId);
-  if (!r.ok) return r;
   const res = await r.api.upload(r.key, r.actor, file);
   if (!res.ok) return { ok: false, message: galleryErrorMessage('upload', res.status, res.code) };
   return reload(r);

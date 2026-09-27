@@ -120,3 +120,24 @@ describe('upload', () => {
     expect(r).toMatchObject({ ok: false, status: 503 });
   });
 });
+
+describe('Fable R1 建議', () => {
+  it('🔴 不跟隨轉址(密鑰不會被帶去別的網址)', async () => {
+    const { fn, calls } = fakeFetch(200, { photos: [] });
+    const api = createGalleryApi(CONFIG, fn);
+    await api.list(KEY, 'a');
+    await api.op(KEY, 'a', { op: 'remove', id: 'x' });
+    await api.upload(KEY, 'a', new File(['x'], 'a.jpg', { type: 'image/jpeg' }));
+    expect(calls.map((c) => c.init.redirect)).toEqual(['error', 'error', 'error']);
+  });
+
+  it('打開商品頁那一讀(list)最多等 5 秒, 寫入最多 20 秒', async () => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    const { fn } = fakeFetch(200, { photos: [] });
+    const api = createGalleryApi(CONFIG, fn);
+    await api.list(KEY, 'a');
+    await api.op(KEY, 'a', { op: 'remove', id: 'x' });
+    expect(spy.mock.calls.map((c) => c[0])).toEqual([5000, 20000]);
+    spy.mockRestore();
+  });
+});

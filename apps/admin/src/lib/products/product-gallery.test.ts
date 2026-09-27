@@ -107,3 +107,19 @@ describe('galleryErrorMessage', () => {
     expect(galleryErrorMessage('upload', 503, 'x')).toBe('照片空間尚未設定，暫時無法上傳。');
   });
 });
+
+describe('galleryErrorMessage(Fable R1 建議 3、4)', () => {
+  it('上傳 400:照片本身的問題 ⇒ 說照片不符;參數錯 ⇒ 說連線設定有誤', () => {
+    expect(galleryErrorMessage('upload', 400, '只收 jpeg、png、webp')).toContain('格式或大小不符');
+    expect(galleryErrorMessage('upload', 400, '檔案大小要在 4194304 bytes 以內')).toContain('格式或大小不符');
+    expect(galleryErrorMessage('upload', 400, '檔案讀不出圖片')).toContain('格式或大小不符');
+    expect(galleryErrorMessage('upload', 400, 'supplier_slug 格式不對')).toBe('圖庫連線設定有誤，請聯絡系統管理員。');
+    expect(galleryErrorMessage('upload', 400, 'request_id 要是 uuid')).toBe('圖庫連線設定有誤，請聯絡系統管理員。');
+  });
+  it('其他動作 400 ⇒ 連線設定有誤', () => {
+    expect(galleryErrorMessage('reorder', 400, 'actor 要是員工帳號(小寫英數與底線)')).toBe('圖庫連線設定有誤，請聯絡系統管理員。');
+  });
+  it('刪除供應商照片(409 WRONG_SOURCE)⇒ 說不能刪、可以隱藏', () => {
+    expect(galleryErrorMessage('remove', 409, 'GALLERY_WRONG_SOURCE')).toBe('供應商照片不能刪除，可以隱藏。');
+  });
+});
