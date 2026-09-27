@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ProductGalleryPanel } from './product-gallery-panel';
 import { ProductOverridesEditor } from './product-overrides-editor';
+import { QuickEditEscape } from './product-quick-edit-escape';
 import type { ProductGalleryState } from '../../lib/products/gallery-loader';
 import { readProductOverrides } from '../../lib/products/product-overrides-view';
 import { toProductMedia } from '../../lib/products/product-media';
@@ -29,6 +30,7 @@ export function ProductQuickEditDrawer({
   const overrides = readProductOverrides(product?.staff_overrides);
   return (
     <div data-quick-edit className='fixed inset-0 z-50 flex justify-end'>
+      <QuickEditEscape closeHref={closeHref} />
       {/* 點側邊欄外面也可以關(同「關閉」那一顆, 只拿掉 ?edit=)。 */}
       <Link href={closeHref} scroll={false} aria-label='關閉快速編輯' className='bg-foreground/20 flex-1' tabIndex={-1} />
       <aside
