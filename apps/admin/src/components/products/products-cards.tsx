@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { ProductSelectAllOnPage } from './product-batch-bar';
 import { ProductStatusCaps } from './product-status-caps';
 import { productDetailHref } from '../../lib/products/product-list-view';
-import { displayTitle, resolvePrice, type AdminProductListRow } from '../../lib/products/product-repository';
+import { displayTitle, resolvePrice, saleLabel, type AdminProductListRow } from '../../lib/products/product-repository';
 
 // products-cards.tsx —— 商品列表的卡片檢視(商品頁乙 E1–E2;計畫 ~/pcm-mailbox/計畫-後台商品頁乙-20260928.md 第五節 E)。
 // 大縮圖、客人看到的標題、料號、售價、狀態;看照片找商品時比表格快。
@@ -60,6 +60,7 @@ export function ProductsCards({
                 </Link>
                 <span className='text-muted-foreground font-mono text-xs'>{row.external_id}</span>
                 <span className='text-sm'>{price === null ? '—' : `NT$ ${price.toLocaleString('zh-TW')}`}</span>
+                {saleLabel(row) !== null && <span className='text-destructive text-xs'>{saleLabel(row)}</span>}
                 <div className='mt-auto flex flex-wrap items-center justify-between gap-1 pt-1 text-xs'>
                   <ProductStatusCaps row={row} />
                   {editHref && (

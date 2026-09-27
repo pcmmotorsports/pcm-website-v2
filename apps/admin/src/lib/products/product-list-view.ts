@@ -123,7 +123,8 @@ export const ATTENTION_PARAM = 'attn';
  * 「要處理」五種條件(Sean 2026-09-28 Q2 甲)。順序 = 畫面上按鈕的順序。
  * 條件本身在 `product-repository.ts` 的 `ATTENTION_CONDITION`;名稱是畫面文字。
  */
-export const PRODUCT_ATTENTION_KEYS = ['delisted', 'out_of_stock', 'image_missing', 'title_no_cjk', 'source_missing'] as const;
+// 商品頁乙 P15(Q-P3 甲):多一顆「特價中」,方便主管找到所有設了特價的商品。
+export const PRODUCT_ATTENTION_KEYS = ['delisted', 'out_of_stock', 'image_missing', 'title_no_cjk', 'source_missing', 'on_sale'] as const;
 export type ProductAttention = (typeof PRODUCT_ATTENTION_KEYS)[number];
 export const PRODUCT_ATTENTION_LABEL: Record<ProductAttention, string> = {
   delisted: '已下架',
@@ -131,6 +132,7 @@ export const PRODUCT_ATTENTION_LABEL: Record<ProductAttention, string> = {
   image_missing: '代表圖待補',
   title_no_cjk: '標題無中文字',
   source_missing: '原廠已無此品',
+  on_sale: '特價中',
 };
 
 /**
