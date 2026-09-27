@@ -106,8 +106,8 @@ export type ManualRefundFormInput = {
   occurredAt: string;
   /**
    * 🔴 **勾了沒**(⟦b4-MIXEDRAILMANUALREFUND⟧)。
-   * 🛑 **加這一欄的人請一起改【失敗回填那個 effect】**(`manual-refund-entry-section.tsx`)——
-   *    那個回填是**逐欄手寫**的,而 `type` 加了而 effect 沒加 **`typecheck` 不會紅**
+   * 🛑 **加這一欄的人請一起改【render 期的失敗回填】**(`manual-refund-entry-section.tsx`;2026-09-27 前是一個 effect)——
+   *    那個回填是**逐欄手寫**的,而 `type` 加了而回填沒加 **`typecheck` 不會紅**
    *    (它只是少 `set` 一個 state)。
    * 🔴🔴 **而這一欄掉了特別難發現,理由不對稱**:
    *    別的欄位掉了 ⇒ 員工看到**空白** ⇒ 他知道要重打;
@@ -123,7 +123,7 @@ export const EMPTY_MANUAL_REFUND_INPUT: ManualRefundFormInput = {
   reason: '',
   occurredAt: '',
   // 🔵 空殼的預設是 `false` —— 而它與「員工沒勾」是同一個值。
-  //    那沒問題,因為這個空殼只用在 `denied`,而 `denied` 那一態【不回填】(見 entry-section 的 effect)。
+  //    那沒問題,因為這個空殼只用在 `denied`,而 `denied` 那一態【不回填】(見 entry-section 的 render 期回填)。
   confirmCardNotRefunded: false,
 };
 
