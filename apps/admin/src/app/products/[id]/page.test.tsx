@@ -626,3 +626,79 @@ describe('共用圖庫 G5:照片', () => {
     expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點、照片與上架狀態');
   });
 });
+
+// 商品頁改版乙 B1(~/pcm-mailbox/計畫-後台商品頁乙-20260928.md 第五節):頂端摘要帶。
+// 員工打開就看得到重點與上下架按鈕,不用往下捲;大標題是客人看到的標題(審視 E3)。
+describe("B1 頂端摘要帶", () => {
+  beforeEach(() => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({
+      brandName: "CNC RACING",
+      categoryName: "外觀部品",
+    });
+  });
+  const band = (c: HTMLElement) =>
+    c.querySelector("[data-summary-band]") as HTMLElement | null;
+  const item = (c: HTMLElement, key: string) =>
+    band(c)?.querySelector(`[data-summary="${key}"]`)?.textContent ?? null;
+
+  it("🔴 摘要帶列出料號、品牌、分類、售價、庫存、原廠供貨、上架狀態", async () => {
+    const { container } = await renderPage();
+    expect(band(container)).not.toBeNull();
+    expect(item(container, "sku")).toBe("RPM-001");
+    expect(item(container, "brand")).toBe("CNC RACING");
+    expect(item(container, "category")).toBe("外觀部品");
+    expect(item(container, "price")).toBe("NT$ 4,800");
+    expect(item(container, "stock")).toBe("有庫存");
+    expect(item(container, "source")).toBe("原廠仍有");
+    expect(item(container, "listing")).toBe("上架中");
+  });
+
+  it("🔴 上下架按鈕在摘要帶裡(第一屏就按得到)", async () => {
+    const { container } = await renderPage();
+    expect(band(container)!.textContent).toContain("下架這件商品");
+  });
+
+  it("🔴 大標題是客人看到的標題:有我們的版本就顯示我們的,副標同理", async () => {
+    mocks.get.mockResolvedValue({
+      ...PRODUCT,
+      staff_overrides: { title: "我們的標題", subtitle: "我們的副標" },
+    });
+    const { container } = await renderPage();
+    const h1 = band(container)!.querySelector("h1");
+    expect(h1?.textContent).toBe("我們的標題");
+    expect(h1?.nextElementSibling?.textContent).toBe("我們的副標");
+    expect(band(container)!.textContent).toContain("客人看到的標題");
+  });
+
+  it("🟢 對照:沒有我們的版本 ⇒ 大標題是供應商的標題", async () => {
+    const { container } = await renderPage();
+    expect(band(container)!.querySelector("h1")?.textContent).toBe(
+      "碳纖維前土除",
+    );
+  });
+
+  it("🔴 封面:有代表圖就顯示那張;只有佔位圖或沒有圖 ⇒ 寫「沒有代表圖」", async () => {
+    const { container } = await renderPage();
+    expect(band(container)!.querySelector("img")?.getAttribute("src")).toBe(
+      "a.jpg",
+    );
+    mocks.get.mockResolvedValue({
+      ...PRODUCT,
+      images: ["/placeholder-product.png"],
+    });
+    cleanup();
+    const again = await renderPage();
+    expect(band(again.container)!.querySelector("img")).toBeNull();
+    expect(band(again.container)!.textContent).toContain("沒有代表圖");
+  });
+
+  it("🔴 品牌與分類讀不到 ⇒ 摘要帶那兩格寫「讀不到」,其餘照顯示", async () => {
+    mocks.taxonomy.mockRejectedValue(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = await renderPage();
+    expect(item(container, "brand")).toBe("讀不到");
+    expect(item(container, "category")).toBe("讀不到");
+    expect(item(container, "sku")).toBe("RPM-001");
+  });
+});
