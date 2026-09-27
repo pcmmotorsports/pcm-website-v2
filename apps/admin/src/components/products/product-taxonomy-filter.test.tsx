@@ -27,7 +27,7 @@ const NONE: AdminProductFilter = {
   keyword: undefined,
   brandIds: undefined,
   categoryPath: undefined,
-      skus: undefined,
+      skus: undefined, attention: undefined,
 };
 
 const BRANDS = [

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stripComments } from '../test-support/strip-comments';
-import { buildProductKeywordOrFilter } from './product-repository';
+import { buildProductKeywordOrFilter, displayTitle } from './product-repository';
 
 // 受測檔頂層 `import 'server-only'`(它是 server-only 模組,這是對的)⇒ 測試裡要 stub 掉,
 // 否則整支載入即炸(同 `app/customers/page.test.tsx:10` 紀律)。
@@ -27,7 +27,7 @@ const q = vi.hoisted(() => ({
 }));
 vi.mock('@pcm/adapters/server', () => {
   const builder: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'maybeSingle']) {
+  for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'maybeSingle', 'abortSignal']) {
     builder[m] = (...args: unknown[]) => {
       q.calls.push([m, ...args]);
       return builder;
@@ -39,6 +39,8 @@ vi.mock('@pcm/adapters/server', () => {
 });
 
 import {
+  ATTENTION_CONDITION,
+  countProductAttention,
   listProductFilterOptions,
   listProductsForAdmin,
   resolveListingState,
@@ -267,7 +269,7 @@ describe('#20 片1a — 讀取層守門', () => {
     //    ⇒ 通過。而**內嵌關聯不會夾帶未指名的欄位**:PostgREST 只回 `select` 裡點名的,
     //      2026-08-19 本機實跑回的正是 `{"brands":{"name":"BREMBO"}}` 單欄。
     expect(code).toContain(
-      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path)'",
+      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title'",
     );
     // 片1b-1 新增的詳情欄位清單,同樣釘值不釘呼叫字面。
     expect(code).toContain('supplier_slug, handle, brand_id, category_id');
@@ -494,6 +496,37 @@ describe('#20 片1a — 取值落點的行為', () => {
   });
 });
 
+describe('商品頁乙 A2:「要處理」篩選與件數', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+  });
+
+  it('勾兩種 ⇒ 一個 or 條件包兩種(彼此是「或」);沒勾 ⇒ 沒有 or 條件', async () => {
+    await listProductsForAdmin(20, 0, { attention: ['delisted', 'image_missing'] });
+    expect(q.calls).toContainEqual(['or', 'delisted_at.not.is.null,admin_card_image_missing.is.true']);
+    q.calls.length = 0;
+    await listProductsForAdmin(20, 0);
+    expect(q.calls.filter((c) => c[0] === 'or')).toEqual([]);
+  });
+
+  it('缺貨 = 上架中而且缺貨(與側欄「商品 缺貨 N 筆」同一個定義);代表圖待補不看 images 是否為空', () => {
+    expect(ATTENTION_CONDITION.out_of_stock).toBe('and(delisted_at.is.null,availability.eq.out-of-stock)');
+    expect(ATTENTION_CONDITION.image_missing).toBe('admin_card_image_missing.is.true');
+  });
+
+  it('件數:五顆各查一次、只算數不撈列、只帶自己那一種,其他篩選照帶', async () => {
+    await countProductAttention({ setBy: 'staff', attention: ['delisted'] });
+    const ors = q.calls.filter((c) => c[0] === 'or').map((c) => c[1] as string);
+    expect([...ors].sort()).toEqual(Object.values(ATTENTION_CONDITION).sort());
+    const selects = q.calls.filter((c) => c[0] === 'select');
+    expect(selects).toHaveLength(5);
+    expect(selects.every((c) => (c[2] as { head: boolean }).head === true)).toBe(true);
+    expect(q.calls.filter((c) => c[0] === 'eq' && c[1] === 'listing_set_by')).toHaveLength(5);
+    // 每一顆都有自己的期限,卡住的那一顆不會拖住整頁(A2 Codex 必修 2)
+    expect(q.calls.filter((c) => c[0] === 'abortSignal')).toHaveLength(5);
+  });
+});
+
 describe('🔴 #20 片2c:chip 篩選必須變成 DB 查詢條件', () => {
   beforeEach(() => {
     q.calls.length = 0;
@@ -518,13 +551,13 @@ describe('🔴 #20 片2c:chip 篩選必須變成 DB 查詢條件', () => {
 describe('#661 buildProductKeywordOrFilter', () => {
   it('一般詞:兩個欄位各一個 ilike,前後包 %', () => {
     expect(buildProductKeywordOrFilter('brembo')).toBe(
-      'external_id.ilike."%brembo%",title.ilike."%brembo%"',
+      'external_id.ilike."%brembo%",title.ilike."%brembo%",staff_overrides->>title.ilike."%brembo%"',
     );
   });
 
   it('中文詞照樣過(ilike 不經過 pg_trgm)', () => {
     expect(buildProductKeywordOrFilter('煞車皮')).toBe(
-      'external_id.ilike."%煞車皮%",title.ilike."%煞車皮%"',
+      'external_id.ilike."%煞車皮%",title.ilike."%煞車皮%",staff_overrides->>title.ilike."%煞車皮%"',
     );
   });
 
@@ -536,7 +569,7 @@ describe('#661 buildProductKeywordOrFilter', () => {
    * 解回來之後斷言的是**契約本身**:伺服器收到的 ILIKE pattern 是什麼。
    */
   function ilikePatternOf(orFilter: string): string {
-    const m = /^external_id\.ilike\."(.*)",title\.ilike\."\1"$/.exec(orFilter);
+    const m = /^external_id\.ilike\."(.*)",title\.ilike\."\1",staff_overrides->>title\.ilike\."\1"$/.exec(orFilter);
     const captured = m?.[1];
     if (captured === undefined) {
       throw new Error(`條件字串形狀不符,兩欄不一致或格式變了:${orFilter}`);
@@ -578,20 +611,27 @@ describe('#661 buildProductKeywordOrFilter', () => {
     // 官方文件逐字:值含 , ( ) " \ 必須 PostgREST 風格雙引號包起來。
     const out = buildProductKeywordOrFilter('A,B');
     // 逗號仍在,而它在引號**內** ⇒ 不會被 .or() 當成條件分隔。
-    expect(out).toBe('external_id.ilike."%A,B%",title.ilike."%A,B%"');
+    expect(out).toBe('external_id.ilike."%A,B%",title.ilike."%A,B%",staff_overrides->>title.ilike."%A,B%"');
     // 🔴 負向對照:若實作改用反斜線跳脫逗號,上面那條會變成 "%A\,B%" ⇒ 這一格會紅。
     expect(out).not.toContain('A\\,B');
   });
 
   it('🔴 引號本身要在引號內被跳脫,否則它會提早關掉那個引號', () => {
     const out = buildProductKeywordOrFilter('12"');
-    expect(out).toBe('external_id.ilike."%12\\"%",title.ilike."%12\\"%"');
+    expect(out).toBe('external_id.ilike."%12\\"%",title.ilike."%12\\"%",staff_overrides->>title.ilike."%12\\"%"');
   });
 
   it('🔴 順序:先 ILIKE 跳脫再引號內跳脫 —— 反斜線要被跳兩次', () => {
     // 使用者打一個反斜線 ⇒ ILIKE 層變成 \\ ⇒ 引號層再各跳一次 ⇒ \\\\
     const out = buildProductKeywordOrFilter('a\\b');
-    expect(out).toBe('external_id.ilike."%a\\\\\\\\b%",title.ilike."%a\\\\\\\\b%"');
+    expect(out).toBe('external_id.ilike."%a\\\\\\\\b%",title.ilike."%a\\\\\\\\b%",staff_overrides->>title.ilike."%a\\\\\\\\b%"');
+  });
+});
+
+describe('商品頁乙 A1:列表名稱顯示客人看到的標題', () => {
+  it('員工改過標題 ⇒ 顯示改過的;沒改過 ⇒ 顯示供應商的', () => {
+    expect(displayTitle({ title: 'Brake Lever', override_title: 'Brembo 煞車拉桿組' })).toBe('Brembo 煞車拉桿組');
+    expect(displayTitle({ title: 'Brake Lever', override_title: null })).toBe('Brake Lever');
   });
 });
 

@@ -1,5 +1,6 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import { PRODUCT_ATTENTION_KEYS, type ProductAttention } from './product-list-view';
 import type { ProductMediaRow } from './product-media';
 import type { BrandOptionRow, CategoryOptionRow } from './product-taxonomy-options';
 
@@ -86,6 +87,13 @@ export interface AdminProductListRow extends AdminProductRow {
   readonly brands: { readonly name: string } | null;
   /** 內嵌 to-one 的分類完整路徑(`categories(raw_path)`),例 `'引擎部品 · 排氣管'`。理由同 `brands`。 */
   readonly categories: { readonly raw_path: string } | null;
+  /** 員工改過的標題(`staff_overrides->>title`);沒改過是 `null`。列表顯示用 `displayTitle`。 */
+  readonly override_title: string | null;
+}
+
+/** 客人看到的標題:員工改過的優先,沒有才用供應商的(同前台 products_public,20260927040000)。 */
+export function displayTitle(row: Pick<AdminProductListRow, 'title' | 'override_title'>): string {
+  return row.override_title ?? row.title;
 }
 
 /**
@@ -93,7 +101,7 @@ export interface AdminProductListRow extends AdminProductRow {
  * 這串字面被 product-repository.test.ts 釘住。
  */
 const PRODUCT_LIST_COLUMNS =
-  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path)' as const;
+  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title' as const;
 
 /** 上下架狀態的 domain 形狀(頁面與表格只認這個,不認 DB 欄)。 */
 export type ProductListingState = 'listed' | 'delisted';
@@ -225,7 +233,8 @@ export function buildProductKeywordOrFilter(keyword: string): string {
   const inner = ilikeSafe.replace(/(["\\])/g, '\\$1');
   // 前後各一個 `%` = 子字串比對;它們在引號**內**,是 pattern 的一部分。
   const pattern = `"%${inner}%"`;
-  return `external_id.ilike.${pattern},title.ilike.${pattern}`;
+  // 2026-09-28 商品頁乙 A1:員工改過的標題(staff_overrides.title)也要搜得到,不然列表上看得到的名字搜不到。
+  return `external_id.ilike.${pattern},title.ilike.${pattern},staff_overrides->>title.ilike.${pattern}`;
 }
 
 /**
@@ -281,7 +290,23 @@ export interface AdminProductQuery {
    *   那一段在 `listProductsForAdmin` 裡,不在這裡。
    */
   readonly skus?: readonly string[];
+  /** 商品頁乙 A2:「要處理」條件,彼此是「或」;和其他軸是「而且」。空陣列不得傳進來。 */
+  readonly attention?: readonly ProductAttention[];
 }
+
+/**
+ * 「要處理」每一種條件的 PostgREST 寫法(Sean 2026-09-28 Q2 甲;定義見 plan 第四節)。
+ * · 缺貨 = 上架中而且缺貨,與側欄「商品 缺貨 N 筆」同一個定義(`lib/layout/sidebar-counts.ts` 那支 count)。
+ * · 代表圖待補 / 標題無中文字 = 20260928030000 的兩個計算欄(規則住在資料庫,與前台無圖排最後同一份)。
+ * 🔴 同步寫進來的 images 永遠有一張(rpm-transform.ts:735),所以不能用「images 是空的」判。
+ */
+export const ATTENTION_CONDITION: Record<ProductAttention, string> = {
+  delisted: 'delisted_at.not.is.null',
+  out_of_stock: 'and(delisted_at.is.null,availability.eq.out-of-stock)',
+  image_missing: 'admin_card_image_missing.is.true',
+  title_no_cjk: 'admin_title_lacks_cjk.is.true',
+  source_missing: 'source_missing_at.not.is.null',
+};
 
 /**
  * 料號清單 → 商品 id 集合。**回空陣列是一個合法答案**(= 這些料號一個都不存在)。
@@ -315,22 +340,13 @@ export async function listProductsForAdmin(
 }
 
 /**
- * 篩選 + 排序 + 分頁的共用那一段;欄位由呼叫端指定。
- *
- * 🔴 2026-09-27 商品清單匯出(`product-export.ts`)要讀另一組欄(含店家價),而篩選必須跟列表【同一段】,
- *    所以把原本 `listProductsForAdmin` 的本體抽到這裡,列表那支只剩傳欄位。
- *    🛑 欄位字串在呼叫端 ⇒ 經銷價外洩守門(`product-repository.test.ts` 的 LEAK_TOKENS 全樹掃)
- *       照樣咬得到呼叫端那支檔:新的呼叫端要讀經銷價,就得進 LEAK_ALLOWLIST。
+ * 篩選那一段(不含排序與分頁),列表與「要處理」件數共用 ⇒ 件數與清單套的是同一組條件。
+ * 🔴 回傳包在物件裡:PostgREST builder 是 thenable,async 函式直接回它會被 await 當場送出查詢。
  */
-export async function queryProductsForAdmin<Row>(
-  columns: string,
-  limit: number,
-  offset: number,
-  query: AdminProductQuery,
-): Promise<{ items: Row[]; total: number }> {
+async function filteredProducts(columns: string, head: boolean, query: AdminProductQuery) {
   let q = createSupabaseServiceClient()
     .from('products')
-    .select(columns, { count: 'exact' });
+    .select(columns, { count: 'exact', head });
 
   // 🔴 **篩選一定要走 DB,不能在頁面上過濾陣列。**
   //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
@@ -374,6 +390,55 @@ export async function queryProductsForAdmin<Row>(
     q = q.in('id', productIds);
   }
 
+
+  // 商品頁乙 A2:「要處理」幾種條件之間是「或」;和上面各軸是「而且」
+  //   (PostgREST 同時帶兩個 or= 會取交集,2026-09-28 本機 PostgREST 實測)。
+  if (query.attention && query.attention.length > 0) {
+    q = q.or(query.attention.map((key) => ATTENTION_CONDITION[key]).join(','));
+  }
+  return { q };
+}
+
+/** 「要處理」每一顆件數最多等多久(毫秒)。 */
+export const ATTENTION_COUNT_TIMEOUT_MS = 3000;
+
+/**
+ * 「要處理」每一顆的件數:套用目前的品牌、分類、手動/自動、搜尋、料號,但不套其他幾顆「要處理」。
+ * 某一顆查失敗 ⇒ 那一顆是 `null`(畫面不顯示數字),其他照常。
+ */
+export async function countProductAttention(
+  query: AdminProductQuery,
+): Promise<Record<ProductAttention, number | null>> {
+  const entries = await Promise.all(
+    PRODUCT_ATTENTION_KEYS.map(async (key) => {
+      try {
+        const { q } = await filteredProducts('id', true, { ...query, attention: [key] });
+        // 件數有自己的期限:卡住的那一顆放棄、不顯示數字,不拖住整頁列表(A2 Codex 必修 2)。
+        const { count, error } = await q.abortSignal(AbortSignal.timeout(ATTENTION_COUNT_TIMEOUT_MS));
+        return [key, error ? null : (count ?? 0)] as const;
+      } catch {
+        return [key, null] as const;
+      }
+    }),
+  );
+  return Object.fromEntries(entries) as Record<ProductAttention, number | null>;
+}
+
+/**
+ * 篩選 + 排序 + 分頁的共用那一段;欄位由呼叫端指定。
+ *
+ * 🔴 2026-09-27 商品清單匯出(`product-export.ts`)要讀另一組欄(含店家價),而篩選必須跟列表【同一段】,
+ *    所以把原本 `listProductsForAdmin` 的本體抽到這裡,列表那支只剩傳欄位。
+ *    🛑 欄位字串在呼叫端 ⇒ 經銷價外洩守門(`product-repository.test.ts` 的 LEAK_TOKENS 全樹掃)
+ *       照樣咬得到呼叫端那支檔:新的呼叫端要讀經銷價,就得進 LEAK_ALLOWLIST。
+ */
+export async function queryProductsForAdmin<Row>(
+  columns: string,
+  limit: number,
+  offset: number,
+  query: AdminProductQuery,
+): Promise<{ items: Row[]; total: number }> {
+  const { q } = await filteredProducts(columns, false, query);
   const { data, error, count } = await q
     .order('created_at', { ascending: false })
     .order('id', { ascending: true })

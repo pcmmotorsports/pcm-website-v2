@@ -4,6 +4,7 @@ import {
   type AdminColumn,
 } from '../shared/admin-data-table';
 import {
+  displayTitle,
   isSourceMissing,
   resolveListingSetBy,
   resolveListingState,
@@ -46,7 +47,7 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
     // (`AdminDataTable` 沒有整列連結的 API ⇒ 連結包在名稱欄,不去改共用表格元件)。
     cell: (row) => (
       <Link href={`/products/${row.id}`} className='text-foreground font-bold hover:underline'>
-        {row.title}
+        {displayTitle(row)}
       </Link>
     ),
     mobile: 'title',

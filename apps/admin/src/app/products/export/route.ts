@@ -10,7 +10,7 @@ import {
   productExportFilename,
   productExportFilterNote,
 } from '../../../lib/products/product-export';
-import { parseProductListParams } from '../../../lib/products/product-list-view';
+import { parseProductListParams, PRODUCT_ATTENTION_LABEL } from '../../../lib/products/product-list-view';
 import { listProductFilterOptions } from '../../../lib/products/product-repository';
 import { resolveProductListQuery } from '../../../lib/products/product-taxonomy-options';
 
@@ -66,6 +66,7 @@ export async function GET(req: Request) {
       brandNames: options.brands.filter((b) => brandIds.includes(b.id)).map((b) => b.name),
       categoryPath: filter.categoryPath,
       skuCount: filter.skus?.length ?? 0,
+      attentionLabels: filter.attention?.map((k) => PRODUCT_ATTENTION_LABEL[k]),
       brandFilterDropped: resolved.brandFilterDropped,
       categoryFilterDropped: resolved.categoryFilterDropped,
     }),
