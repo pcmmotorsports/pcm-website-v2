@@ -2,11 +2,18 @@ import Link from 'next/link';
 import type { ProductSetByFilter } from '../../lib/products/product-repository';
 import {
   buildProductListHrefResetPage,
+  DEFAULT_PAGE_SIZE,
+  filterHiddenFields,
   PRODUCT_ATTENTION_KEYS,
   PRODUCT_ATTENTION_LABEL,
+  PRODUCT_SORT_KEYS,
+  PRODUCT_SORT_LABEL,
+  SIZE_PARAM,
+  SORT_PARAM,
   type AdminProductFilter,
   type ProductAttention,
 } from '../../lib/products/product-list-view';
+import { AutoApplySubmit } from '../shared/auto-apply-submit';
 
 // M-4b `#20` 片2c:商品列表工具列的快速篩選 chip(手動 / 自動)。
 //
@@ -106,5 +113,36 @@ export function ProductAttentionChips({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * 商品頁乙 A5:排序。一般 GET 表單 + 下拉,選了就送出(AutoApplySubmit;沒有 JS 時按「套用排序」)。
+ * 其他篩選與每頁筆數以 hidden 欄位帶著走,換排序回到第 1 頁。
+ */
+export function ProductSortSelect({ filter, size }: { filter: AdminProductFilter; size: number }) {
+  const hidden = Object.entries(filterHiddenFields({ ...filter, sort: undefined }));
+  return (
+    <form method='get' action='/products' className='flex items-center gap-1.5' data-product-sort>
+      {hidden.map(([name, value]) => value !== undefined && <input key={name} type='hidden' name={name} value={value} />)}
+      {size !== DEFAULT_PAGE_SIZE && <input type='hidden' name={SIZE_PARAM} value={String(size)} />}
+      <label htmlFor='product-sort' className='text-muted-foreground text-xs'>
+        排序
+      </label>
+      <select
+        id='product-sort'
+        name={SORT_PARAM}
+        defaultValue={filter.sort ?? ''}
+        className='border-input bg-background h-8 rounded-md border px-2 text-sm'
+      >
+        <option value=''>{PRODUCT_SORT_LABEL.default}</option>
+        {PRODUCT_SORT_KEYS.map((k) => (
+          <option key={k} value={k}>
+            {PRODUCT_SORT_LABEL[k]}
+          </option>
+        ))}
+      </select>
+      <AutoApplySubmit label='套用排序' className='border-input hover:bg-accent h-8 rounded-md border px-2 text-sm' />
+    </form>
   );
 }

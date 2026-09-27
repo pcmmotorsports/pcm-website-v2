@@ -81,7 +81,7 @@ function cellTexts(container: HTMLElement, headerLabel: string): string[] {
  *   setBy: undefined, keyword: undefined, brandIds: undefined, categoryIds: undefined,
  *
       skus: undefined,
-      attention: undefined,
+      attention: undefined, sort: undefined,
     });
  * ```
  * 而它旁邊逐字寫著:「篩選軸逐個逐字寫 `undefined`(= 不篩)而不是省略 ——
@@ -176,11 +176,11 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined,
+      attention: undefined, sort: undefined,
     });
 
     // 商品頁乙 A2(Fable R2 建議):網址的 ?attn= 要真的傳到查詢。
-    //   `attention: undefined` 那幾格抓不到漏接(toHaveBeenCalledWith 把 undefined 與沒有這個鍵視為相等)。
+    //   `attention: undefined, sort: undefined` 那幾格抓不到漏接(toHaveBeenCalledWith 把 undefined 與沒有這個鍵視為相等)。
     mocks.list.mockClear();
     await renderPage({ attn: 'delisted,out_of_stock' });
     expect((mocks.list.mock.calls.at(-1)![2] as { attention?: unknown }).attention).toEqual(['delisted', 'out_of_stock']);
@@ -194,7 +194,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined,
+      attention: undefined, sort: undefined,
     });
   });
 
@@ -231,7 +231,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined,
+      attention: undefined, sort: undefined,
     });
   });
 
@@ -348,7 +348,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined,
+      attention: undefined, sort: undefined,
     });
 
     // 負向對照:認不得的值不得被送進查詢(它會直接進 .eq 條件)。
@@ -360,7 +360,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined,
+      attention: undefined, sort: undefined,
     });
   });
 

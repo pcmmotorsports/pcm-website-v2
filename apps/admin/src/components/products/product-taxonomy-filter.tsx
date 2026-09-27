@@ -1,5 +1,6 @@
 import {
   ATTENTION_PARAM,
+  SORT_PARAM,
   BRAND_PARAM,
   CATEGORY_PARAM,
   DEFAULT_PAGE_SIZE,
@@ -90,6 +91,9 @@ export function ProductTaxonomyFilter({
       {/* 商品頁乙 A2:「要處理」也要帶著走,不然勾了「缺貨」再用這個表單,條件就被洗掉(A2 Codex 必修 1)。 */}
       {filter.attention !== undefined && (
         <input type='hidden' name={ATTENTION_PARAM} value={filter.attention.join(',')} />
+      )}
+      {filter.sort !== undefined && (
+        <input type='hidden' name={SORT_PARAM} value={filter.sort} />
       )}
 
       {/* 2026-09-14(Sean:「上方篩選欄位太佔空間」):品牌從 4 行高的 <select multiple> 改成可打字的 combobox + 可 × 的 chip;

@@ -1,6 +1,6 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
-import { PRODUCT_ATTENTION_KEYS, type ProductAttention } from './product-list-view';
+import { PRODUCT_ATTENTION_KEYS, type ProductAttention, type ProductSort } from './product-list-view';
 import type { ProductMediaRow } from './product-media';
 import type { BrandOptionRow, CategoryOptionRow } from './product-taxonomy-options';
 
@@ -298,6 +298,8 @@ export interface AdminProductQuery {
   readonly skus?: readonly string[];
   /** 商品頁乙 A2:「要處理」條件,彼此是「或」;和其他軸是「而且」。空陣列不得傳進來。 */
   readonly attention?: readonly ProductAttention[];
+  /** 商品頁乙 A5:排序;`undefined` = 最新建立的在前。 */
+  readonly sort?: ProductSort;
 }
 
 /**
@@ -445,8 +447,19 @@ export async function queryProductsForAdmin<Row>(
   query: AdminProductQuery,
 ): Promise<{ items: Row[]; total: number }> {
   const { q } = await filteredProducts(columns, false, query);
-  const { data, error, count } = await q
-    .order('created_at', { ascending: false })
+  // 商品頁乙 A5:排序。🔴 一律再加 `id` 當第二鍵:第一鍵同值時單靠它分頁會漂(見上面那段)。
+  //   售價沒填的排最後(nullsFirst: false),不管升冪降冪。
+  const sorted =
+    query.sort === 'updated'
+      ? q.order('updated_at', { ascending: false })
+      : query.sort === 'price_asc'
+        ? q.order('price_general', { ascending: true, nullsFirst: false })
+        : query.sort === 'price_desc'
+          ? q.order('price_general', { ascending: false, nullsFirst: false })
+          : query.sort === 'sku'
+            ? q.order('external_id', { ascending: true })
+            : q.order('created_at', { ascending: false });
+  const { data, error, count } = await sorted
     .order('id', { ascending: true })
     .range(offset, offset + limit - 1);
 

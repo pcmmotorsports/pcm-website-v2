@@ -527,6 +527,24 @@ describe('商品頁乙 A2:「要處理」篩選與件數', () => {
   });
 });
 
+describe('商品頁乙 A5:排序', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+  });
+
+  it.each([
+    [undefined, ['created_at', { ascending: false }]],
+    ['updated', ['updated_at', { ascending: false }]],
+    ['price_asc', ['price_general', { ascending: true, nullsFirst: false }]],
+    ['price_desc', ['price_general', { ascending: false, nullsFirst: false }]],
+    ['sku', ['external_id', { ascending: true }]],
+  ] as const)('sort=%s ⇒ 第一鍵照選的排,第二鍵一律 id(分頁不漂)', async (sort, first) => {
+    await listProductsForAdmin(20, 0, { sort });
+    const orders = q.calls.filter((c) => c[0] === 'order').map((c) => c.slice(1));
+    expect(orders).toEqual([[...first], ['id', { ascending: true }]]);
+  });
+});
+
 describe('🔴 #20 片2c:chip 篩選必須變成 DB 查詢條件', () => {
   beforeEach(() => {
     q.calls.length = 0;
