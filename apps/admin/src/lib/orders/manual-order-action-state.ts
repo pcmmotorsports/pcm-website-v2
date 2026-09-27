@@ -85,6 +85,13 @@ export const MANUAL_ORDER_SENT_CODES = Object.freeze([
 export const MANUAL_ORDER_RESULT_PARAM = 'r';
 
 /**
+ * 訂單已建立、但無法確認收件地址有沒有存進客人地址簿(20260927120000;Sean 2026-09-27 全甲)。
+ * 🔴 這是【成功之後】的提醒,不是失敗:導去那張單(不是回表單),員工不必也不該重送。
+ * 🔴 文案寫「無法確認」不寫「沒有存」(Codex R1 必修 3):逾時的時候伺服器可能已經寫進去了。
+ */
+export const MANUAL_ORDER_ADDRESS_NOT_SAVED = 'manual_order_address_not_saved';
+
+/**
  * 失敗導頁時把**冪等鍵**帶回表單頁的 query 參數。
  *
  * 🔴🔴 **它不是加值,是讓兩句話變成真的**:

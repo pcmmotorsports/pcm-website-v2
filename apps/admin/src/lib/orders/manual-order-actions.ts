@@ -13,9 +13,12 @@ import {
   parseManualOrderForm,
 } from './manual-order-form';
 import { createManualOrder } from './manual-order-repository';
+import { saveManualOrderAddress } from '../customers/manual-order-address';
 // 🔴 常數住在隔壁那支檔, 因為 `'use server'` 檔【只能匯出 async 函式】(該檔頭有實測紀錄)。
 import {
+  MANUAL_ORDER_ADDRESS_NOT_SAVED,
   MANUAL_ORDER_PATH,
+  MANUAL_ORDER_RESULT_PARAM,
   manualOrderBasePath,
   manualOrderContainerFromField,
   manualOrderResultQuery,
@@ -160,10 +163,13 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
     scope: 'manual-order',
     requestId,
   });
+  // 收件地址存進客人地址簿(Sean 2026-08-28 Q-建單2 甲;2026-09-27 全甲)。訂單已經成立 ⇒ 這一步失敗只帶一句提醒,不回表單。
+  const address = await saveManualOrderAddress(outcome.orderId, authorization.actorId, requestId);
   // 🔴 建好之後**留在原來那個容器**:彈窗裡建的單 ⇒ 就地展開它(`?open=<id>`, P-b 的形狀);
   //    整頁建的 ⇒ 整頁明細。(面板那條 `?panel=<id>` 2026-09-13 連面板一起拆了。)
+  const target = container === 'dialog' ? `/orders?open=${outcome.orderId}` : `/orders/${outcome.orderId}`;
   redirect(
-    container === 'dialog' ? `/orders?open=${outcome.orderId}` : `/orders/${outcome.orderId}`,
+    address.ok ? target : appendResultQuery(target, `${MANUAL_ORDER_RESULT_PARAM}=${MANUAL_ORDER_ADDRESS_NOT_SAVED}`),
     RedirectType.replace,
   );
 }

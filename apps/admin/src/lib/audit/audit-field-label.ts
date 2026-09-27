@@ -286,6 +286,11 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   // 刪除會員時留下的資料(Sean Q21 甲:稽核留 email 與姓名)
   email: 'Email',
   name: '姓名',
+  // ── 後台建單把收件地址存進客人地址簿(20260927120000 admin_save_manual_order_address)──
+  address_id: '地址編號',
+  phone: '電話',
+  line: '地址',
+  is_default: '是否為預設地址',
   created_at: '註冊時間',
   // ── 商品上下架 ────────────────────────────────────────────
   delisted_at: '下架時間',
@@ -478,6 +483,7 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
   has_bank_reference: BOOL,
   is_active: BOOL,
   is_manager: BOOL,
+  is_default: BOOL,
 };
 
 /**

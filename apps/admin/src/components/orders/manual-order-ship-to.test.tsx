@@ -4,7 +4,9 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 vi.mock('server-only', () => ({}));
 
-const mocks = vi.hoisted(() => ({ search: vi.fn(), create: vi.fn(), createOrder: vi.fn() }));
+const mocks = vi.hoisted(() => ({ search: vi.fn(), create: vi.fn(), createOrder: vi.fn(), addresses: vi.fn() }));
+// 選客人時讀他的地址簿(20260927120000;Sean 2026-09-27 全甲)。預設空的 ⇒ 既有各格不受影響。
+vi.mock('@/lib/customers/manual-order-address-actions', () => ({ loadManualCustomerAddressesAction: mocks.addresses }));
 vi.mock('@/lib/customers/manual-customer-actions', () => ({
   searchManualCustomersAction: mocks.search,
   createManualCustomerInlineAction: mocks.create,
@@ -47,6 +49,7 @@ function fillCustomer(name: string, phone: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.search.mockResolvedValue({ ok: true, candidates: [], truncated: false, shouldWarnDuplicates: false });
+  mocks.addresses.mockResolvedValue({ ok: true, addresses: [] });
 });
 afterEach(cleanup);
 
@@ -277,5 +280,176 @@ describe('🔴🔴 ⟦b4-收件即建客⟧:沒有人接手的時候, 鈕要照�
     expect(said).toContain('尚未就緒');
     expect(said).not.toContain('已送去建客人');
     expect(mocks.create).toHaveBeenCalledTimes(0);
+  });
+});
+
+describe('選客人 ⇒ 從他的地址簿帶入收件資料(Sean 2026-09-27:再建單就沒有地址)', () => {
+  const RECENT = { id: 'a1', name: '張保元', phone: '0922129301', line: '台中市西屯區 1 號' };
+  const OLDER = { id: 'a2', name: '張保元', phone: '0922129301', line: '台北市信義區 2 號' };
+
+  async function pick() {
+    mocks.search.mockResolvedValue({
+      ok: true,
+      candidates: [{ userId: USER_A, name: '永欣重車-張保元', phone: '0922129301', isManual: true }],
+      truncated: false,
+      shouldWarnDuplicates: false,
+    });
+    fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: '0922129301' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '找客人' }));
+    });
+    await act(async () => {
+      fireEvent.click(document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement);
+    });
+  }
+
+  it('🔴 三格是空的 ⇒ 帶入最近用過的那筆;地址簿有兩筆 ⇒ 出現「從地址簿選」', async () => {
+    mocks.addresses.mockResolvedValue({ ok: true, addresses: [RECENT, OLDER] });
+    renderForm();
+    await pick();
+    expect(mocks.addresses).toHaveBeenCalledWith(USER_A);
+    expect(shipName().value).toBe('張保元');
+    expect(shipPhone().value).toBe('0922129301');
+    expect(shipLine().value).toBe('台中市西屯區 1 號');
+    const select = screen.getByLabelText('從地址簿選') as HTMLSelectElement;
+    expect(select.options.length).toBe(3); // 提示那一項 + 兩筆
+    // 下拉不送出(沒有 name)
+    expect(select.getAttribute('name')).toBeNull();
+  });
+
+  it('從下拉換成另一筆 ⇒ 三格換成那一筆', async () => {
+    mocks.addresses.mockResolvedValue({ ok: true, addresses: [RECENT, OLDER] });
+    renderForm();
+    await pick();
+    fireEvent.change(screen.getByLabelText('從地址簿選'), { target: { value: 'a2' } });
+    expect(shipLine().value).toBe('台北市信義區 2 號');
+  });
+
+  it('🔴 員工已經打了收件資料 ⇒ 選客人不自動蓋掉(下拉還是給他用)', async () => {
+    mocks.addresses.mockResolvedValue({ ok: true, addresses: [RECENT] });
+    renderForm();
+    fireEvent.change(shipLine(), { target: { value: '員工自己打的地址' } });
+    await pick();
+    expect(shipLine().value).toBe('員工自己打的地址');
+    expect(screen.getByLabelText('從地址簿選')).toBeTruthy();
+  });
+
+  it('🔴 客人被換掉了(新建客人 / 重新搜尋不會觸發 change)⇒ 不從舊客人的地址簿帶入', async () => {
+    mocks.addresses.mockResolvedValue({ ok: true, addresses: [RECENT, OLDER] });
+    renderForm();
+    await pick();
+    fireEvent.change(shipLine(), { target: { value: '' } });
+    // 模擬「選取被程式換掉」:不發 change 事件, 直接取消勾選
+    (document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement).checked = false;
+    fireEvent.change(screen.getByLabelText('從地址簿選'), { target: { value: 'a2' } });
+    expect(shipLine().value).toBe('');
+    expect(screen.queryByLabelText('從地址簿選')).toBeNull();
+    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toContain('客人已經換了');
+  });
+
+  it('地址簿是空的 ⇒ 不動、沒有下拉', async () => {
+    renderForm();
+    await pick();
+    expect(shipLine().value).toBe('');
+    expect(screen.queryByLabelText('從地址簿選')).toBeNull();
+  });
+
+  it('🔴 讀地址簿丟錯(連線中斷)⇒ 講一句, 不留沒人接的錯誤', async () => {
+    mocks.addresses.mockRejectedValue(new Error('network'));
+    renderForm();
+    await pick();
+    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toBe('客人的地址簿載入失敗，請自行填寫收件資料。');
+    expect(shipLine().value).toBe('');
+  });
+
+  it('讀不到地址簿 ⇒ 講一句, 不動收件資料', async () => {
+    mocks.addresses.mockResolvedValue({ ok: false, message: '客人的地址簿載入失敗，請自行填寫收件資料。' });
+    renderForm();
+    await pick();
+    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toBe('客人的地址簿載入失敗，請自行填寫收件資料。');
+    expect(shipLine().value).toBe('');
+  });
+});
+
+describe('Codex R1 必修:換客人時不能把上一位的地址帶給下一位', () => {
+  const USER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const A_ADDR = { id: 'a1', name: '甲', phone: '0911000000', line: 'A 的地址' };
+  const B_ADDR = { id: 'b1', name: '乙', phone: '0922000000', line: 'B 的地址' };
+
+  async function searchBoth() {
+    mocks.search.mockResolvedValue({
+      ok: true,
+      candidates: [
+        { userId: USER_A, name: '甲', phone: '0911000000', isManual: true },
+        { userId: USER_B, name: '乙', phone: '0922000000', isManual: true },
+      ],
+      truncated: false,
+      shouldWarnDuplicates: false,
+    });
+    fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: '09' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '找客人' }));
+    });
+  }
+  const choose = async (id: string) => {
+    await act(async () => {
+      fireEvent.click(document.querySelector(`input[value="${id}"]`) as HTMLInputElement);
+    });
+  };
+
+  it('🔴 選 A(自動帶入)→ 改選 B ⇒ A 的三格清掉、換成 B 的', async () => {
+    mocks.addresses.mockImplementation(async (id: string) => ({ ok: true, addresses: id === USER_A ? [A_ADDR] : [B_ADDR] }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    expect(shipLine().value).toBe('A 的地址');
+    await choose(USER_B);
+    expect(shipLine().value).toBe('B 的地址');
+    expect(shipName().value).toBe('乙');
+  });
+
+  it('🔴 選 A(自動帶入)→ 改選沒有地址的 B ⇒ 三格清空(不留 A 的)', async () => {
+    mocks.addresses.mockImplementation(async (id: string) => ({ ok: true, addresses: id === USER_A ? [A_ADDR] : [] }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    await choose(USER_B);
+    expect(shipLine().value).toBe('');
+    expect(shipName().value).toBe('');
+  });
+
+  it('選 A 之後員工改過收件資料 → 改選 B ⇒ 保留他改的, 並提醒確認', async () => {
+    mocks.addresses.mockImplementation(async (id: string) => ({ ok: true, addresses: id === USER_A ? [A_ADDR] : [B_ADDR] }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    fireEvent.change(shipLine(), { target: { value: 'A 的地址 5 樓' } });
+    await choose(USER_B);
+    expect(shipLine().value).toBe('A 的地址 5 樓');
+    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toContain('請確認這是這位客人的收件資料');
+  });
+
+  it('🔴 A 的地址簿還沒回來就重新搜尋(清單重畫、不發 change)⇒ A 的回應晚到也不帶入', async () => {
+    let release: (v: unknown) => void = () => {};
+    mocks.addresses.mockImplementation(() => new Promise((res) => { release = res; }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    // 重新搜尋:清單換成只有 B、沒有人被勾(radio 整批重掛, 不發 change)
+    mocks.search.mockResolvedValue({
+      ok: true,
+      candidates: [{ userId: USER_B, name: '乙', phone: '0922000000', isManual: true }],
+      truncated: false,
+      shouldWarnDuplicates: false,
+    });
+    fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: '0922' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '找客人' }));
+    });
+    await act(async () => {
+      release({ ok: true, addresses: [A_ADDR] });
+    });
+    expect(shipLine().value).toBe('');
+    expect(screen.queryByLabelText('從地址簿選')).toBeNull();
   });
 });

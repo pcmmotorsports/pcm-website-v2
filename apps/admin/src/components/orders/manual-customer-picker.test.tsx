@@ -14,6 +14,10 @@ vi.mock('@/lib/customers/manual-customer-actions', () => ({
   createManualCustomerInlineAction: mocks.create,
 }));
 vi.mock('@/lib/orders/manual-order-actions', () => ({ createManualOrderAction: mocks.createOrder }));
+// 選客人時收件區會讀他的地址簿(20260927120000);這支檔測的是找客人 / 建客人 ⇒ 換成空的地址簿,不跑真的 server action
+vi.mock('@/lib/customers/manual-order-address-actions', () => ({
+  loadManualCustomerAddressesAction: async () => ({ ok: true, addresses: [] }),
+}));
 
 import { ManualCustomerPicker } from './manual-customer-picker';
 import { ManualOrderFormBody } from './manual-order-form-body';

@@ -10,7 +10,7 @@
 // @vitest-environment jsdom
 import { ITEM_SWAP_MESSAGES } from '../../lib/orders/item-swap-state';
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
-import { manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
+import { MANUAL_ORDER_ADDRESS_NOT_SAVED, manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
 import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -518,6 +518,8 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       manualOrderResultCode('bug'),
       manualOrderResultCode('rejected'),
       manualOrderResultCode('error'),
+      // 建單成功之後的提醒:地址沒存進客人地址簿(20260927120000)。本格加進 MESSAGES 時紅過(2026-09-27 實跑)。
+      MANUAL_ORDER_ADDRESS_NOT_SAVED,
       // 🔴 `#890` 人工判定更正線七顆(片2c)。**本格在我把它們加進 MESSAGES 的當下真的紅過**
       //    (2026-08-29 實跑,`1 failed | 39 passed (40)`,訊息逐字
       //     `expected [ 'conflict', 'correction_bug', …(38) ] to deeply equal [ Array(33) ]`)

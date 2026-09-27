@@ -70,7 +70,7 @@ import {
   ORDER_AMOUNT_REJECTED_RESULT_CODE,
 } from '../../lib/orders/amount-action-state';
 
-import { manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
+import { MANUAL_ORDER_ADDRESS_NOT_SAVED, manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
 import {
   MANUAL_CANCEL_NOTICE_MESSAGES,
   MANUAL_CANCEL_REVOKE_MESSAGES,
@@ -111,6 +111,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // ⚠️ **這七句都是【固定文案】,不是 RPC 說的原話**(M12-A3 plan Q1=甲,主視窗 2026-08-24 裁)。
   //    RPC 的原文只進 log —— 因為 `?r=` 是任何人都能自己打的字,把它放進 URL
   //    = 讓任何人對員工顯示任意一句「系統說的話」。
+  // 手動建單成功之後的提醒(20260927120000):訂單已建立,只是地址沒存進客人地址簿 ⇒ 不叫他重送。
+  [MANUAL_ORDER_ADDRESS_NOT_SAVED]: {
+    text: '訂單已建立，但無法確認收件地址是否已存進客人資料。下次幫這位客人建單時，請確認地址有沒有自動帶入。',
+    tone: 'warn',
+  },
   [manualOrderResultCode('denied')]: {
     text: '登入已過期，請重新登入後建立訂單。',
     tone: 'error',
