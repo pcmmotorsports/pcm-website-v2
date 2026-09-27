@@ -102,4 +102,29 @@ describe('createBoxForOrder', () => {
     expect(r.text).toContain('打開這張單');
     expect(storage.m.size).toBe(1);
   });
+
+  // 2026-09-28 R1 Fable 建議:資料庫明確拒絕(沒建箱、有錯誤代碼)⇒ 清掉快照, 下次重讀品項與地址。
+  it('🔴 資料庫明確拒絕而沒建箱(沒箱號、有錯誤代碼)⇒ 清掉快照', async () => {
+    const { d, storage } = deps({
+      submit: vi.fn(async () => ({ ok: false, message: '這張單已取消', shipmentReference: null, code: 'P2B26' })) as unknown as BulkBoxDeps['submit'],
+    });
+    const r = await createBoxForOrder('o1', ['i1'], d);
+    expect(r.ok).toBe(false);
+    expect(storage.m.size).toBe(0);
+  });
+
+  it('🟢 對照:沒箱號也沒錯誤代碼(不確定是不是資料庫擋的)⇒ 快照留著', async () => {
+    const { d, storage } = deps({
+      submit: vi.fn(async () => ({ ok: false, message: 'fetch failed', shipmentReference: null, code: null })) as unknown as BulkBoxDeps['submit'],
+    });
+    await createBoxForOrder('o1', ['i1'], d);
+    expect(storage.m.size).toBe(1);
+  });
+
+  it('🔴 瀏覽器不給存(storage 為 null)而結果不明 ⇒ 不承諾「再按不會多建一箱」, 叫他先打開這張單看箱子', async () => {
+    const { d } = deps({ storage: null, submit: vi.fn(async () => { throw new Error('network'); }) as unknown as BulkBoxDeps['submit'] });
+    const r = await createBoxForOrder('o1', ['i1'], d);
+    expect(r.text).not.toContain('不會多建一箱');
+    expect(r.text).toContain('先打開這張單看箱子');
+  });
 });

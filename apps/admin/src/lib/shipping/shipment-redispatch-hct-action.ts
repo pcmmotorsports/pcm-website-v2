@@ -15,7 +15,7 @@ import { auditLog, NO_ACTOR_MESSAGE } from './shipment-action-audit';
 import { getDispatchShipment, markShipmentShipped } from './shipment-repository';
 import { claimHctRedispatch, recordHctRedispatch } from './hct-redispatch-repository';
 import { dispatchOrder, hctDispatchGateOpen } from './hct-client';
-import { planFromDispatch, uncertainDispatchMessage } from './hct-dispatch-flow';
+import { dispatchedButUnrecordedMessage, planFromDispatch, uncertainDispatchMessage } from './hct-dispatch-flow';
 import type { DispatchActionResult } from './shipment-dispatch-hct-action';
 
 const DISPATCH_SEND_DEADLINE_MS = 30_000;
@@ -97,15 +97,19 @@ export async function redispatchShipmentAction(args: {
       return fail({ ok: false, kind: 'needs_human', message: uncertainDispatchMessage(edelno, '系統看不懂新竹回傳的這一箱結果', only.reason) });
     }
 
-    // ── ③ 記結果(不吞)⇒ ④ 標出貨(寄信在它下游)。
-    await recordHctRedispatch({ attemptId, edelno: only.edelno });
-    await markShipmentShipped({
-      idempotencyKey: `redispatch:${attemptId}`,
-      shipmentId: args.shipmentId,
-      trackingNumber: only.edelno,
-      actor: auth.actorId,
-      requestId: await (await import('../audit/context')).getRequestId(),
-    });
+    // ── ③ 記結果(不吞)⇒ ④ 標出貨(寄信在它下游)。失敗要說「車已叫到、不要重新叫車」(R1 Fable 建議)。
+    try {
+      await recordHctRedispatch({ attemptId, edelno: only.edelno });
+      await markShipmentShipped({
+        idempotencyKey: `redispatch:${attemptId}`,
+        shipmentId: args.shipmentId,
+        trackingNumber: only.edelno,
+        actor: auth.actorId,
+        requestId: await (await import('../audit/context')).getRequestId(),
+      });
+    } catch (e) {
+      return fail({ ok: false, kind: 'needs_human', message: dispatchedButUnrecordedMessage(only.edelno, toMessage(e)) });
+    }
     revalidatePath('/shipments');
     revalidatePath('/orders');
     auditLog('shipment.hct_redispatch', auth, 'ok', { shipment_id: args.shipmentId, has_tracking_number: true });

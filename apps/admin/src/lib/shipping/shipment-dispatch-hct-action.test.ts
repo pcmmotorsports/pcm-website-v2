@@ -76,3 +76,18 @@ describe('叫車:佔位之後超過 30 秒就不送', () => {
     expect(r.ok).toBe(true);
   });
 });
+
+// 2026-09-28 R1 Fable 建議:新竹已回「叫到車」之後, 記結果或標出貨失敗 ⇒ 要說「車已叫到、不要重新叫車」, 不是只給資料庫原話。
+describe('叫到車之後系統沒記下', () => {
+  it.each([
+    ['記結果失敗', () => h.record.mockRejectedValueOnce(new Error('db down'))],
+    ['標出貨失敗', () => h.mark.mockRejectedValueOnce(new Error('P2B26 blocked'))],
+  ])('🔴 %s ⇒ needs_human, 句子說車已叫到(帶貨號)、不要重新叫車', async (_n, arrange) => {
+    arrange();
+    const r = await dispatchShipmentAction({ shipmentId: 's1' });
+    expect(r).toMatchObject({ ok: false, kind: 'needs_human' });
+    const m = (r as { message: string }).message;
+    expect(m).toContain('新竹已回覆叫到車（貨號 8947081999）');
+    expect(m).toContain('不要重新叫車');
+  });
+});

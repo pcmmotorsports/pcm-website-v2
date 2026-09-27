@@ -98,4 +98,16 @@ describe('redispatchShipmentAction', () => {
     expect(h.mark).not.toHaveBeenCalled();
     expect(r).toMatchObject({ ok: false, kind: 'needs_human' });
   });
+
+  it.each([
+    ['記結果失敗', () => h.record.mockRejectedValueOnce(new Error('db down'))],
+    ['標出貨失敗', () => h.mark.mockRejectedValueOnce(new Error('P2B26 blocked'))],
+  ])('🔴 叫到車之後%s ⇒ needs_human, 說車已叫到、不要重新叫車(否則 10 分鐘後可能叫第二台)', async (_n, arrange) => {
+    arrange();
+    const r = await redispatchShipmentAction({ shipmentId: 's1', expectedAttemptNo: 1 });
+    expect(r).toMatchObject({ ok: false, kind: 'needs_human' });
+    const m = (r as { message: string }).message;
+    expect(m).toContain('新竹已回覆叫到車（貨號 8947081999）');
+    expect(m).toContain('不要重新叫車');
+  });
 });

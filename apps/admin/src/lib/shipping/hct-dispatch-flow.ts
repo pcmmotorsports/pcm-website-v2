@@ -91,6 +91,18 @@ export function uncertainDispatchMessage(edelno: string, what: string, code: str
   );
 }
 
+/**
+ * 新竹已回「叫到車」, 而系統記結果或標出貨失敗(2026-09-28 R1 Fable 建議)。
+ * 🔴 一定要說「車已叫到、不要重新叫車」—— 這一箱之後會顯示「叫車結果未確認」, 10 分鐘後會出現「重新叫車」。
+ */
+export function dispatchedButUnrecordedMessage(edelno: string, cause: string): string {
+  return (
+    `新竹已回覆叫到車（貨號 ${edelno}），但系統沒有記下結果或沒有標記出貨。請不要重新叫車，否則可能叫來兩台車。` +
+    `貨被收走後，請到訂單的這一箱按「新竹說已收走：標記出貨」或「填單號並標記出貨」，單號填 ${edelno}。` +
+    `若按了仍失敗，請聯絡系統管理員。（${cause}）`
+  );
+}
+
 export type DispatchEligibility = { ok: true } | { ok: false; message: string };
 
 export function canDispatch(boxes: readonly {

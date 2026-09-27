@@ -36,7 +36,7 @@ function readSaved(storage: BulkBoxDeps['storage'], orderId: string): Saved | nu
 }
 
 export async function createBoxForOrder(orderId: string, pickedItemIds: readonly string[], deps: BulkBoxDeps): Promise<BulkBoxOutcome> {
-  const saved = readSaved(deps.storage, orderId);
+  let saved = readSaved(deps.storage, orderId);
   let input = saved?.input ?? null;
   let label = saved?.label ?? null;
   if (input === null) {
@@ -54,9 +54,12 @@ export async function createBoxForOrder(orderId: string, pickedItemIds: readonly
     }
     input = { idempotencyKey: deps.newKey(), recipient, carrierCode: 'hct', items, markShipped: false };
     try {
-      deps.storage?.setItem(storageKey(orderId), JSON.stringify({ input, label } satisfies Saved));
+      if (deps.storage !== null) {
+        deps.storage.setItem(storageKey(orderId), JSON.stringify({ input, label } satisfies Saved));
+        saved = { input, label };
+      }
     } catch {
-      // 存不進去也照建;只是斷線後重按不會沿用同一把鍵。
+      // 存不進去也照建;只是斷線後重按不會沿用同一把鍵(下面的句子會改說法)。
     }
   }
   let r: SubmitShipmentResult;
@@ -67,17 +70,23 @@ export async function createBoxForOrder(orderId: string, pickedItemIds: readonly
       orderId,
       label,
       ok: false,
-      text: '這張單的建箱結果不明。請再按一次（會沿用同一筆資料，不會多建一箱），或打開這張單看箱子。',
+      // 2026-09-28 R1 Fable 建議:沒存進瀏覽器就不能承諾「不會多建一箱」(重按會是新的一把鍵)。
+      text:
+        saved !== null
+          ? '這張單的建箱結果不明。請再按一次（會沿用同一筆資料，不會多建一箱），或打開這張單看箱子。'
+          : '這張單的建箱結果不明。請先打開這張單看箱子；沒有箱子再重新建箱，以免多建一箱。',
     };
   }
-  if (r.ok) {
+  // 2026-09-28 R1 Fable 建議:資料庫明確拒絕而沒建箱(沒箱號、有錯誤代碼)⇒ 這把鍵沒用掉, 清掉快照,
+  //   下次重讀品項與地址(否則員工改了地址或品項, 重按仍送舊資料)。沒有錯誤代碼的失敗不確定, 快照留著。
+  if (r.ok || (r.shipmentReference === null && r.code !== null)) {
     try {
       deps.storage?.removeItem(storageKey(orderId));
     } catch {
       // 清不掉不影響結果。
     }
-    return { orderId, label, ok: true, text: `已建箱 ${r.shipmentReference}` };
   }
+  if (r.ok) return { orderId, label, ok: true, text: `已建箱 ${r.shipmentReference}` };
   return {
     orderId,
     label,
