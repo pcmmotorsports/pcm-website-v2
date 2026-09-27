@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ProductSelectAllOnPage } from './product-batch-bar';
 import { ProductQuickListing } from './product-quick-listing';
+import { ProductTextDialog } from './product-text-dialog';
 import { productDetailHref } from '../../lib/products/product-list-view';
 import {
   AdminDataTable,
@@ -172,6 +173,7 @@ function ProductRowSummary({ row, closeHref, detailHref }: { row: AdminProductLi
       </div>
       <div className='flex flex-wrap items-center gap-2'>
         <ProductQuickListing productId={row.id} listed={listed} />
+        <ProductTextDialog productId={row.id} title={displayTitle(row)} />
         <Link href={detailHref} className='border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm'>
           打開完整頁
         </Link>
