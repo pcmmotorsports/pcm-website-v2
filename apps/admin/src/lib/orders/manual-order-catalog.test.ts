@@ -66,8 +66,10 @@ describe('🔴🔴 防洩漏:select 逐欄指名,零經銷價 / 成本 / metadat
     // 🔵 **2026-08-31 Sean 批 price_store 進來**(⟦b4-SKULOOKUP⟧ Q2 逐字「甲 標未稅」)。
     //    🛑 **這一格紅過, 而它紅得對** —— 它逼我回來想一次, 而想完的結論是「該進」。
     //    ⇒ 舊字面留著加刪除線:會來搜舊那串的人, 是讀過舊版的人。
+    // 🔵 2026-09-28 商品頁乙 P13:再加 sale_price_general —— 該進:手動建單要帶入客人實際付的一般價(含特價),
+    //    建單函式不重新查價(20260829140000:273),帶錯員工沒注意就用錯價。
     expect(MANUAL_ORDER_CATALOG_COLUMNS).toBe(
-      'id, sku, price_general, price_store, products(title)',
+      'id, sku, price_general, price_store, sale_price_general, products(title)',
     );
   });
 
@@ -168,7 +170,25 @@ describe('翻譯回來的形狀', () => {
         sku: 'PCM-001',
         title: '排氣管',
         unitPrice: 12000,
+        listUnitPrice: null,
       },
+    ]);
+  });
+
+  it('商品頁乙 P13:特價生效 ⇒ 帶入特價、另給原價;特價不低於一般價 ⇒ 照一般價;一般價空 ⇒ 空(不拿特價頂上)', async () => {
+    stubClient({
+      data: [
+        row({ price_general: 12000, sale_price_general: 9000 }),
+        row({ id: '22222222-2222-4222-8222-222222222222', sku: 'PCM-002', price_general: 12000, sale_price_general: 13000 }),
+        row({ id: '33333333-3333-4333-8333-333333333333', sku: 'PCM-003', price_general: null, sale_price_general: 9000 }),
+      ],
+      error: null,
+    });
+    const out = await searchManualOrderCatalog('PCM');
+    expect(out.map((h) => [h.sku, h.unitPrice, h.listUnitPrice])).toEqual([
+      ['PCM-001', 9000, 12000],
+      ['PCM-002', 12000, null],
+      ['PCM-003', null, null],
     ]);
   });
 

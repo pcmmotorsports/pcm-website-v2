@@ -176,7 +176,8 @@ export function ItemSwapPanel({
                 className='block w-full rounded-md border px-2 py-1 text-left aria-pressed:border-foreground'
               >
                 <span className='font-mono'>{h.sku}</span>・{h.title === '' ? '（無品名）' : h.title}・售價{' '}
-                {money(h.unitPrice)}（含稅）・經銷 {money(h.dealerPriceUntaxed)}（未稅）
+                {/* 商品頁乙 P13:換商品比的是原價(不含特價),與 admin_swap_order_item 同一個數 */}
+                {money(h.listUnitPrice ?? h.unitPrice)}（含稅）・經銷 {money(h.dealerPriceUntaxed)}（未稅）
               </button>
             </li>
           ))}
@@ -195,7 +196,7 @@ export function ItemSwapPanel({
             <dt className='text-muted-foreground'>換成</dt>
             <dd>
               <span className='font-mono'>{picked.sku}</span>・{picked.title === '' ? '（無品名）' : picked.title}・目前售價{' '}
-              {money(picked.unitPrice)}（含稅）・經銷 {money(picked.dealerPriceUntaxed)}（未稅）
+              {money(picked.listUnitPrice ?? picked.unitPrice)}（含稅）・經銷 {money(picked.dealerPriceUntaxed)}（未稅）
             </dd>
           </dl>
           <p className='text-muted-foreground mt-2 text-xs'>

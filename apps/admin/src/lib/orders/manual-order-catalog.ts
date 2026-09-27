@@ -132,7 +132,31 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  *    ⇒ 顯示時**兩邊都要標稅基** —— 只標一邊, 讀的人會以為另一邊「沒標所以沒問題」。
  */
 export const MANUAL_ORDER_CATALOG_COLUMNS =
-  'id, sku, price_general, price_store, products(title)' as const;
+  'id, sku, price_general, price_store, sale_price_general, products(title)' as const;
+
+/**
+ * 商品頁乙 P13:客人實際付的一般價 = 一般價與特價取較低;一般價空 ⇒ 空。
+ * 🔴 規則與資料庫 `pcm_effective_general_price`(20260928200000)逐條相同,不自己取較小值:
+ *    一般價空時不能讓特價頂上(那樣員工會以一個網站買不到的價格建單)。
+ * 為什麼要在這裡算:查價那一格【顯示】給員工看的售價要是客人實際付的價(含特價);
+ *   `admin_create_manual_order` 照表單上的單價建單、不重新查價(20260829140000:273),員工照著這一格打單價。
+ *   ⚠️ 點選那一列種進表單的是經銷未稅價(manual-order-catalog-lookup.tsx toSeed),一般價從來不會被自動帶入。
+ */
+/**
+ * 商品頁乙 P13:這一列【原本的一般價】(不含特價)。換商品用這個:
+ * `admin_swap_order_item`(20260922100000:276)比的是 `price_general` 原價,畫面要和它比同一個數,
+ * 否則員工看到兩邊都是特價 800、送出卻被擋「不同價」(Codex P13 R1 必修)。
+ */
+export function rawGeneralPrice(hit: Pick<ManualOrderCatalogHit, 'unitPrice' | 'listUnitPrice'>): number | null {
+  return hit.listUnitPrice ?? hit.unitPrice;
+}
+
+export function effectiveGeneralPrice(general: number | null, sale: number | null | undefined): number | null {
+  if (general === null || general === undefined) return null;
+  // `== null` 同時接住 undefined(欄位沒選到):那時照一般價,不能回 undefined
+  if (sale == null || sale >= general) return general;
+  return sale;
+}
 
 /**
  * 回傳筆數上限。
@@ -160,6 +184,10 @@ export type ManualOrderCatalogHit = {
    *    ⇒ 兩個不同的世界不得印同一個畫面。表單那一側要為 `null` 出一句話。
    */
   unitPrice: number | null;
+  /**
+   * 商品頁乙 P13:特價生效時的原價(一般價);沒有特價 ⇒ null(或沒有這個欄位)。`unitPrice` 在特價期間已經是特價。
+   */
+  listUnitPrice?: number | null;
   /**
    * 經銷價(元,整數)。🔴 **未稅** —— 與 `unitPrice`(含稅)**稅基不同**。
    * ⇒ 顯示時必須標「未稅」, 而那不是裝飾:員工會把這個數字複製貼進單價那一格,
@@ -229,7 +257,9 @@ async function runCatalogQuery(
     variantId: row.id,
     sku: row.sku,
     title: readTitle(row.products),
-    unitPrice: row.price_general,
+    unitPrice: effectiveGeneralPrice(row.price_general, row.sale_price_general),
+    listUnitPrice:
+      effectiveGeneralPrice(row.price_general, row.sale_price_general) !== row.price_general ? row.price_general : null,
     // 🔴 名字刻意帶 `Untaxed` —— 型別上叫 `dealerPrice` 的話,
     //    下一個人會把它與 `unitPrice`(含稅)當成同一種東西相加或比較。
     //    ⇒ 稅基寫進【識別字】, 不只寫在註解裡 —— 註解不會出現在呼叫端的自動完成裡。

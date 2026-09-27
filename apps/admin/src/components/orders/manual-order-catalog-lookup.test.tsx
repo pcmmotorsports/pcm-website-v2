@@ -24,7 +24,7 @@ import { MANUAL_ORDER_LINE_SEED_EVENT } from '@/lib/orders/manual-order-line-see
 
 afterEach(cleanup);
 
-const HIT = {
+const HIT: { variantId: string; sku: string; title: string; unitPrice: number; dealerPriceUntaxed: number | null; listUnitPrice?: number | null } = {
   variantId: 'v1',
   sku: 'SKU-1',
   title: '測試品名',
@@ -56,6 +56,16 @@ describe('🔴🔴 稅基標籤 —— 含稅保證今天唯一的持有人', ()
     await searchWith({ searchAction: ok([HIT]) });
     const el = await screen.findByTestId('catalog-hit-price-general');
     expect(el.textContent).toContain('含稅');
+    expect(el.textContent).toContain('1,050');
+  });
+
+  it('商品頁乙 P13:特價中 ⇒ 同一格寫「特價 … (含稅,原價 …)」,員工看得出顯示的是特價', async () => {
+    await searchWith({ searchAction: ok([{ ...HIT, unitPrice: 800, listUnitPrice: 1050 }]) });
+    const el = await screen.findByTestId('catalog-hit-price-general');
+    expect(el.textContent).toContain('特價');
+    expect(el.textContent).toContain('800');
+    expect(el.textContent).toContain('含稅');
+    expect(el.textContent).toContain('原價');
     expect(el.textContent).toContain('1,050');
   });
 

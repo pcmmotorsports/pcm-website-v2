@@ -31,12 +31,14 @@ export const PRODUCT_CSV_CONTENT_TYPE = 'text/csv; charset=utf-8';
 export const PRODUCT_ASCII_FILENAME = 'products.csv';
 
 const PRODUCT_EXPORT_COLUMNS =
-  'id, title, external_id, price_general, delisted_at, staff_overrides, brands(name), categories(raw_path), product_variants(sku, price_general, price_store)' as const;
+  'id, title, external_id, price_general, delisted_at, staff_overrides, brands(name), categories(raw_path), product_variants(sku, price_general, price_store, sale_price_general)' as const;
 
 export interface ProductExportVariant {
   readonly sku: string;
   readonly price_general: number | null;
   readonly price_store: number | null;
+  /** 商品頁乙 P13:特價(一般會員,含稅);沒有特價 ⇒ null。 */
+  readonly sale_price_general?: number | null;
 }
 
 export interface ProductExportRow {
@@ -51,7 +53,7 @@ export interface ProductExportRow {
   readonly product_variants: readonly ProductExportVariant[] | null;
 }
 
-export const PRODUCT_EXPORT_HEADER = ['品牌', '料號', '品名', '分類', '上架狀態', '一般價', '店家價'] as const;
+export const PRODUCT_EXPORT_HEADER = ['品牌', '料號', '品名', '分類', '上架狀態', '一般價', '店家價', '特價'] as const;
 
 type ListFn = (limit: number, offset: number) => Promise<{ items: ProductExportRow[]; total: number }>;
 
@@ -99,6 +101,33 @@ export function basisDealerPrice(variants: readonly ProductExportVariant[] | nul
   return basis.price_store;
 }
 
+/**
+ * 商品頁乙 P13:客人在商品卡上看到的特價。規則同前台 view(20260928230000):
+ * 代表款 = 實際一般價(一般價與特價取較低、一般價空 ⇒ 空)最低那一款,空值排最後,同價取 sku 最小(COLLATE "C");
+ * 它的特價正在生效(比一般價低)⇒ 特價;否則 null(這一欄留空)。「一般價」那一欄照舊是原價。
+ */
+export function representativeSalePrice(variants: readonly ProductExportVariant[] | null): number | null {
+  if (!variants || variants.length === 0) return null;
+  const effective = (v: ProductExportVariant) =>
+    v.price_general === null
+      ? null
+      : v.sale_price_general == null || v.sale_price_general >= v.price_general
+        ? v.price_general
+        : v.sale_price_general;
+  const rep = [...variants].sort((a, b) => {
+    const ea = effective(a);
+    const eb = effective(b);
+    if (ea !== eb) {
+      if (ea === null) return 1;
+      if (eb === null) return -1;
+      return ea - eb;
+    }
+    return a.sku < b.sku ? -1 : a.sku > b.sku ? 1 : 0;
+  })[0]!;
+  const e = effective(rep);
+  return e !== null && e !== rep.price_general ? e : null;
+}
+
 function money(v: number | null): string {
   return v === null ? '' : String(v);
 }
@@ -113,6 +142,7 @@ export function productExportRow(p: ProductExportRow): string[] {
     p.delisted_at === null ? '上架中' : '已下架',
     money(p.price_general),
     money(basisDealerPrice(p.product_variants)),
+    money(representativeSalePrice(p.product_variants)),
   ];
 }
 
@@ -122,7 +152,7 @@ export type ProductExportContext = { total: number; filterNote: string; dataAsOf
 export function buildProductExportCsv(rows: readonly ProductExportRow[], ctx: ProductExportContext): string {
   const describe =
     `本檔 = 後台商品列表 篩選結果(不分頁) 共 ${ctx.total} 件 · 篩選:${ctx.filterNote} · 資料截至 ${ctx.dataAsOf}` +
-    ' · 品名是客人在網站上看到的名稱 · 店家價是經銷會員的基本價,未含個別經銷商的品牌折扣;空白表示還沒設定經銷價,經銷會員目前看不到價格、無法下單。';
+    ' · 品名是客人在網站上看到的名稱 · 店家價是經銷會員的基本價,未含個別經銷商的品牌折扣;空白表示還沒設定經銷價,經銷會員目前看不到價格、無法下單 · 特價是客人在商品卡上看到的特價,空白表示沒有特價;一般價那一欄是原價。';
   return toCsv([describe], [[...PRODUCT_EXPORT_HEADER], ...rows.map(productExportRow)]);
 }
 

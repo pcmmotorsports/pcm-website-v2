@@ -253,10 +253,15 @@ describe('⟦b4-PURCHTAX1⟧ ③ 含稅保證住在 UI 那條路徑上 —— �
   it('🔴 單價的來源仍然只有 price_general —— 而目錄本身已經【也讀】price_store 了', () => {
     // ⛔ ~~"'id, sku, price_general, products(title)'"~~
     // 🔵 2026-08-31 Sean 批 `price_store` 進欄位表(⟦b4-SKULOOKUP⟧ Q2 逐字「甲 標未稅」)。
+    // 🔵 2026-09-28 商品頁乙 P13(計畫第八節,Sean 09-28 Q1 乙批價格併入):多讀 sale_price_general,
+    //   單價改成「實際一般價」= 一般價與特價取較低(規則同資料庫 pcm_effective_general_price)。
+    //   ⇒ 單價仍然【只來自含稅的一般價這一族】,不是經銷價;下面那格「不得變成 price_store」照舊。
     expect(catalog(), '目錄的 select 不再指名 price_general').toContain(
-      "'id, sku, price_general, price_store, products(title)'",
+      "'id, sku, price_general, price_store, sale_price_general, products(title)'",
     );
-    expect(catalog(), 'unitPrice 不再來自 price_general').toContain('unitPrice: row.price_general');
+    expect(catalog(), 'unitPrice 不再來自 price_general(含特價)').toContain(
+      'unitPrice: effectiveGeneralPrice(row.price_general, row.sale_price_general)',
+    );
   });
 
   it('🔴🔴 「只讀」要被真的斷言 —— 保留舊字面而【另外新增】一條價格路徑, 上一版兩格全綠', () => {
@@ -333,7 +338,7 @@ describe('⟦b4-PURCHTAX1⟧ ③ 含稅保證住在 UI 那條路徑上 —— �
     //      只有 34 行是碼 —— **本 repo 的檔就是註解比碼多**, 那個門檻對它恆紅)。
     for (const anchor of [
       'MANUAL_ORDER_CATALOG_COLUMNS',
-      'unitPrice: row.price_general',
+      'unitPrice: effectiveGeneralPrice(row.price_general, row.sale_price_general)',
       'export async function searchManualOrderCatalog',
     ]) {
       expect(code.includes(anchor), `剝完之後連 ${anchor} 都不見了 ⇒ 剝過頭,上面那些 false 不可信`).toBe(

@@ -8,6 +8,7 @@ import {
   PRODUCT_EXPORT_CAP,
   PRODUCT_EXPORT_HEADER,
   basisDealerPrice,
+  representativeSalePrice,
   buildProductExportCsv,
   collectProductsForExport,
   productExportFilename,
@@ -147,9 +148,22 @@ describe('basisDealerPrice:照經銷目錄 view 挑基準款變體', () => {
 });
 
 describe('每件商品一列', () => {
-  it('欄序 = 品牌、料號、品名、分類、上架狀態、一般價、店家價', () => {
-    expect([...PRODUCT_EXPORT_HEADER]).toEqual(['品牌', '料號', '品名', '分類', '上架狀態', '一般價', '店家價']);
-    expect(productExportRow(row())).toEqual(['BREMBO', 'EXT-1', '供應商標題', '煞車 · 卡鉗', '上架中', '1200', '1000']);
+  it('欄序 = 品牌、料號、品名、分類、上架狀態、一般價、店家價、特價(商品頁乙 P13)', () => {
+    expect([...PRODUCT_EXPORT_HEADER]).toEqual(['品牌', '料號', '品名', '分類', '上架狀態', '一般價', '店家價', '特價']);
+    expect(productExportRow(row())).toEqual(['BREMBO', 'EXT-1', '供應商標題', '煞車 · 卡鉗', '上架中', '1200', '1000', '']);
+  });
+
+  it('商品頁乙 P13:特價 = 代表款(實際一般價最低)的特價;沒有生效的特價 ⇒ 空;一般價那一欄照舊是原價', () => {
+    const v = (sku: string, g: number | null, sale: number | null) => ({ sku, price_general: g, price_store: null, sale_price_general: sale });
+    // A 1000 沒特價、B 2000 特價 500 ⇒ 代表款 B(500 最低)⇒ 特價 500
+    expect(representativeSalePrice([v('A', 1000, null), v('B', 2000, 500)])).toBe(500);
+    // A 1000、B 2000 特價 1500 ⇒ 代表款 A(1000 最低)沒特價 ⇒ 空
+    expect(representativeSalePrice([v('A', 1000, null), v('B', 2000, 1500)])).toBeNull();
+    // 特價不低於一般價 ⇒ 不算
+    expect(representativeSalePrice([v('A', 1000, 1000)])).toBeNull();
+    // 一般價空 ⇒ 不拿特價頂上
+    expect(representativeSalePrice([v('A', null, 500)])).toBeNull();
+    expect(representativeSalePrice([])).toBeNull();
   });
 
   it('員工改過標題 ⇒ 品名用改過的(客人看到的那個)', () => {
@@ -161,7 +175,7 @@ describe('每件商品一列', () => {
       productExportRow(
         row({ delisted_at: '2026-09-01T00:00:00Z', brands: null, categories: null, price_general: null, product_variants: [] }),
       ),
-    ).toEqual(['', 'EXT-1', '供應商標題', '', '已下架', '', '']);
+    ).toEqual(['', 'EXT-1', '供應商標題', '', '已下架', '', '', '']);
   });
 
   it('一般價 0 元照印 0, 不當成空的', () => {

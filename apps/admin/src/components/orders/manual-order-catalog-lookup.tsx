@@ -201,7 +201,11 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
                      `manual-order-catalog.ts` 的「只讀 price_general」那個副作用已經被拿掉了
                      ⇒ 沒有這三個字, 員工把未稅價貼進單價 ⇒ 那張單少收 5%, 而沒有東西會叫。
                   🔵 **兩邊都標** —— 只標一邊, 讀的人會以為另一邊「沒標所以沒問題」。 */}
-              <span data-testid='catalog-hit-price-general'>售價 {money(h.unitPrice)}(含稅)</span>
+              <span data-testid='catalog-hit-price-general'>
+                {h.listUnitPrice == null
+                  ? `售價 ${money(h.unitPrice)}(含稅)`
+                  : `特價 ${money(h.unitPrice)}(含稅,原價 ${money(h.listUnitPrice)})`}
+              </span>
               {' / '}
               <span data-testid='catalog-hit-price-store'>
                 經銷 {money(h.dealerPriceUntaxed)}(未稅)
