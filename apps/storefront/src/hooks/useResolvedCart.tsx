@@ -25,7 +25,7 @@
 // 運費(method 參數):純函式 calculateShippingFee 顯示鏡像(權威值由 create_order RPC 結帳當下自算);
 //   method 改變只重算 shipping、不重 resolve。
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { calculateShippingFee, toMoneyAmount, FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
 import type { ShippingMethod } from '@pcm/domain';
 import { useCart, type CartItem } from '@/contexts/CartContext';
@@ -63,6 +63,8 @@ export type UseResolvedCart = {
   hasUnpricedLine: boolean;
   /** 距免運門檻差額(= FREE_SHIPPING_THRESHOLD − subtotal;shipping>0 時顯示用) */
   freeShipRemaining: number;
+  /** 商品頁乙 P11:重新向 server 讀一次價格(下單時單價核對不符之後,讓客人看到新金額)。 */
+  reload: () => void;
 };
 
 /**
@@ -100,6 +102,9 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
   // A2:上一發 resolve 是不是掛了。**只由 catch 設 true、由下一發解析出發時設回 false**
   //   ⇒ 它描述的永遠是「最新那一發」,不是「歷史上曾經失敗過」。
   const [resolveFailed, setResolveFailed] = useState(false);
+  // 商品頁乙 P11:reload() 只把這個數字加一,讓下面那個 effect 再解析一次(行集合沒變也要重讀價格)。
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
   // 行集合簽章:只在行集合(productId+variantId)變動時改;qty 變動不改(單價與 qty 無關)。
   const lineSignature = useMemo(
@@ -173,7 +178,7 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 以 lineSignature 為穩定觸發鍵(items 每 render 新參照、qty 變動不該 re-resolve);isHydrated 觸發首解析;removeItem 是 provider 的 useCallback([]) 穩定參照(CartContext.tsx:254)、進 deps 只會製造無謂重解析
-  }, [lineSignature, isHydrated]);
+  }, [lineSignature, isHydrated, reloadNonce]);
 
   const resolvedMap = useMemo(() => {
     const m = new Map<string, ResolvedCartLine>();
@@ -222,5 +227,5 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
             ? 'empty'
             : 'ready';
 
-  return { status, lines, subtotal, shipping, total, freeShipRemaining, pricesAreUntaxed, hasUnpricedLine };
+  return { status, lines, subtotal, shipping, total, freeShipRemaining, pricesAreUntaxed, hasUnpricedLine, reload };
 }

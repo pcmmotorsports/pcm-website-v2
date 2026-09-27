@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchMock, idsMock, tierMock, pricesMock } = vi.hoisted(() => ({
+const { fetchMock, idsMock, tierMock, pricesMock, freshMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   // ⟦auth-DEALERTIERPRICING⟧ M-2-08 B2a:三支新相依。
   // 🔴 **預設值刻意選在「這一段不會跑」那一側** —— tier 回 general ⇒ 既有 5 項一個字都不用改,
@@ -19,6 +19,8 @@ const { fetchMock, idsMock, tierMock, pricesMock } = vi.hoisted(() => ({
   //    回的是 `{ok, tier}` —— `ok:false` 代表【查不出來】, 與「他就是 general」是兩件事。
   tierMock: vi.fn(async () => ({ ok: true, tier: 'general' }) as const),
   pricesMock: vi.fn(async () => new Map<string, number>()),
+  // 商品頁乙 P11:一般會員的規格單價每次讀現在的價格。預設回空 Map ⇒ 保留快取價,既有案例一個字不用改。
+  freshMock: vi.fn(async (_ids: readonly string[]) => new Map<string, number | null>()),
 }));
 // B2B L4:購物車改由 resolveOrderTier(lib/site-order-guard.ts)一次決定站別與算價等級(它自己的判準在該檔測試)。
 //   既有案例都用 tierMock 設等級 ⇒ 這裡把它轉成 resolveOrderTier 的形狀,既有案例一個字不用改。
@@ -35,6 +37,7 @@ vi.mock('@/lib/site-order-guard', () => ({
 vi.mock('@/lib/products', () => ({
   fetchProductByHandle: fetchMock,
   fetchProductIdsByHandles: idsMock,
+  fetchVariantPricesFresh: freshMock,
 }));
 vi.mock('@/lib/tier-prices', () => ({
   fetchEffectivePrices: pricesMock,
@@ -88,6 +91,42 @@ afterEach(() => {
   idsMock.mockClear();
   tierMock.mockClear();
   pricesMock.mockClear();
+  freshMock.mockClear();
+});
+
+describe('商品頁乙 P11:一般會員的規格單價讀現在的價格', () => {
+  it('現在的價格和快取不同 ⇒ 用現在的(下單時 create_order 比對的就是它)', async () => {
+    fetchMock.mockResolvedValue(makeProduct());
+    freshMock.mockResolvedValueOnce(new Map([['v1', 9900]]));
+    const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
+    expect(freshMock).toHaveBeenCalledWith(['v1']);
+    expect(line.unitPrice).toBe(9900);
+  });
+
+  it('現在的一般價是空的 ⇒ null(不能結帳),不拿快取價頂上', async () => {
+    fetchMock.mockResolvedValue(makeProduct());
+    freshMock.mockResolvedValueOnce(new Map([['v1', null]]));
+    const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
+    expect(line.unitPrice).toBeNull();
+  });
+
+  it('讀不到 ⇒ 保留快取價(錢由 create_order 算、比對不符只會擋單)', async () => {
+    fetchMock.mockResolvedValue(makeProduct());
+    freshMock.mockRejectedValueOnce(new Error('down'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
+    expect(line.unitPrice).toBe(15200);
+    errorSpy.mockRestore();
+  });
+
+  it('經銷會員不走這裡(那一半由 get_effective_prices 每發都算)', async () => {
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    fetchMock.mockResolvedValue(makeProduct());
+    pricesMock.mockResolvedValueOnce(new Map([['variant:v1', 11000]]));
+    const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
+    expect(freshMock).not.toHaveBeenCalled();
+    expect(line.unitPrice).toBe(11000);
+  });
 });
 
 describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {

@@ -149,7 +149,7 @@ function cart(status: UseResolvedCart['status']): UseResolvedCart {
   const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
   // 🔵 這支測的是「付款進行中」的鎖, 與價無關 ⇒ 含稅世界(不加稅)。
   //   🔴 而它是**必填**不是 optional —— tsc 因此當場點名這一處, 我不必自己記得有幾個呼叫端。
-  return { status, lines, subtotal, shipping: 0, freeShipRemaining: 0, total: subtotal, pricesAreUntaxed: false, hasUnpricedLine: false };
+  return { status, lines, subtotal, shipping: 0, freeShipRemaining: 0, total: subtotal, pricesAreUntaxed: false, hasUnpricedLine: false, reload: () => {} };
 }
 
 function renderCheckout() {

@@ -580,6 +580,28 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeTruthy();
   });
 
+  it('🔴 商品頁乙 P11:單價和畫面不同(沒有建單)⇒ 顯示那句話、重讀購物車價格,右側換成新金額', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({
+      formError: '商品價格有更新，這次沒有建立訂單，也沒有扣款。請確認新的金額後再送出。',
+      priceChanged: true,
+    });
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    const resolvesBefore = resolveMock.mock.calls.length;
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 9900 })]);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect((await screen.findAllByText(/商品價格有更新/)).length).toBeGreaterThan(0);
+    await waitFor(() => expect(resolveMock.mock.calls.length).toBeGreaterThan(resolvesBefore));
+    // 9900 × 2 = 19,800(新金額)
+    expect((await screen.findAllByText(/19,800/)).length).toBeGreaterThan(0);
+    const payload = chargeMock.mock.calls[0]![0] as { lines: Array<Record<string, unknown>> };
+    expect(payload.lines[0]).toHaveProperty('expectedUnitPrice', 15200);
+  });
+
   it('🔴 ⑨ 確認付款 → getPrime → chargePaymentAction 收零價線 + prime + paid 終態 + 清車', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
@@ -602,7 +624,9 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     };
     // 🔴 2026-09-19 拿掉那一格之後, client 【不再送】這個鍵 —— 把它加回去 ⇒ 這一行會紅。
     expect(payload).not.toHaveProperty('notificationEmail');
-    expect(payload.lines).toEqual([{ variantId: 'v1', quantity: 2 }]); // 零價
+    // 商品頁乙 P11(計畫第八節 R1-6、R2-1,Sean 2026-09-28 批):每一行多帶【畫面上的單價】給 create_order 比對,
+    //   不同就不建單。它不是價格來源(價格照舊全由 RPC 算),所以「不送 unitPrice」這條照舊。
+    expect(payload.lines).toEqual([{ variantId: 'v1', quantity: 2, expectedUnitPrice: 15200 }]);
     expect(payload.lines[0]).not.toHaveProperty('unitPrice');
     expect(payload.prime).toBe('prime_test');
     expect(payload.shippingMethod).toBe('home');

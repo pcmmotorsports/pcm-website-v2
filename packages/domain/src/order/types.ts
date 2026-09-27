@@ -1817,7 +1817,17 @@ export type PlaceOrderVehicle =
  * 全由 create_order RPC server 自算、client 送的任何金額一律忽略。
  */
 export type PlaceOrderLine =
-  | { variantId: string; quantity: number; vehicle?: PlaceOrderVehicle }
+  | {
+      variantId: string;
+      quantity: number;
+      vehicle?: PlaceOrderVehicle;
+      /**
+       * 商品頁乙 P11(計畫第八節 R1-6、R2-1):客人畫面上這一行的【單價】,只拿來比對、不當價格。
+       * create_order(20260928230000 起)算出的單價和它不同 ⇒ 不建單,前台請客人確認新金額。
+       * 🔴 這是上面「永不送價」的唯一例外,而它【不參與計價】:價格照舊全由 RPC 算。
+       */
+      expectedUnitPrice?: number;
+    }
   | { supplierSlug: string; sku: string; quantity: number; vehicle?: PlaceOrderVehicle };
 
 /**

@@ -75,6 +75,10 @@ export type ChargeArgs = {
    *
    *  🔵 **選填**:給不出來(或呼叫端沒傳)⇒ 訊息**退回不指名的版本**, 不假裝叫得出名字。 */
   lineName?: (key: { productId: string; variantId?: string }) => string | undefined;
+  /** 商品頁乙 P11:這一列在畫面上的【單價】(`useResolvedCart` 的 `resolved.unitPrice`),送去給 create_order 比對。
+   *  和 `lineName` 同一個理由從外面傳進來:畫面上的價格只有 `CheckoutView` 那一份,不在這裡重查。
+   *  給不出來(null / undefined)⇒ 那一列不帶,這一代 create_order 就不比對那一列。 */
+  unitPrice?: (key: { productId: string; variantId?: string }) => number | null | undefined;
 };
 
 export type ChargeState =
@@ -83,7 +87,8 @@ export type ChargeState =
   /** 可修正後重試(驗證錯 / 卡拒未扣款 / 零扣款通用錯)。 */
   // 🔴 ⟦b4-COUPONFIELD⟧ R2 imp⑤:券被拒時**除了那句話, 還要留下「是券的錯」這件事** ——
   //    不然 View 只拿得到一個字串, 券碼欄不會變紅、而它還在說「結帳時會套用這張券」。
-  | { status: 'error'; message: string; couponRejected?: string }
+  | { status: 'error'; message: string; couponRejected?: string; priceChanged?: true }
+  //   🔵 priceChanged(商品頁乙 P11):單價和畫面上的不同、沒有建單 ⇒ View 要重新讀購物車價格讓客人看新金額。
   /** 卡拒未扣款但釋鎖紀錄未落(charge_failed_wait):誠實未扣款、請稍候再試(不誘導立即重刷)。 */
   | { status: 'wait'; message: string }
   /** 同會員另筆付款進行中(user_in_flight):零扣款、無單號、稍候再試。 */
@@ -221,7 +226,7 @@ export function useChargePayment(): UseChargePayment {
       });
       return false;
     }
-    const lines: { variantId: string; quantity: number; vehicle?: CartItemVehicle }[] = [];
+    const lines: { variantId: string; quantity: number; vehicle?: CartItemVehicle; expectedUnitPrice?: number }[] = [];
     for (const it of items) {
       if (!it.variantId) {
         // 🛑 **到不了** —— 上面那一發已經擋掉。留著是 fail-closed:
@@ -230,10 +235,12 @@ export function useChargePayment(): UseChargePayment {
         setState({ status: 'error', message: cartLineMissingVariantMessage([]) });
         return false;
       }
+      const expectedUnitPrice = args.unitPrice?.({ productId: it.productId, variantId: it.variantId });
       lines.push({
         variantId: it.variantId,
         quantity: it.qty,
         ...(it.vehicle !== undefined ? { vehicle: it.vehicle } : {}),
+        ...(typeof expectedUnitPrice === 'number' ? { expectedUnitPrice } : {}),
       });
     }
 
@@ -395,6 +402,7 @@ export function useChargePayment(): UseChargePayment {
     inFlightRef.current = false;
     let message = GENERIC_FAIL;
     let couponRejected: string | undefined;
+    const priceChanged = 'priceChanged' in res && res.priceChanged === true;
     if ('formError' in res && res.formError) message = res.formError;
     else if ('fieldErrors' in res && res.fieldErrors) {
       couponRejected = res.fieldErrors.couponCode;
@@ -405,7 +413,12 @@ export function useChargePayment(): UseChargePayment {
         res.fieldErrors.addressId ??
         '結帳資料有誤,請返回上一步確認';
     }
-    setState({ status: 'error', message, ...(couponRejected ? { couponRejected } : {}) });
+    setState({
+      status: 'error',
+      message,
+      ...(couponRejected ? { couponRejected } : {}),
+      ...(priceChanged ? { priceChanged: true as const } : {}),
+    });
     return false;
   }
 

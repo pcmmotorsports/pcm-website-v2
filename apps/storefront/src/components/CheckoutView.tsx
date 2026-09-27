@@ -164,6 +164,11 @@ export function CheckoutView({
       setCouponRejected(charge.state.couponRejected);
     }
   }, [charge.state]);
+  // 商品頁乙 P11:下單時單價和畫面不同(沒有建單、沒有扣款)⇒ 重讀購物車價格,讓右側金額換成新的,客人確認後再送。
+  const reloadCart = cart.reload;
+  useEffect(() => {
+    if (charge.state.status === 'error' && charge.state.priceChanged) reloadCart();
+  }, [charge.state, reloadCart]);
   const couponState = couponRejected
     ? ({ kind: 'rejected-message' as const, message: couponRejected })
     : couponApplied
@@ -348,6 +353,10 @@ export function CheckoutView({
           cart.lines.find(
             (l) => l.item.productId === productId && l.item.variantId === variantId,
           )?.resolved.name || undefined,
+        // 商品頁乙 P11:畫面上這一列的單價(同一份 `cart.lines`),送去給 create_order 比對;不同就不建單。
+        unitPrice: ({ productId, variantId }) =>
+          cart.lines.find((l) => l.item.productId === productId && l.item.variantId === variantId)?.resolved
+            .unitPrice,
       });
     } finally {
       if (!terminal) {

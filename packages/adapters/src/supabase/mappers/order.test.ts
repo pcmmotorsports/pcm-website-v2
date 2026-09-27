@@ -230,6 +230,23 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     expect(args.p_lines.length, 'p_lines 是空的 ⇒ 下面那條恆真').toBeGreaterThan(0);
     expect(JSON.stringify(args)).not.toMatch(/price|tier|cost|user_?id/i);
   });
+
+  it('🔴 商品頁乙 P11:畫面單價只帶成 expected_unit_price(比對用);拿掉它之後照樣沒有任何 price / tier / cost 鍵', () => {
+    const args = mapPlaceOrderToCreateOrderArgs(
+      input({ lines: [{ variantId: 'v-1', quantity: 2, expectedUnitPrice: 1200 }] }),
+    );
+    expect(args.p_lines).toEqual([{ variant_id: 'v-1', qty: 2, expected_unit_price: 1200 }]);
+    const withoutExpected = args.p_lines.map((l) => {
+      const { expected_unit_price: _omit, ...rest } = l as Record<string, unknown>;
+      return rest;
+    });
+    expect(withoutExpected.length).toBeGreaterThan(0);
+    expect(JSON.stringify({ ...args, p_lines: withoutExpected })).not.toMatch(/price|tier|cost|user_?id/i);
+    // 沒給就不帶這個鍵(這一代 create_order 沒帶就不比對)
+    expect(mapPlaceOrderToCreateOrderArgs(input({ lines: [{ variantId: 'v-1', quantity: 2 }] })).p_lines).toEqual([
+      { variant_id: 'v-1', qty: 2 },
+    ]);
+  });
 });
 
 function listRow(over: Partial<SupabaseOrderListRow> = {}): SupabaseOrderListRow {

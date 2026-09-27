@@ -58,7 +58,7 @@ type CreateOrderRpcVehicle =
 
 /** create_order RPC line(wire):variant_id XOR (supplier_slug, sku),皆帶 qty;V-3a 可帶 vehicle。 */
 type CreateOrderRpcLine =
-  | { variant_id: string; qty: number; vehicle?: CreateOrderRpcVehicle }
+  | { variant_id: string; qty: number; vehicle?: CreateOrderRpcVehicle; expected_unit_price?: number }
   | { supplier_slug: string; sku: string; qty: number; vehicle?: CreateOrderRpcVehicle };
 
 /** create_order RPC invoice(wire):type 必、其餘選(RPC 逐鍵 ->> 主控 + jsonb_strip_nulls)。 */
@@ -136,7 +136,9 @@ function mapVehicle(v: PlaceOrderVehicle): CreateOrderRpcVehicle {
 function mapLine(line: PlaceOrderLine): CreateOrderRpcLine {
   const vehicle = line.vehicle !== undefined ? { vehicle: mapVehicle(line.vehicle) } : {};
   if ('variantId' in line) {
-    return { variant_id: line.variantId, qty: line.quantity, ...vehicle };
+    // 商品頁乙 P11:畫面單價只給 create_order 比對(20260928230000),不當價格
+    const expected = line.expectedUnitPrice !== undefined ? { expected_unit_price: line.expectedUnitPrice } : {};
+    return { variant_id: line.variantId, qty: line.quantity, ...vehicle, ...expected };
   }
   return { supplier_slug: line.supplierSlug, sku: line.sku, qty: line.quantity, ...vehicle };
 }

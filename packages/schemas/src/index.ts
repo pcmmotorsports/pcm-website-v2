@@ -404,6 +404,9 @@ export const PlaceOrderLinesInput = z
       variantId: z.uuid({ error: '商品規格資訊有誤' }),
       quantity: z.number().int().min(1).max(99),
       vehicle: PlaceOrderVehicleInput, // V-3a 選填;非法=丟欄不擋單(見上)
+      // 商品頁乙 P11:畫面上的單價,只給 create_order 比對(不同 ⇒ 不建單),不當價格。
+      // 形狀不對 ⇒ 丟掉這個欄位(這一代 create_order 沒帶就不比對;P-M5 之後沒帶會被拒,由伺服器紀錄先量)。
+      expectedUnitPrice: z.number().int().min(0).max(999_999_999).optional().catch(undefined),
     }),
   )
   .min(1, { error: '購物車是空的' })
