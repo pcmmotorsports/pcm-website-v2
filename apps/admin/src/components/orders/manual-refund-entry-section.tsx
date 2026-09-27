@@ -27,7 +27,7 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 // 就是舊 token,換新鍵會讓同一張舊表單變成「全新請求」)——這裡改做 router.refresh()。
 //
 // 🔴 失敗回來的值要真的進畫面(同 refund-section.tsx 的理由):useState 初值只在掛載時
-// 求值,用 effect 套 state.input;denied 例外(input 是空殼,見 action state 檔頭)。
+// 求值,在 render 當下套 state.input(2026-09-27 起, 原本用 effect, 理由見元件內);denied 例外(input 是空殼,見 action state 檔頭)。
 
 const RAIL_LABEL: Record<ManualRefundRail, string> = {
   bank_transfer: '匯款',
@@ -86,6 +86,39 @@ export function ManualRefundEntrySection({
   //    ⇒ 選「現金」送出失敗、一個字不改再按 ⇒ 送出 rail=bank_transfer ⇒ 安靜記成匯款(鑽機實測 server 收到 bank_transfer)。
   //    ⇒ 每次失敗回來 radio 與確認框用 key 重掛(重掛會同時重設 checked 與 defaultChecked);rail 回填成送出的那一個。
   const [resultSeq, setResultSeq] = useState(0);
+  // 🔴 2026-09-27:回填改在【render 當下】做(React「依上一次的值調整 state」寫法), 不再用 useEffect。
+  //    useEffect 版:失敗訊息與表單 reset 在同一次 commit, 而重掛 radio 在【下一次】commit
+  //    ⇒ 兩次之間表單上真的是「匯款」;機器忙時 E2 的第二次送出落在這個空檔而送出 bank_transfer
+  //    (全套 pnpm test 偶發紅;reset.test.tsx [E7] 在那一刻讀表單, useEffect 版 5/5 紅)。
+  //    ⇒ 現在 state 一換就在同一次 render 裡重掛與回填 ⇒ 失敗訊息出現的那次 commit 表單就已經是員工選的。
+  //    初值是 null(不是 state):掛載時若已是失敗態也要回填一次 —— 與原本 effect 在掛載時也會跑的行為相同
+  //    (manual-refund-entry-section.test.tsx 以「一掛載就是失敗態」驗回填)。
+  const [seenState, setSeenState] = useState<ManualRefundActionState | null>(null);
+  if (state !== seenState) {
+    setSeenState(state);
+    if (state.status === 'failed') {
+      // 表單 reset 對每一種失敗都會發生(denied 也是)⇒ 先讓 radio / 確認框重掛,再決定要不要回填。
+      setResultSeq((n) => n + 1);
+      if (state.code !== 'denied') {
+        // 🔵 rail 回填成「送出當下畫面上勾的那個」(`state.input.rail` 來自 FormData):重掛之後正常路徑是同值、不換管道;
+        //    而「送出時 DOM ≠ state」(hydration 前先點現金、瀏覽器還原表單)時,它讓畫面對齊員工實際看到並送出的那一個
+        //    —— 不回填的話重掛會把畫面打回 state 的舊值(adversarial-reviewer R1 C2)。
+        if (state.input.rail === 'bank_transfer' || state.input.rail === 'cash') {
+          setRail(state.input.rail);
+        }
+        setAmount(state.input.amount);
+        setReason(state.input.reason);
+        if (state.input.occurredAt !== '') setOccurredAt(state.input.occurredAt);
+        // 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:這一行【非有不可】,而少了它 `typecheck` 不會紅。**
+        //    上面那個 `type` 加了一欄, 而這個回填是**逐欄手寫**的 ⇒ 少一行只是「少 set 一個 state」。
+        //    🛑 **而這一欄掉了特別難發現,理由不對稱**:
+        //       別的欄位掉了 ⇒ 員工看到**空白** ⇒ 他知道要重打;
+        //       **這一欄掉了 ⇒ 它回到【沒勾】—— 那是看起來完全正常的預設值**
+        //       ⇒ 他勾了、送出、因別的原因失敗、回來那個勾已經被清掉 ⇒ **他會以為自己勾了**。
+        setConfirmCard(state.input.confirmCardNotRefunded);
+      }
+    }
+  }
   const router = useRouter();
 
   useEffect(() => {
@@ -95,29 +128,6 @@ export function ManualRefundEntrySection({
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
   }, [router]);
-
-  useEffect(() => {
-    if (state.status !== 'failed') return;
-    // 表單 reset 對每一種失敗都會發生(denied 也是)⇒ 先讓 radio / 確認框重掛,再決定要不要回填。
-    setResultSeq((n) => n + 1);
-    if (state.code === 'denied') return;
-    // 🔵 rail 回填成「送出當下畫面上勾的那個」(`state.input.rail` 來自 FormData):重掛之後正常路徑是同值、不換管道;
-    //    而「送出時 DOM ≠ state」(hydration 前先點現金、瀏覽器還原表單)時,它讓畫面對齊員工實際看到並送出的那一個
-    //    —— 不回填的話重掛會把畫面打回 state 的舊值(adversarial-reviewer R1 C2)。
-    if (state.input.rail === 'bank_transfer' || state.input.rail === 'cash') {
-      setRail(state.input.rail);
-    }
-    setAmount(state.input.amount);
-    setReason(state.input.reason);
-    if (state.input.occurredAt !== '') setOccurredAt(state.input.occurredAt);
-    // 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:這一行【非有不可】,而少了它 `typecheck` 不會紅。**
-    //    上面那個 `type` 加了一欄, 而這個回填是**逐欄手寫**的 ⇒ 少一行只是「少 set 一個 state」。
-    //    🛑 **而這一欄掉了特別難發現,理由不對稱**:
-    //       別的欄位掉了 ⇒ 員工看到**空白** ⇒ 他知道要重打;
-    //       **這一欄掉了 ⇒ 它回到【沒勾】—— 那是看起來完全正常的預設值**
-    //       ⇒ 他勾了、送出、因別的原因失敗、回來那個勾已經被清掉 ⇒ **他會以為自己勾了**。
-    setConfirmCard(state.input.confirmCardNotRefunded);
-  }, [state]);
 
   const failed = state.status === 'failed';
   const requestToken = failed ? state.requestToken : serverToken;
