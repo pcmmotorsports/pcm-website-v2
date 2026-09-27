@@ -801,7 +801,11 @@ export async function GET(request: Request): Promise<Response> {
   // 🔴 2026-09-27 本段刻意排在【取消信 / 部分退款信】那幾段之前(Fable R1 C1):同一輪裡先入列的先被認領
   //    (claimDue 依 next_retry_at 由舊到新)⇒ 員工「確認收到 ⇒ 馬上登記退款」落在同一個 5 分鐘窗時,
   //    客人先收到「已收到您寄回的商品」、再收到退款信, 不會反過來。搬回後面 ⇒ route.test 那一格紅。
-  // 上膛順序:① 貼 20260927080000(view + CHECK)② 部署本碼 ③ 設 RETURN_RECEIVED_EMAIL_CUTOFF(ISO UTC)+ redeploy。
+  //    ⚠️ 殘餘情境(Fable R2 要求寫實話):這封第一次寄送失敗而退避(next_retry_at 往後推)時,
+  //       同一輪或下一輪入列的退款信可能先寄出 ⇒ 客人先收到退款信、再收到這封。順序只在「兩封都第一次就寄成」時保證。
+  // 上膛順序:① 貼 20260927080000(view + CHECK)② 部署本碼 ③ 設 RETURN_RECEIVED_EMAIL_CUTOFF + redeploy。
+  // 🔴 RETURN_RECEIVED_EMAIL_CUTOFF 的值 = 【上膛當下的時間】(ISO UTC, 例:2026-09-28T02:00:00Z)。
+  //    它是「只寄這個時刻之後收回的退貨」的起點 —— 填一個舊日期 ⇒ 那之後所有已收回的退貨會一口氣補寄。
   // 🔴 env 沒設 ⇒ 這段不跑、寄送端也不認領這一型(開關預設關)。只設 env 不貼 view ⇒ 每輪 42P01 ⇒ failed ⇒ 503。
   // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
   const returnReceivedRaw = process.env['RETURN_RECEIVED_EMAIL_CUTOFF'];
