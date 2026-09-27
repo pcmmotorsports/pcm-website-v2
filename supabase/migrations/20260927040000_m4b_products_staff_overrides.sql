@@ -18,9 +18,13 @@
 --
 -- ══ 做什麼 ══════════════════════════════════════════
 -- ① products.staff_overrides jsonb NOT NULL DEFAULT '{}'(PG11+ 常數預設 = 只改目錄,不重寫整表)
--- ② CHECK:必須是物件;只允許 title / subtitle(字串)、highlights(字串陣列)三個鍵
+-- ② CHECK:必須是物件;只允許三個鍵 ——
+--      title / subtitle:字串,而且不能全是空白(半形空白、tab、換行、全形空白 U+3000 都算空白)
+--      highlights:陣列,而且每一個元素都是字串(jsonb_path_exists strict 逐元素驗;空陣列合法 = 沒填)
 --    🔴 客人讀得到這一欄的原始 jsonb(⑤)⇒ 這道 CHECK 就是「不准放成本 / 經銷價 / 內部備註」的機制,不只是註解。
 --       之後的片要加鍵(例如 images)必須改這道 CHECK。
+--    🔴 **取消覆寫 = 刪掉那個鍵**(staff_overrides - 'title'),**不能寫 null**:
+--       '{"title": null}' 的型別是 jsonb null,不是字串 ⇒ CHECK 會擋。後台寫入端要用「刪鍵」表達「還原成供應商的」。
 -- ③ products_content_changed_guard() 的比對多一欄 staff_overrides ⇒ 員工改了,sitemap lastmod 也會動
 --    (其餘逐字照抄 20260915220000:105-123;正式庫 prosrc 2026-09-27 唯讀比對與 repo 逐行相同)
 -- ④ products_public(21 欄):title / subtitle / highlights 三欄改成「我們的 → 供應商的」;其餘 18 欄逐字照抄 20260915220000:181-207
@@ -30,7 +34,10 @@
 -- 🔴 description【刻意不在本支】:Sean 2026-09-02 拍 ⟦b4-QUOTEDESCLOCK⟧「甲 要, 現在做(三段:後台能改 + 留記號 + 同步跳過)」,
 --    機制是直接改 products.description + description_locked(20260902190000,trigger 擋同步)。那一板晚於 08-31 批丙,
 --    而且已經上線 ⇒ 說明欄走那一套,本支不再開第二條路(兩套並存 = 客人看到哪一份要看兩個旗標)。
--- 🔴 空字串不算「有填」:NULLIF(…, '') ⇒ 員工存了空白標題,客人看到的是供應商的,不是一片空白。
+-- 🔴 「沒填」在 view 裡的判準(與 CHECK 兩層都擋,view 這層是縱深):
+--    title / subtitle:NULLIF(btrim(…, 空白字元), '') ⇒ 全空白(含全形空白)一律退回供應商的,不會出現空白標題;
+--      有字的會把前後空白去掉再顯示。
+--    highlights:NULLIF(… -> 'highlights', '[]') ⇒ 空陣列 = 沒填 ⇒ 退回供應商的賣點。
 -- 🔵 products_list_dealer(b2b)讀的是 products_list_public 的 v.title / v.subtitle ⇒ 自動跟著走;欄型別不變(text),依賴它的 view 不受影響。
 -- 🔵 讀這兩個 view 的函式(search_catalog_by_vehicle 等 8 支,正式庫 2026-09-27 列舉)拿的是合併後的值。
 --    ⚠️ 但【關鍵字搜尋】storefront_search_product_ids 直接比 public.products 的 p.title / p.subtitle
@@ -96,20 +103,30 @@ $pre$;
 -- ① 欄
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS staff_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;
 
--- ② CHECK:只允許三個鍵,各自的型別固定
+-- ② CHECK:只允許三個鍵,各自的型別固定;標題副標不能全空白;賣點每個元素都是字串
+--    🔵 每個 OR 的左半 `NOT (x ? 鍵)` 永遠有值;右半先驗 jsonb_typeof,型別不對時整段是 false(不是 NULL)
+--       ⇒ 唯一的 NULL 面是整欄為 NULL,由 NOT NULL 擋(null-shortcircuit 閘的 LOAD_BEARING_NOT_NULL 有列)。
 ALTER TABLE public.products DROP CONSTRAINT IF EXISTS products_staff_overrides_shape;
 ALTER TABLE public.products ADD CONSTRAINT products_staff_overrides_shape CHECK (
   pg_catalog.jsonb_typeof(staff_overrides) = 'object'
   AND (staff_overrides - ARRAY['title', 'subtitle', 'highlights']::text[]) = '{}'::jsonb
-  AND (NOT (staff_overrides ? 'title')      OR pg_catalog.jsonb_typeof(staff_overrides -> 'title') = 'string')
-  AND (NOT (staff_overrides ? 'subtitle')   OR pg_catalog.jsonb_typeof(staff_overrides -> 'subtitle') = 'string')
-  AND (NOT (staff_overrides ? 'highlights') OR pg_catalog.jsonb_typeof(staff_overrides -> 'highlights') = 'array')
+  AND (NOT (staff_overrides ? 'title')
+       OR (pg_catalog.jsonb_typeof(staff_overrides -> 'title') = 'string'
+           AND pg_catalog.btrim(staff_overrides ->> 'title', E' \t\r\n　') <> ''))
+  AND (NOT (staff_overrides ? 'subtitle')
+       OR (pg_catalog.jsonb_typeof(staff_overrides -> 'subtitle') = 'string'
+           AND pg_catalog.btrim(staff_overrides ->> 'subtitle', E' \t\r\n　') <> ''))
+  AND (NOT (staff_overrides ? 'highlights')
+       OR (pg_catalog.jsonb_typeof(staff_overrides -> 'highlights') = 'array'
+           -- 🔴 要 strict:lax 模式會把巢狀陣列自動攤開,'[["x"]]' 會被當成合法(拋棄式 PG 實測)
+           AND NOT pg_catalog.jsonb_path_exists(staff_overrides -> 'highlights', 'strict $[*] ? (@.type() != "string")')))
 );
 
 COMMENT ON COLUMN public.products.staff_overrides IS
   '員工自己填的值,有填就蓋過供應商的(Sean 2026-08-26 Q1 丙;20260927040000)。每日同步永遠不寫這一欄。
 🔴 anon / authenticated 讀得到原始 jsonb(兩個前台 view 是 security_invoker)⇒ 不准放任何不公開的東西。
-CHECK products_staff_overrides_shape 只允許 title / subtitle(字串)、highlights(字串陣列)。要加鍵先改 CHECK。
+CHECK products_staff_overrides_shape 只允許:title / subtitle(字串、不能全空白)、highlights(每個元素都是字串的陣列;空陣列 = 沒填)。要加鍵先改 CHECK。
+取消覆寫 = 刪掉那個鍵(staff_overrides - ''title''),不能寫 null(CHECK 會擋)。
 description 不走這一欄:走 description + description_locked(Sean 2026-09-02 ⟦b4-QUOTEDESCLOCK⟧)。';
 
 -- ③ content_changed_at 的比對多一欄 staff_overrides(其餘逐字照抄 20260915220000:105-123)
@@ -147,8 +164,8 @@ CREATE OR REPLACE VIEW products_public WITH (security_invoker = true) AS
 SELECT
   p.id,
   p.external_id,
-  COALESCE(NULLIF(p.staff_overrides ->> 'title', ''), p.title) AS title,
-  COALESCE(NULLIF(p.staff_overrides ->> 'subtitle', ''), p.subtitle) AS subtitle,
+  COALESCE(NULLIF(pg_catalog.btrim(p.staff_overrides ->> 'title', E' \t\r\n　'), ''), p.title) AS title,
+  COALESCE(NULLIF(pg_catalog.btrim(p.staff_overrides ->> 'subtitle', E' \t\r\n　'), ''), p.subtitle) AS subtitle,
   p.description,
   p.handle,
   p.fitments,
@@ -160,7 +177,7 @@ SELECT
   p.updated_at,
   p.price_general,
   p.supplier_slug,
-  COALESCE(p.staff_overrides -> 'highlights', p.highlights) AS highlights,
+  COALESCE(NULLIF(p.staff_overrides -> 'highlights', '[]'::jsonb), p.highlights) AS highlights,
   p.manuals,
   p.video_url,
   CASE WHEN t.url IS NULL THEN NULL ELSE jsonb_build_object(
@@ -179,8 +196,8 @@ COMMENT ON VIEW products_public IS
 CREATE OR REPLACE VIEW public.products_list_public WITH (security_invoker = true) AS
 SELECT
   p.id,
-  COALESCE(NULLIF(p.staff_overrides ->> 'title', ''), p.title) AS title,
-  COALESCE(NULLIF(p.staff_overrides ->> 'subtitle', ''), p.subtitle) AS subtitle,
+  COALESCE(NULLIF(pg_catalog.btrim(p.staff_overrides ->> 'title', E' \t\r\n　'), ''), p.title) AS title,
+  COALESCE(NULLIF(pg_catalog.btrim(p.staff_overrides ->> 'subtitle', E' \t\r\n　'), ''), p.subtitle) AS subtitle,
   p.handle,
   p.brand_id,
   p.category_id,

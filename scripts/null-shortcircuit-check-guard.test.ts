@@ -177,6 +177,13 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //     · 同一條運算式純求值(不碰表):'{"title":null}' · '{"subtitle":null}' · '{"highlights":null}' · 'null' · '{"cost":1}'
   //       · '{"title":1}' 全部 f(不是 NULL);'{}' 與 '{"title":"ok","highlights":["a"]}' 為 t。
   //   🔴 NULL 面:輸入是 SQL NULL 時整條求值成 NULL(實測 IS NULL = t)⇒ 靠 NOT NULL 撐,已列進 LOAD_BEARING_NOT_NULL。
+  //   🔁 同日審查建議後改版(標題副標不能全空白 · 賣點每個元素都是字串,jsonb_path_exists strict):
+  //     拋棄式 PG 重跑,13 發壞形狀全紅在本 CHECK —— '{"cost":100}' · '{"title":123}' · '{"title":null}' · '{"title":""}'
+  //       · '{"title":"   "}' · 全形空白 · '{"title":"\t\n"}' · '{"subtitle":" "}' · '{"highlights":"不是陣列"}'
+  //       · '{"highlights":["a",1]}' · '{"highlights":[null]}' · '{"highlights":[["巢狀"]]}' · '["不是物件"]';NULL 紅在 not-null;
+  //       '{"highlights":[]}' · '{"highlights":["a","b"]}' · '{"title":"合法"}' 三發進得去。
+  //     ⚠️ 第一版用 lax 模式,'[["巢狀"]]' 被放行(lax 會攤開巢狀陣列)⇒ 改 strict 後才紅;兩種模式的對照也實跑過。
+  //     右半都先驗 jsonb_typeof,型別不對時整段是 false 不是 NULL ⇒ NULL 面仍只有整欄 NULL 一個。
   'products.products_staff_overrides_shape',
   // 🔴 2026-09-13 設計窗補(`20260913070000_m4b_fx_rates.sql`;作者就是我)。
   //    形狀:(currency_code <> 'TWD' OR rate_to_twd = 1)—— 兩欄都 NOT NULL ⇒ 沒有 NULL 短路面。
