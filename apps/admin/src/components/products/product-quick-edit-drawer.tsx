@@ -37,7 +37,7 @@ export function ProductQuickEditDrawer({
         role='dialog'
         aria-modal='true'
         aria-label='快速編輯'
-        className='bg-background flex h-full w-full max-w-[640px] flex-col border-l shadow-xl'
+        className='bg-background flex h-full w-full max-w-[640px] flex-col border-l'
       >
         <header className='flex items-start gap-3 border-b p-4'>
           <div className='min-w-0 flex-1'>
