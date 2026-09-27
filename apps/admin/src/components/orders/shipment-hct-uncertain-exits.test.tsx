@@ -40,9 +40,21 @@ describe('ShipmentHctUncertainExits', () => {
 
   it('🔴 伺服器擋下(例如這張單已退款)⇒ 原話顯示;重按沿用同一把鍵', async () => {
     h.mark.mockResolvedValue({ ok: false, message: '這張單已退款，不能標記出貨。' });
-    render(<ShipmentHctUncertainExits {...props()} />);
+    const { container } = render(<ShipmentHctUncertainExits {...props()} />);
+    // 🔴 2026-09-28 全套測試偶發紅(第二次按下只呼叫到 1 次):原因是訊息先畫出來、按鈕過一次畫面才解除停用,
+    //    負載高時第二次按下落在中間那一格(按在停用的按鈕上沒反應)。元件已改成同一次畫面一起更新;
+    //    這裡逐次記錄畫面變化, 釘住「訊息出現的那一刻按鈕已經能按」。
+    const disabledWhenMessageShown: boolean[] = [];
+    const mo = new MutationObserver(() => {
+      if (container.textContent?.includes('這張單已退款')) {
+        disabledWhenMessageShown.push((screen.getByRole('button', { name: /新竹說已收走/ }) as HTMLButtonElement).disabled);
+      }
+    });
+    mo.observe(container, { subtree: true, childList: true, attributes: true, characterData: true });
     fireEvent.click(screen.getByRole('button', { name: /新竹說已收走/ }));
     expect(await screen.findByText('這張單已退款，不能標記出貨。')).toBeTruthy();
+    mo.disconnect();
+    expect(disabledWhenMessageShown).not.toContain(true);
     fireEvent.click(screen.getByRole('button', { name: /新竹說已收走/ }));
     await waitFor(() => expect(h.mark).toHaveBeenCalledTimes(2));
     expect(h.mark.mock.calls[1]![0].idempotencyKey).toBe(h.mark.mock.calls[0]![0].idempotencyKey);

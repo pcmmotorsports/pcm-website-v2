@@ -23,8 +23,11 @@ export function ShipmentHctDispatchButton({ shipmentId, shipmentReference }: { s
         onClick={() =>
           start(async () => {
             const r = await dispatchShipmentAction({ shipmentId });
-            setResult(r);
-            router.refresh();
+            // await 之後的更新包進 transition(React 19 規則), 結果與按鈕狀態同一次畫面(同 shipment-hct-uncertain-exits.tsx)。
+            start(() => {
+              setResult(r);
+              router.refresh();
+            });
           })
         }
         className='bg-primary text-primary-foreground rounded-md px-2.5 py-1 text-xs font-semibold disabled:opacity-50'
