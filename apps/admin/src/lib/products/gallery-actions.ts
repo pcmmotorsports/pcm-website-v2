@@ -17,7 +17,13 @@ import {
 // 🔴 報價單要的鍵(supplier_slug + main_sku)由伺服器從商品讀,不收瀏覽器傳來的:
 //    main_sku = 網站 products.external_id(同步時就是用報價單的 COALESCE(NULLIF(group_code,''), upper(sku)) 產的)。
 
-export type GalleryActionResult = { ok: true; photos: GalleryPhoto[] } | { ok: false; message: string };
+/** curated false = 尚未整理(畫面上的是報價單目前給網站的供應商照片)。 */
+export type GalleryActionResult = { ok: true; curated: boolean; photos: GalleryPhoto[] } | { ok: false; message: string };
+
+/** 報價單要的照片網址形狀(G2:https、最多 2048 字)。 */
+function isPhotoUrl(v: unknown): v is string {
+  return typeof v === 'string' && /^https:\/\/\S+$/.test(v) && v.length <= 2048;
+}
 
 const DENIED = '沒有權限或登入已過期，請重新登入後再試。';
 const DISABLED = '圖庫尚未啟用。';
@@ -47,7 +53,7 @@ async function prepare(productId: string): Promise<Ready> {
 
 async function reload(r: Extract<Ready, { ok: true }>): Promise<GalleryActionResult> {
   const list = await r.api.list(r.key, r.actor);
-  return list.ok ? { ok: true, photos: list.photos } : { ok: false, message: RELOAD_FAILED };
+  return list.ok ? { ok: true, curated: list.curated, photos: list.photos } : { ok: false, message: RELOAD_FAILED };
 }
 
 async function runOp(productId: string, action: GalleryAction, op: GalleryOp): Promise<GalleryActionResult> {
@@ -55,12 +61,16 @@ async function runOp(productId: string, action: GalleryAction, op: GalleryOp): P
   if (!r.ok) return r;
   const res = await r.api.op(r.key, r.actor, op);
   if (!res.ok) return { ok: false, message: galleryErrorMessage(action, res.status, res.code) };
-  return res.photos ? { ok: true, photos: res.photos } : reload(r);
+  // 寫入成功 ⇒ 報價單已把這件商品寫進圖庫(第一次寫入時先補供應商照片)⇒ 已整理
+  return res.photos ? { ok: true, curated: true, photos: res.photos } : reload(r);
 }
 
-export async function reorderGalleryAction(productId: string, ids: string[]): Promise<GalleryActionResult> {
-  if (!Array.isArray(ids) || !ids.every(isUuid)) return { ok: false, message: INVALID };
-  return runOp(productId, 'reorder', { op: 'reorder', ids });
+/** urls = 這件商品全部照片(含已隱藏)的新順序。 */
+export async function reorderGalleryAction(productId: string, urls: string[]): Promise<GalleryActionResult> {
+  if (!Array.isArray(urls) || urls.length === 0 || !urls.every(isPhotoUrl) || new Set(urls).size !== urls.length) {
+    return { ok: false, message: INVALID };
+  }
+  return runOp(productId, 'reorder', { op: 'reorder', urls });
 }
 
 export async function removeGalleryPhotoAction(productId: string, id: string): Promise<GalleryActionResult> {
@@ -68,9 +78,9 @@ export async function removeGalleryPhotoAction(productId: string, id: string): P
   return runOp(productId, 'remove', { op: 'remove', id });
 }
 
-export async function setGalleryHiddenAction(productId: string, id: string, hidden: boolean): Promise<GalleryActionResult> {
-  if (!isUuid(id) || typeof hidden !== 'boolean') return { ok: false, message: INVALID };
-  return runOp(productId, hidden ? 'hide' : 'unhide', { op: 'set_hidden', id, hidden });
+export async function setGalleryHiddenAction(productId: string, url: string, hidden: boolean): Promise<GalleryActionResult> {
+  if (!isPhotoUrl(url) || typeof hidden !== 'boolean') return { ok: false, message: INVALID };
+  return runOp(productId, hidden ? 'hide' : 'unhide', { op: 'set_hidden', url, hidden });
 }
 
 /** FormData:product_id、file(瀏覽器已縮到最長邊 1600)。一次一張。 */

@@ -228,7 +228,7 @@ export default async function ProductDetailPage({
             overrides={readProductOverrides(product.staff_overrides)}
           />
           {gallery?.state === 'ok' ? (
-            <ProductGalleryPanel productId={product.id} initialPhotos={gallery.photos} />
+            <ProductGalleryPanel productId={product.id} initialPhotos={gallery.photos} initialCurated={gallery.curated} />
           ) : gallery ? (
             <section data-od-pe='card' data-gallery-unavailable className='rounded-lg border p-4'>
               <h3 className='mb-2 text-sm font-medium'>照片</h3>

@@ -18,10 +18,11 @@ export interface GalleryKey {
 
 export type GalleryApiResult<T> = ({ ok: true } & T) | { ok: false; status: number; code: string };
 
+// G2 6f44e9ff:隱藏與排序用網址(尚未整理的照片沒有 id);reorder 的 urls = 全部照片(含隱藏)的新順序。刪除只限我們上傳的,用 id。
 export type GalleryOp =
   | { op: 'remove'; id: string }
-  | { op: 'set_hidden'; id: string; hidden: boolean }
-  | { op: 'reorder'; ids: string[] };
+  | { op: 'set_hidden'; url: string; hidden: boolean }
+  | { op: 'reorder'; urls: string[] };
 
 const TIMEOUT_MS = 20_000;
 /** 打開商品頁時那一讀:報價單卡住也不能讓整頁跟著等(Fable R1 建議 2)。 */
@@ -39,7 +40,7 @@ function isPhoto(v: unknown): v is GalleryPhoto {
   if (v === null || typeof v !== 'object') return false;
   const p = v as Record<string, unknown>;
   return (
-    typeof p.id === 'string' &&
+    (typeof p.id === 'string' || p.id === null) &&
     typeof p.url === 'string' &&
     (p.source === 'staff' || p.source === 'supplier') &&
     typeof p.position === 'number' &&
@@ -86,9 +87,11 @@ export function createGalleryApi(config: GalleryApiConfig, fetchImpl: typeof fet
   });
 
   return {
-    async list(key: GalleryKey, actor: string): Promise<GalleryApiResult<{ photos: GalleryPhoto[] }>> {
+    /** curated false = 尚未整理:photos 是報價單現在給網站的供應商照片(沒有 id);第一次寫入時報價單會先照原順序寫進圖庫。 */
+    async list(key: GalleryKey, actor: string): Promise<GalleryApiResult<{ curated: boolean; photos: GalleryPhoto[] }>> {
       const r = await call(`/api/gallery?${new URLSearchParams(common(key, actor))}`, { method: 'GET' }, LIST_TIMEOUT_MS);
-      return r.ok ? { ok: true, photos: toPhotos(r.body.photos) } : r;
+      // 沒帶 curated 就當尚未整理:畫面會多一句說明,不會把沒整理過的講成整理過
+      return r.ok ? { ok: true, curated: r.body.curated === true, photos: toPhotos(r.body.photos) } : r;
     },
 
     async op(key: GalleryKey, actor: string, op: GalleryOp): Promise<GalleryApiResult<{ photos?: GalleryPhoto[] }>> {

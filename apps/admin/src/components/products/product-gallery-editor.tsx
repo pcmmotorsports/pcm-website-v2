@@ -19,13 +19,17 @@ import {
 // 只有「拖曳」把手擋掉觸控捲動(touch-action: none),手指按在照片其他地方仍然可以捲頁。
 // 每張另有「往前 / 往後移一張」按鈕:鍵盤與不方便拖曳的人也能排順序。
 
+// 🔴 以網址認照片(G2 6f44e9ff:尚未整理的照片沒有 id;隱藏與排序用網址)。刪除只給我們上傳的,那些一定有 id。
 export interface ProductGalleryEditorProps {
   readonly photos: readonly GalleryPhoto[];
-  readonly onSaveOrder: (ids: string[]) => Promise<void>;
+  /** 顯示中照片的新順序(網址);已隱藏的由呼叫端接在後面。 */
+  readonly onSaveOrder: (urls: string[]) => Promise<void>;
   readonly onDelete: (id: string) => Promise<void>;
-  readonly onHide: (id: string) => Promise<void>;
-  readonly onUnhide: (id: string) => Promise<void>;
+  readonly onHide: (url: string) => Promise<void>;
+  readonly onUnhide: (url: string) => Promise<void>;
   readonly onUpload: (files: File[]) => Promise<void>;
+  /** 照片區上方的說明(例如尚未整理)。 */
+  readonly notice?: string;
 }
 
 type Status = { kind: 'idle' | 'busy' | 'ok' | 'error'; message: string };
@@ -33,11 +37,11 @@ const IDLE: Status = { kind: 'idle', message: '' };
 
 const BTN = 'min-h-9 rounded-md border px-2 text-xs disabled:cursor-not-allowed disabled:opacity-40';
 
-export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, onUnhide, onUpload }: ProductGalleryEditorProps) {
+export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, onUnhide, onUpload, notice }: ProductGalleryEditorProps) {
   const { shown, hidden } = splitGallery(photos);
-  const byId = new Map(photos.map((p) => [p.id, p]));
-  const initial = shown.map((p) => p.id);
-  const initialKey = initial.join('|');
+  const byUrl = new Map(photos.map((p) => [p.url, p]));
+  const initial = shown.map((p) => p.url);
+  const initialKey = initial.join('\n');
 
   const [original, setOriginal] = useState<string[]>(initial);
   const [order, setOrder] = useState<string[]>(initial);
@@ -49,7 +53,7 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
 
   // 呼叫端重新讀圖庫(上傳、刪除之後)⇒ 以新資料為準
   useEffect(() => {
-    const next = initialKey === '' ? [] : initialKey.split('|');
+    const next = initialKey === '' ? [] : initialKey.split('\n');
     setOriginal(next);
     setOrder(next);
   }, [initialKey]);
@@ -162,6 +166,12 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
         </div>
       </div>
 
+      {notice && (
+        <p data-gallery-notice className='mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900'>
+          {notice}
+        </p>
+      )}
+
       <p className='text-muted-foreground mb-3 text-xs'>
         網站和報價單都照這個順序顯示，第 1 張是封面。按住「拖曳」移到想要的位置，或用「往前」「往後」調整，調完按「儲存順序」。
       </p>
@@ -173,15 +183,16 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
       {order.length === 0 && <p className='text-muted-foreground mb-3 text-sm'>這件商品還沒有照片。可以從下面上傳。</p>}
 
       <ol className='grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]'>
-        {order.map((id, i) => {
-          const p = byId.get(id);
+        {order.map((url, i) => {
+          const p = byUrl.get(url);
           if (!p) return null;
           const staff = p.source === 'staff';
+          const photoId = p.id;
           return (
             <li
-              key={id}
-              data-gallery-tile={id}
-              className={`bg-background overflow-hidden rounded-md border ${dragging === id ? 'opacity-40' : ''}`}
+              key={url}
+              data-gallery-tile={url}
+              className={`bg-background overflow-hidden rounded-md border ${dragging === url ? 'opacity-40' : ''}`}
             >
               <div className='bg-muted relative aspect-square'>
                 <img src={p.url} alt={`第 ${i + 1} 張照片`} loading='lazy' className='h-full w-full object-contain' draggable={false} />
@@ -209,7 +220,7 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
                   className={`${BTN} cursor-grab active:cursor-grabbing`}
                   style={{ touchAction: 'none' }}
                   disabled={busy}
-                  onPointerDown={(e) => onHandleDown(e, id)}
+                  onPointerDown={(e) => onHandleDown(e, url)}
                 >
                   ⠿ 拖曳
                 </button>
@@ -231,7 +242,12 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
                   </button>
                 )}
                 {staff ? (
-                  <button type='button' className={`${BTN} text-destructive`} disabled={locked} onClick={() => setConfirmDelete(id)}>
+                  <button
+                    type='button'
+                    className={`${BTN} text-destructive`}
+                    disabled={locked || photoId === null}
+                    onClick={() => setConfirmDelete(url)}
+                  >
                     刪除
                   </button>
                 ) : (
@@ -239,13 +255,13 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
                     type='button'
                     className={BTN}
                     disabled={locked}
-                    onClick={() => run(() => onHide(id), '已隱藏，網站和報價單都不再顯示這張。', '隱藏沒有完成，請重新整理後再試。')}
+                    onClick={() => run(() => onHide(url), '已隱藏，網站和報價單都不再顯示這張。', '隱藏沒有完成，請重新整理後再試。')}
                   >
                     隱藏
                   </button>
                 )}
               </div>
-              {confirmDelete === id && (
+              {confirmDelete === url && photoId !== null && (
                 <div className='border-t p-2 text-xs'>
                   <p className='mb-1.5'>確定刪除這張照片？刪除後無法復原。</p>
                   <div className='flex gap-1.5'>
@@ -255,7 +271,7 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
                       disabled={busy}
                       onClick={() => {
                         setConfirmDelete(null);
-                        void run(() => onDelete(id), '照片已刪除。', '刪除沒有完成，請重新整理頁面，確認這張照片是否還在。');
+                        void run(() => onDelete(photoId), '照片已刪除。', '刪除沒有完成，請重新整理頁面，確認這張照片是否還在。');
                       }}
                     >
                       確定刪除
@@ -301,14 +317,14 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
           <summary className='text-muted-foreground cursor-pointer text-sm'>{`已隱藏的供應商照片（${hidden.length} 張）`}</summary>
           <ul className='mt-2 space-y-2'>
             {hidden.map((p) => (
-              <li key={p.id} className='flex items-center gap-3'>
+              <li key={p.url} className='flex items-center gap-3'>
                 <img src={p.url} alt='已隱藏的供應商照片' loading='lazy' className='bg-muted h-16 w-16 rounded-md object-contain' />
                 <span className='text-muted-foreground flex-1 text-xs'>隱藏後網站和報價單都不顯示；每天的同步不會把它加回來。</span>
                 <button
                   type='button'
                   className={BTN}
                   disabled={locked}
-                  onClick={() => run(() => onUnhide(p.id), '已取消隱藏，這張會排在最後面。', '取消隱藏沒有完成，請重新整理後再試。')}
+                  onClick={() => run(() => onUnhide(p.url), '已取消隱藏，這張會排在最後面。', '取消隱藏沒有完成，請重新整理後再試。')}
                 >
                   取消隱藏
                 </button>

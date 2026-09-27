@@ -6,8 +6,13 @@
 
 export type GallerySource = 'staff' | 'supplier';
 
+/**
+ * 一張照片。🔴 以 `url` 認照片(同一件商品內唯一;報價單 UNIQUE (supplier_slug, main_sku, url))。
+ * `id` 只有「已整理」的圖庫列才有;尚未整理時報價單回的是目前的供應商照片,`id` 是 null(G2 6f44e9ff)。
+ * 隱藏與排序都用網址;刪除用 id(只限我們上傳的,那些一定已經在圖庫裡)。
+ */
 export interface GalleryPhoto {
-  readonly id: string;
+  readonly id: string | null;
   readonly url: string;
   readonly source: GallerySource;
   readonly position: number;
@@ -18,9 +23,9 @@ export interface GalleryPhoto {
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const GALLERY_ACCEPT = ACCEPTED_TYPES.join(',');
 
-/** 顯示中(依 position,同值依 id)與已隱藏兩組。 */
+/** 顯示中(依 position,同值依網址)與已隱藏兩組。 */
 export function splitGallery(photos: readonly GalleryPhoto[]): { shown: GalleryPhoto[]; hidden: GalleryPhoto[] } {
-  const sorted = [...photos].sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const sorted = [...photos].sort((a, b) => a.position - b.position || (a.url < b.url ? -1 : a.url > b.url ? 1 : 0));
   return { shown: sorted.filter((p) => !p.hidden), hidden: sorted.filter((p) => p.hidden) };
 }
 

@@ -619,7 +619,7 @@ describe('共用圖庫 G5:照片', () => {
 
   it('讀到了 ⇒ 掛照片面板, 底部那句加上「照片」', async () => {
     base();
-    gallery.load.mockResolvedValueOnce({ state: 'ok', photos: [{ id: 'x' }, { id: 'y' }] });
+    gallery.load.mockResolvedValueOnce({ state: 'ok', curated: true, photos: [{ id: 'x' }, { id: 'y' }] });
     const { container } = await renderPage();
     expect(container.querySelector('[data-gallery-panel]')!.textContent).toBe('照片面板 2 張');
     expect(container.querySelector('[data-gallery-unavailable]')).toBeNull();

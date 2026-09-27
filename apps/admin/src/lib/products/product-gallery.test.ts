@@ -34,9 +34,9 @@ describe('splitGallery', () => {
     expect(hidden.map((p) => p.id)).toEqual(['h']);
   });
 
-  it('position 相同時用 id 排, 每次結果一樣', () => {
-    const { shown } = splitGallery([P('b', { position: 0 }), P('a', { position: 0 })]);
-    expect(shown.map((p) => p.id)).toEqual(['a', 'b']);
+  it('position 相同時用網址排, 每次結果一樣(尚未整理的照片沒有 id)', () => {
+    const { shown } = splitGallery([P('b', { position: 0, id: null }), P('a', { position: 0, id: null })]);
+    expect(shown.map((p) => p.url)).toEqual(['https://img.example/a.webp', 'https://img.example/b.webp']);
   });
 });
 

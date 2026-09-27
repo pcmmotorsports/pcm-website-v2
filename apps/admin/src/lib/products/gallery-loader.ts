@@ -9,7 +9,7 @@ import { galleryErrorMessage, type GalleryPhoto } from './product-gallery';
 export type ProductGalleryState =
   | { state: 'disabled' }
   | { state: 'failed'; message: string }
-  | { state: 'ok'; photos: GalleryPhoto[] };
+  | { state: 'ok'; curated: boolean; photos: GalleryPhoto[] };
 
 const LOAD_FAILED = '照片載入失敗，請重新整理。若仍無法載入，請聯絡系統管理員。';
 
@@ -29,7 +29,7 @@ export async function loadProductGallery(product: {
     { supplierSlug: product.supplier_slug, mainSku: product.external_id },
     actor.id,
   );
-  if (r.ok) return { state: 'ok', photos: r.photos };
+  if (r.ok) return { state: 'ok', curated: r.curated, photos: r.photos };
   console.error('[admin/products/[id]] 圖庫讀取失敗', { status: r.status, code: r.code });
   return {
     state: 'failed',

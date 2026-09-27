@@ -37,9 +37,9 @@ describe('readGalleryApiConfig', () => {
 
 describe('list', () => {
   it('GET 帶 supplier_slug / main_sku / actor / request_id(uuid)與 Bearer 密鑰, 不快取', async () => {
-    const { fn, calls } = fakeFetch(200, { photos: [ROW] });
+    const { fn, calls } = fakeFetch(200, { curated: true, photos: [ROW] });
     const r = await createGalleryApi(CONFIG, fn).list(KEY, 'staff_1');
-    expect(r).toEqual({ ok: true, photos: [ROW] });
+    expect(r).toEqual({ ok: true, curated: true, photos: [ROW] });
     const u = new URL(calls[0]!.url);
     expect(u.origin + u.pathname).toBe('https://quote.example/api/gallery');
     expect(u.searchParams.get('supplier_slug')).toBe('rpm');
@@ -60,8 +60,19 @@ describe('list', () => {
   });
 
   it('形狀不對的列丟掉, 不讓畫面壞', async () => {
-    const { fn } = fakeFetch(200, { photos: [ROW, { id: 1 }, null, { ...ROW, id: '2', source: 'x' }] });
-    expect(await createGalleryApi(CONFIG, fn).list(KEY, 'a')).toEqual({ ok: true, photos: [ROW] });
+    const { fn } = fakeFetch(200, { curated: true, photos: [ROW, { id: 1 }, null, { ...ROW, id: '2', source: 'x' }] });
+    expect(await createGalleryApi(CONFIG, fn).list(KEY, 'a')).toEqual({ ok: true, curated: true, photos: [ROW] });
+  });
+
+  it('🔴 尚未整理 ⇒ curated false、照片沒有 id(報價單回目前的供應商照片)', async () => {
+    const sup = { id: null, url: 'https://cdn.sup/a.jpg', source: 'supplier', position: 0, hidden: false };
+    const { fn } = fakeFetch(200, { curated: false, photos: [sup] });
+    expect(await createGalleryApi(CONFIG, fn).list(KEY, 'a')).toEqual({ ok: true, curated: false, photos: [sup] });
+  });
+
+  it('沒帶 curated 或不是布林 ⇒ 當作尚未整理(不猜成已整理)', async () => {
+    const { fn } = fakeFetch(200, { photos: [] });
+    expect(await createGalleryApi(CONFIG, fn).list(KEY, 'a')).toEqual({ ok: true, curated: false, photos: [] });
   });
 
   it('錯誤 ⇒ 帶狀態碼與錯誤代碼;連線失敗 ⇒ status 0', async () => {
@@ -81,17 +92,17 @@ describe('list', () => {
 describe('op', () => {
   it('POST JSON:op 與參數、四個共同欄位', async () => {
     const { fn, calls } = fakeFetch(200, { photos: [ROW] });
-    await createGalleryApi(CONFIG, fn).op(KEY, 'staff_1', { op: 'reorder', ids: [ROW.id] });
+    await createGalleryApi(CONFIG, fn).op(KEY, 'staff_1', { op: 'reorder', urls: [ROW.url] });
     expect(calls[0]!.init.method).toBe('POST');
     const body = JSON.parse(String(calls[0]!.init.body));
-    expect(body).toMatchObject({ op: 'reorder', ids: [ROW.id], supplier_slug: 'rpm', main_sku: 'BR-LV-0003', actor: 'staff_1' });
+    expect(body).toMatchObject({ op: 'reorder', urls: [ROW.url], supplier_slug: 'rpm', main_sku: 'BR-LV-0003', actor: 'staff_1' });
     expect(body.request_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(new Headers(calls[0]!.init.headers).get('content-type')).toBe('application/json');
   });
 
   it('409 排序衝突 ⇒ 原樣回報代碼', async () => {
     const { fn } = fakeFetch(409, { error: 'GALLERY_SET_MISMATCH' });
-    expect(await createGalleryApi(CONFIG, fn).op(KEY, 'a', { op: 'reorder', ids: [] })).toEqual({
+    expect(await createGalleryApi(CONFIG, fn).op(KEY, 'a', { op: 'reorder', urls: [] })).toEqual({
       ok: false,
       status: 409,
       code: 'GALLERY_SET_MISMATCH',

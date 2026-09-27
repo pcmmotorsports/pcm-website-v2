@@ -25,7 +25,9 @@ function setup(photos = PHOTOS) {
   };
   const view = render(<ProductGalleryEditor photos={photos} {...h} />);
   const tiles = () => [...view.container.querySelectorAll<HTMLElement>('[data-gallery-tile]')];
-  const order = () => tiles().map((t) => t.dataset.galleryTile);
+  // 格子以網址認照片;測試用 id 寫比較好讀 ⇒ 換回 id
+  const idOf = new Map(photos.map((p) => [p.url, p.id ?? p.url]));
+  const order = () => tiles().map((t) => idOf.get(t.dataset.galleryTile!));
   const button = (root: ParentNode, text: string) =>
     [...root.querySelectorAll('button')].find((b) => b.textContent === text || b.getAttribute('aria-label') === text);
   return { ...h, view, tiles, order, button };
@@ -56,7 +58,7 @@ describe('顯示', () => {
     const hidden = view.container.querySelector('[data-gallery-hidden]')!;
     expect(hidden.textContent).toContain('已隱藏的供應商照片（1 張）');
     await act(async () => fireEvent.click(button(hidden, '取消隱藏')!));
-    expect(onUnhide).toHaveBeenCalledWith('supC');
+    expect(onUnhide).toHaveBeenCalledWith('https://img.example/c.jpg');
   });
 
   it('沒有任何照片 ⇒ 講清楚, 只剩上傳', () => {
@@ -79,7 +81,7 @@ describe('調整順序', () => {
     expect(tiles()[1]!.querySelector('[data-gallery-cover]')).toBeNull();
     expect(save.hasAttribute('disabled')).toBe(false);
     await act(async () => fireEvent.click(save));
-    expect(onSaveOrder).toHaveBeenCalledWith(['side', 'front', 'supA']);
+    expect(onSaveOrder).toHaveBeenCalledWith(['https://img.example/side.webp', 'https://img.example/front.webp', 'https://img.example/a.jpg']);
     expect(view.container.textContent).toContain('順序已儲存');
     expect(view.container.textContent).not.toContain('尚未儲存');
   });
@@ -132,7 +134,7 @@ describe('調整順序', () => {
     try {
       fireEvent.pointerDown(handle, { pointerId: 1 });
       for (const overId of ['b', 'c', 'd']) {
-        const over = tiles().find((t) => t.dataset.galleryTile === overId)!;
+        const over = tiles().find((t) => t.dataset.galleryTile === `https://img.example/${overId}.webp`)!;
         document.elementFromPoint = () => over;
         fireEvent.pointerMove(over, { pointerId: 1 }); // 事件落在格子上, 不在把手上
       }
@@ -180,7 +182,7 @@ describe('刪除、隱藏、上傳', () => {
   it('隱藏供應商照片', async () => {
     const { tiles, button, onHide } = setup();
     await act(async () => fireEvent.click(button(tiles()[2]!, '隱藏')!));
-    expect(onHide).toHaveBeenCalledWith('supA');
+    expect(onHide).toHaveBeenCalledWith('https://img.example/a.jpg');
   });
 
   it('上傳:只送出 JPG / PNG / WebP, 其他的列出原因', async () => {
@@ -203,5 +205,37 @@ describe('接上報價單之後的錯誤訊息', () => {
     fireEvent.click(button(tiles()[0]!, '往後移一張')!);
     await act(async () => fireEvent.click(button(view.container, '儲存順序')!));
     expect(view.container.querySelector('[role="status"]')!.textContent).toBe('供應商剛更新了照片，請重新整理再排。');
+  });
+});
+
+describe('尚未整理(G2 6f44e9ff:照片沒有 id)', () => {
+  const RAW: GalleryPhoto[] = [
+    { id: null, url: 'https://cdn.sup/1.jpg', source: 'supplier', position: 0, hidden: false },
+    { id: null, url: 'https://cdn.sup/2.jpg', source: 'supplier', position: 1, hidden: false },
+  ];
+
+  it('沒有 id 的供應商照片也能排序與隱藏(用網址)', async () => {
+    const onSaveOrder = vi.fn(async () => {});
+    const onHide = vi.fn(async () => {});
+    const noop = async () => {};
+    const view = render(
+      <ProductGalleryEditor photos={RAW} onSaveOrder={onSaveOrder} onDelete={noop} onHide={onHide} onUnhide={noop} onUpload={noop} />,
+    );
+    const tiles = () => [...view.container.querySelectorAll<HTMLElement>('[data-gallery-tile]')];
+    const btn = (root: ParentNode, label: string) =>
+      [...root.querySelectorAll('button')].find((b) => b.textContent === label || b.getAttribute('aria-label') === label)!;
+    fireEvent.click(btn(tiles()[1]!, '設為封面'));
+    await act(async () => fireEvent.click(btn(view.container, '儲存順序')));
+    expect(onSaveOrder).toHaveBeenCalledWith(['https://cdn.sup/2.jpg', 'https://cdn.sup/1.jpg']);
+    await act(async () => fireEvent.click(btn(tiles()[0]!, '隱藏')));
+    expect(onHide).toHaveBeenCalled();
+  });
+
+  it('有 notice 就顯示在照片上方', () => {
+    const noop = async () => {};
+    const view = render(
+      <ProductGalleryEditor photos={RAW} notice='尚未整理，這是目前網站顯示的供應商照片。' onSaveOrder={noop} onDelete={noop} onHide={noop} onUnhide={noop} onUpload={noop} />,
+    );
+    expect(view.container.querySelector('[data-gallery-notice]')!.textContent).toBe('尚未整理，這是目前網站顯示的供應商照片。');
   });
 });
