@@ -70,7 +70,12 @@ beforeAll(async () => {
   }).outputFiles[0]!.text;
   browser = await chromium.launch({ headless: true });
 }, 30000);
-afterAll(async () => { await browser?.close(); });
+// 🔴 `afterAll` 的 timeout 要跟 `beforeAll` 一樣長(`#334`)。本檔原本漏了這一條:2026-09-28 全套測試兩次紅在這裡
+//    (`Hook timed out in 10000ms` 指向 browser.close())。量到的:20 支平行跑時 close 5.1–10.5 秒(4/20 超過 10 秒),
+//    沒負載時 15–38 毫秒、關的時候 contexts=0(沒有漏關的分頁)⇒ 是負載讓 Chromium 收尾變慢, 不是漏關東西。
+afterAll(async () => {
+  await browser?.close();
+}, 30000);
 
 function html(expanded: boolean) {
   return `<!doctype html><html><head><style>${css}</style></head><body>${renderToStaticMarkup(
