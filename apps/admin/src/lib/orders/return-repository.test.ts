@@ -17,7 +17,9 @@ const ITEM = '33333333-4444-5555-6666-777777777777';
 
 const raise = (code: string, message = '訊息') => ({ data: null, error: { code, message } });
 
-beforeEach(() => mocks.rpc.mockReset());
+// 🔴 用 vi.clearAllMocks 而不是 mocks.rpc.mockReset():實測在這個專案的設定下, mockReset 之後讓假 rpc 丟錯,
+//    就算被測的函式已經接住, 那一格仍會被判失敗(2026-09-27 查到;amount-requests 頁測試同一現象)。
+beforeEach(() => vi.clearAllMocks());
 
 describe('registerReturn', () => {
   it('照資料庫函式的參數名稱送出, 成功回 returnId', async () => {
@@ -59,6 +61,15 @@ describe('registerReturn', () => {
       note: null, trackingNumber: null, items: [{ orderItemId: ITEM, quantity: 1 }],
     });
     expect(out).toMatchObject({ ok: false, code: 'bug' });
+  });
+
+  it('連線丟例外 ⇒ error, 不 throw', async () => {
+    mocks.rpc.mockRejectedValue(new Error('fetch failed'));
+    const out = await registerReturn({
+      orderId: ORDER, requestId: TOKEN, actor: 's', reasonCode: 'defective', reasonDetail: null,
+      note: null, trackingNumber: null, items: [{ orderItemId: ITEM, quantity: 1 }],
+    });
+    expect(out).toMatchObject({ ok: false, code: 'error', logMessage: 'fetch failed' });
   });
 });
 
