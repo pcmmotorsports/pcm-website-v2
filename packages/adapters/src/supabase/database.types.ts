@@ -27,6 +27,9 @@
 // 🟢 **2026-09-27 網站施工窗 86:同一條慣例 —— 商品舊網址轉址(20260927100000,尚未貼正式庫)。**
 //    `product_redirects`(Row/Insert/Update + 兩條 FK)與 `product_redirects_live_v`(Row)。照 migration 手打、形狀照生成器規則、字母序。
 //    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
+// 🟢 **2026-09-27 網站施工窗 86:同一條慣例 —— 手動建單地址存進客人地址簿(20260927120000,尚未貼正式庫)。**
+//    `admin_save_manual_order_address`(Args / Returns)。照 migration 手打、形狀照生成器規則、字母序。
+//    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
 // 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
 //    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
 //    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
@@ -8949,6 +8952,14 @@ export type Database = {
           p_review_note: string | null
         }
         Returns: Json
+      }
+      admin_save_manual_order_address: {
+        Args: {
+          p_actor: string
+          p_order_id: string
+          p_request_id: string
+        }
+        Returns: string
       }
       admin_search_customers: {
         Args: { p_limit?: number; p_query: string; p_status?: string }

@@ -67,6 +67,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'product.listing.change': '上架或下架商品',
   // 商品文字「我們的版本」(20260927060000;商品編輯片 2 上線時漏了這一格,片 9 補)
   'product.override.change': '修改商品文字',
+  // 後台建單把收件地址存進客人地址簿(20260927120000)
+  'customer.address.save_from_order': '建單時存入客人地址',
   'order_refund.unknown_state': '退款結果不明(需人工確認)',
   'order.workflow.update': '更新訂單狀態',
   'order_item.workflow.update': '更新品項狀態',

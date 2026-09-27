@@ -85,6 +85,12 @@ export const MANUAL_ORDER_SENT_CODES = Object.freeze([
 export const MANUAL_ORDER_RESULT_PARAM = 'r';
 
 /**
+ * 訂單已建立、但收件地址沒有存進客人地址簿(20260927120000;Sean 2026-09-27 全甲)。
+ * 🔴 這是【成功之後】的提醒,不是失敗:導去那張單(不是回表單),員工不必也不該重送。
+ */
+export const MANUAL_ORDER_ADDRESS_NOT_SAVED = 'manual_order_address_not_saved';
+
+/**
  * 失敗導頁時把**冪等鍵**帶回表單頁的 query 參數。
  *
  * 🔴🔴 **它不是加值,是讓兩句話變成真的**:

@@ -14,7 +14,10 @@ const mocks = vi.hoisted(() => ({
   realParse: { fn: null as null | typeof import('./manual-order-form').parseManualOrderForm },
   revalidateOrderViews: vi.fn(),
   redirect: vi.fn(),
+  // 手動建單地址存進客人地址簿(20260927120000;Sean 2026-09-27 全甲)
+  saveManualOrderAddress: vi.fn(),
 }));
+vi.mock('../customers/manual-order-address', () => ({ saveManualOrderAddress: mocks.saveManualOrderAddress }));
 
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorizeAdminMutation }));
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
@@ -225,6 +228,7 @@ beforeEach(() => {
   mocks.redirect.mockImplementation(() => {
     throw new NextRedirectError();
   });
+  mocks.saveManualOrderAddress.mockResolvedValue({ ok: true, result: 'INSERTED' });
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -556,5 +560,28 @@ describe('導頁目標', () => {
     mocks.authorizeAdminMutation.mockResolvedValue(null);
     await run(base());
     expect(lastRedirect()[0].startsWith(MANUAL_ORDER_PATH)).toBe(true);
+  });
+});
+
+describe('建單成功後把收件地址存進客人地址簿(Sean 2026-08-28 Q-建單2 甲、2026-09-27 全甲)', () => {
+  it('🔴 成功 ⇒ 用這張單的 id、操作人、request id 存地址;導去訂單, 不帶提醒', async () => {
+    await run(base());
+    expect(mocks.saveManualOrderAddress).toHaveBeenCalledWith(ORDER_ID, ACTOR, 'req-abc');
+    expect(lastRedirect()[0]).toContain(ORDER_ID);
+    expect(lastRedirect()[0]).not.toContain('address_not_saved');
+  });
+
+  it('🔴 存地址失敗 ⇒ 訂單照樣成立、導去那張單, 帶「地址沒有存進客人資料」的提醒', async () => {
+    mocks.saveManualOrderAddress.mockResolvedValue({ ok: false });
+    await run(base());
+    expect(lastRedirect()[0]).toContain(ORDER_ID);
+    expect(lastRedirect()[0]).toContain('r=manual_order_address_not_saved');
+    expect(lastRedirect()[0].startsWith(MANUAL_ORDER_PATH)).toBe(false);
+  });
+
+  it('建單失敗 ⇒ 不存地址', async () => {
+    mocks.createManualOrder.mockResolvedValue({ ok: false, code: 'error', sqlstate: null, constraint: null, logMessage: 'x' });
+    await run(base());
+    expect(mocks.saveManualOrderAddress).not.toHaveBeenCalled();
   });
 });

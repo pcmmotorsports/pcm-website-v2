@@ -7,7 +7,7 @@ import {
   MANUAL_SECTION_LEGEND,
   MANUAL_SMALL_BUTTON,
 } from './manual-order-field-classes';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
@@ -16,6 +16,8 @@ import {
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import { requestManualCustomerCreate } from '@/lib/orders/manual-customer-create-request';
+import { loadManualCustomerAddressesAction } from '@/lib/customers/manual-order-address-actions';
+import type { AddressChoice } from '@/lib/customers/manual-order-address';
 
 // manual-order-ship-to.tsx — 收件資料那一塊 +「同上」(2026-08-28,Sean `Q-建單1 ⇒ 乙`)。
 //
@@ -65,6 +67,62 @@ export function ManualOrderShipTo() {
   //    📌 **一顆「按了沒反應」的鈕,與一顆「按了但我看不出來」的鈕,在畫面上長一樣。**
   const [seq, setSeq] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  // 選起來那位客人的地址簿(最近用過的在前)。空 = 沒有可選的 ⇒ 不畫下拉。
+  const [book, setBook] = useState<AddressChoice[]>([]);
+  // 這份地址簿是哪位客人的。🔴 新建客人(defaultChecked)與重新搜尋(整批 radio 重掛)都【不發 change】
+  //    ⇒ 下拉可能還掛著上一位的地址 ⇒ 從下拉帶入前要核對「現在勾的」是不是這位。
+  const [bookFor, setBookFor] = useState<string | null>(null);
+  // 🔴 換客人很快時,舊的回應晚到不能蓋掉新的 ⇒ 只收最後一次的回應
+  const loadSeq = useRef(0);
+
+  // ── 地址簿帶入(Sean 2026-09-27:「再建訂單就沒有地址」;08-28 Q-建單2 甲)──────────────
+  // 🔴 直接寫輸入框的 value,**不換 key、不走 state**:地址那一格沒有 key(檔頭那段),
+  //    換 key 會把員工打好的字清掉。這裡只在【三格都是空的】時自動帶;
+  //    從下拉選是員工明確的動作 ⇒ 那時才覆蓋。
+  function fillFrom(a: AddressChoice, onlyIfEmpty: boolean) {
+    const form = rootRef.current?.form;
+    if (!form) return;
+    const field = (name: string) => {
+      const el = form.querySelector(`[name="${name}"]`);
+      return el instanceof HTMLInputElement ? el : null;
+    };
+    const targets: Array<[HTMLInputElement | null, string]> = [
+      [field(MANUAL_ORDER_SHIP_TO_NAME_FIELD), a.name],
+      [field(MANUAL_ORDER_SHIP_TO_PHONE_FIELD), a.phone],
+      [field(MANUAL_ORDER_SHIP_TO_LINE_FIELD), a.line],
+    ];
+    if (onlyIfEmpty && targets.some(([el]) => (el?.value ?? '').trim() !== '')) return;
+    for (const [el, value] of targets) if (el) el.value = value;
+  }
+
+  useEffect(() => {
+    const form = rootRef.current?.form;
+    if (!form) return;
+    const onChange = (e: Event) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || el.name !== 'customer_user_id' || !el.checked) return;
+      const seq = ++loadSeq.current;
+      setBook([]);
+      setBookFor(el.value);
+      void loadManualCustomerAddressesAction(el.value)
+        .then((r) => {
+          if (seq !== loadSeq.current) return;
+          if (!r.ok) {
+            setNotice(r.message);
+            return;
+          }
+          setBook(r.addresses);
+          const first = r.addresses[0];
+          if (first) fillFrom(first, true);
+        })
+        // 連線中斷等丟出來的錯:不讓它變成沒人接的錯誤,講一句、不動收件資料
+        .catch(() => {
+          if (seq === loadSeq.current) setNotice('客人的地址簿載入失敗，請自行填寫收件資料。');
+        });
+    };
+    form.addEventListener('change', onChange);
+    return () => form.removeEventListener('change', onChange);
+  }, []);
 
   // ⟦b4-收件即建客⟧ 2026-09-06(plan §2)——「用這份收件人建客人」。
   //
@@ -210,6 +268,31 @@ export function ManualOrderShipTo() {
         <p role='status' data-testid='manual-order-ship-to-notice' className='text-xs text-amber-700'>
           {notice}
         </p>
+      )}
+
+      {/* 客人地址簿有地址 ⇒ 可以換成別筆。沒有 name ⇒ 不會被送出,只負責把值寫進下面三格。 */}
+      {book.length > 0 && (
+        <select
+          aria-label='從地址簿選'
+          autoComplete='off'
+          value=''
+          onChange={(e) => {
+            const checked = rootRef.current?.form?.querySelector('input[name="customer_user_id"]:checked');
+            if (!(checked instanceof HTMLInputElement) || checked.value !== bookFor) {
+              setBook([]);
+              setNotice('客人已經換了，地址簿已清除。請重新選一次客人，再從地址簿選。');
+              return;
+            }
+            const a = book.find((x) => x.id === e.target.value);
+            if (a) fillFrom(a, false);
+          }}
+          className={MANUAL_FIELD_INPUT}
+        >
+          <option value=''>{`從客人地址簿選（${book.length} 筆）`}</option>
+          {book.map((a) => (
+            <option key={a.id} value={a.id}>{`${a.name}　${a.phone}　${a.line}`}</option>
+          ))}
+        </select>
       )}
 
       {/* 🔴 姓名/電話:`key` 綁序號 ⇒ 按「同上」時重新掛載、吃新的 `defaultValue`。 */}
