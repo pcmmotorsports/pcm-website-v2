@@ -2909,6 +2909,14 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 /* ↑ th / td 帶 `.bg-card` 那層是為了特異性 (0,2,1) 蓋過 FIX-27 的 (0,2,0)(`.text-xs:not([class*="leading-"])`),不是裝飾 */
 .pcm-plist .pcm-note2 { font-size: 12.5px; line-height: 1.5; color: var(--muted-foreground); margin: 8px 0 0; }
 .pcm-plist .pcm-tip { font-size: 12.5px; line-height: 1.5; padding: 6px 10px; border-radius: 6px; }
+/* 商品頁乙 A3:左欄篩選、右邊清單。窄螢幕改上下排。 */
+.pcm-plist .pcm-prod-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
+.pcm-plist .pcm-prod-side { position: sticky; top: var(--orders-sticky-top, 0px); display: flex; flex-direction: column; gap: 14px; }
+.pcm-plist .pcm-prod-side form.pcm-filt { flex-direction: column; align-items: stretch; }
+@media (max-width: 767px) {
+  .pcm-plist .pcm-prod-layout { grid-template-columns: minmax(0, 1fr); }
+  .pcm-plist .pcm-prod-side { position: static; }
+}
 /* 等級膠囊:方角(稿 .tier),經銷用暖色 token */
 .pcm-tier { display: inline-flex; align-items: center; padding: 0 5px; font-size: 11.5px; line-height: 1.4; font-weight: 600; background: var(--muted); color: var(--foreground); vertical-align: middle; }
 .pcm-tier--dealer { background: var(--tint-warn); color: var(--ink-warn); font-size: 11px; }

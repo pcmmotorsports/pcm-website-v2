@@ -5,7 +5,8 @@ import Link from 'next/link';
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductToolbar } from '../../components/products/product-toolbar';
-import { ProductAttentionChips } from '../../components/products/product-filter-chips';
+import { ProductAttentionChips, ProductFilterChips } from '../../components/products/product-filter-chips';
+import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
 import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
 import { ListPagination } from '../../components/shared/list-pagination';
 import {
@@ -131,16 +132,24 @@ export default async function ProductsPage({
           🔴 零改資料層:篩選參數 / RPC / 四支篩選元件原封,只換排法與字級。說明句搬到表格下(那句被 page.test 釘著兩個方向)。 */}
       <div data-orders-sticky-head='' className='bg-background sticky top-0 z-30 -mx-6 -mt-6 px-6 pt-6 pb-2'>
         <OrdersStickyOffset />
-        <ProductToolbar
-          filter={filter}
-          size={view.size}
-          brands={brandOptions}
-          categories={categoryOptions}
-          total={total}
-          loadFailed={loadFailed}
-        />
-        {!loadFailed && <ProductAttentionChips filter={filter} size={view.size} counts={attentionCounts} />}
+        <ProductToolbar filter={filter} size={view.size} total={total} loadFailed={loadFailed} />
       </div>
+      {/* 商品頁乙 A3(Sean 09-28 Q1 乙,審視文件第六節線框圖):篩選移到左欄 ——「左邊選條件、右邊做事」。
+          搜尋與料號批次留在上方工具列;要處理、手動/自動、品牌、分類在左欄。讀取失敗時左欄不畫(同舊工具列的規則)。 */}
+      <div className='pcm-prod-layout'>
+      {!loadFailed && (
+        <aside className='pcm-prod-side' data-product-filter-side>
+          <ProductAttentionChips filter={filter} size={view.size} counts={attentionCounts} />
+          <div className='flex flex-col items-start gap-1.5'>
+            <span className='text-muted-foreground text-xs font-medium'>上下架由誰設定</span>
+            <ProductFilterChips filter={filter} size={view.size} />
+          </div>
+          {(brandOptions.length > 0 || categoryOptions.length > 0) && (
+            <ProductTaxonomyFilter filter={filter} size={view.size} brands={brandOptions} categories={categoryOptions} />
+          )}
+        </aside>
+      )}
+      <div className='pcm-prod-main space-y-3'>
       {!loadFailed && brandFilterDropped && (
         <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
           網址帶著一個找不到的品牌(選項載入失敗,或這個品牌已經被刪掉)——{' '}
@@ -217,6 +226,8 @@ export default async function ProductsPage({
           />
         </>
       )}
+      </div>
+      </div>
     </div>
   );
 }
