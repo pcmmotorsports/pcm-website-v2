@@ -39,9 +39,11 @@ const GENERIC_DIM_LABEL: Record<string, string> = {
   pack: '入數', // 2026-07-12 E3(Sean):儀表貼「PACK」→「入數」(值 1/2→一組/兩組 由報價單源頭)
   shift: '打檔', // 2026-07-24:extreme 腳踏後移打檔方向(正打 / 反打 / 正反打)
   quickshifter: '快排', // 2026-07-24:extreme 腳踏後移快排軸(快排專用 / 無快排;部分群無此軸)
+  position: '位置', // 2026-09-27:ilmberger 左右合卡(值 左 / 右 / 左右一對, 報價單 14 be23d433 寫進 spec)
 };
 // 泛型維順序:主軸(顏色)最前、表面次之;未列 key 排後、保持首見序(sort 穩定)。
-const GENERIC_DIM_PRIORITY = ['color', 'finish', 'material', 'design', 'tier', 'version', 'shift', 'quickshifter'];
+// position 排最後:先選材質與表面, 最後才選要左、右還是一對。
+const GENERIC_DIM_PRIORITY = ['color', 'finish', 'material', 'design', 'tier', 'version', 'shift', 'quickshifter', 'position'];
 const WEAVE_LABEL: Record<string, string> = { Twill: '斜紋', Plain: '平織', Forged: '鍛造', Honeycomb: '蜂巢' };
 const FINISH_LABEL: Record<string, string> = { Glossy: '亮光', Matt: '消光' };
 const SPECIAL_LABEL: Record<string, string> = { '12K': '12K', Kevlar: 'Kevlar' };
