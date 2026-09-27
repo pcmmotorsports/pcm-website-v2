@@ -43,7 +43,6 @@ import { getAdminOrderRepository } from '../../../../../../../lib/orders/order-r
 import { isOrderId } from '../../../../../../../lib/orders/order-detail-view';
 import { loadOrderShipments } from '../../../../../../../lib/shipping/order-shipments';
 import { ShippingDoc } from '../../../../../../../components/print/shipping-doc';
-import { loadPairNotesForItems } from '../../../../../../../lib/orders/pair-split-read';
 
 // 🔴 一定要 nodejs runtime —— chromium 與 `node:fs` 在 edge 上都不存在。
 export const runtime = 'nodejs';
@@ -101,8 +100,6 @@ export async function GET(
   // 🔴 **不信網址**:從這張單的箱子裡找那個 id, 找不到就是無關 ⇒ 404。
   const group = groups.find((g) => g.shipment.id === shipmentId);
   if (group === undefined) return new NextResponse(null, { status: 404 });
-  // Ilmberger「左右一對」拆件提示(與那一頁同一句):沒有一對款不查;讀不到印保守句。
-  const pairNotes = await loadPairNotesForItems(items);
 
   const pageCss = readPageCss();
   const { latin, tc } = resolveFontPkgs();
@@ -139,7 +136,6 @@ export async function GET(
       reportedTotal,
       shipment: group.shipment,
       lines: group.lines,
-      pairNotes,
       // 🔴 `printButton: false` —— 那顆鈕是 `'use client'`, 而這裡沒有 client boundary。
       //    顧客站那條踩過:漏傳 ⇒ 正式環境 500(runtime log 逐字
       //    `Attempted to call StatementPrintButton() from the server`)。

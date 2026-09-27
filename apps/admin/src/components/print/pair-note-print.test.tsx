@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
-// Ilmberger「左右一對」出貨提示 —— 揀貨單與出貨單【接線】(2026-09-27;plan docs/plans/2026-09-27-ilmberger-pair-shipping-note-plan.md)。
-// 提示字本身由 lib/orders/pair-split 決定(那裡有自己的測試);這裡只證「兩張紙真的把那一行印在一對那一列的品名下」,
-// 而一般品項那一列沒有。
+// Ilmberger「左右一對」出貨提示 —— 揀貨單【接線】、出貨單【不印】(2026-09-27;plan docs/plans/2026-09-27-ilmberger-pair-shipping-note-plan.md)。
+// 提示字本身由 lib/orders/pair-split 決定(那裡有自己的測試);這裡證「揀貨單把那一行印在一對那一列的品名下、
+// 一般品項那一列沒有」, 以及「出貨單(隨貨給客人)不印」。
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -108,8 +108,10 @@ describe('揀貨單:一對那一列印出拆件提示', () => {
   });
 });
 
-describe('出貨單:一對那一列印出拆件提示', () => {
-  it('🔴 一對那一列有那一行, 一般品項那一列沒有', () => {
+// 🔴 主視窗 2026-09-27 裁(Fable R1 之後):出貨單是隨貨給客人的紙 ⇒ 拆件提示【不印】在出貨單與它的 PDF,
+//    只留出貨彈窗與揀貨單(員工看的)。這一格硬塞 pairNotes 進去:有人把那個 prop 加回來, 這裡就紅。
+describe('出貨單:隨貨給客人, 不印拆件提示', () => {
+  it('🔴 就算硬塞 pairNotes, 出貨單上也沒有「一對：」那一行', () => {
     const { container } = render(
       <ShippingDoc
         detail={detail()}
@@ -117,10 +119,10 @@ describe('出貨單:一對那一列印出拆件提示', () => {
         reportedTotal={2}
         shipment={SHIPMENT}
         lines={[{ orderItemId: 'i-pair', quantity: 1 }, { orderItemId: 'i-normal', quantity: 1 }] as never}
-        pairNotes={{ [PAIR_ITEM.variantSku]: NOTE }}
+        {...({ pairNotes: { [PAIR_ITEM.variantSku]: NOTE } } as object)}
       />,
     );
-    for (const r of rowsOf(container, PAIR_ITEM.variantSku)) expect(r).toContain(NOTE);
-    for (const r of rowsOf(container, NORMAL_ITEM.variantSku)) expect(r).not.toContain('一對：');
+    expect(rowsOf(container, PAIR_ITEM.variantSku).length, '一對那一列沒畫出來 ⇒ 下面的「沒有」恆真').toBeGreaterThan(0);
+    expect(container.textContent).not.toContain('一對：');
   });
 });

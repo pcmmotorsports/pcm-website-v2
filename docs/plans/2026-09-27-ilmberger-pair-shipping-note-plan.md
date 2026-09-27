@@ -1,7 +1,7 @@
 # 計畫：Ilmberger「左右一對」出貨時提醒拆成左、右各一件（網站後台，2026-09-27，窗「進度 a0」）
 
 > 主視窗派工。報價單側 `be23d433`（報價單 14，審查中）：左右合卡、spec 加 `position`（左／右／左右一對）、另產「一對」虛擬款（sku `{群鍵}-PAIR[-G|-M]`，`raw_jsonb.pair_components = [左料號, 右料號]`）。
-> 片 1（商品頁「位置」維）已 commit（rebase 後 `dac11e353`）。本計畫是片 2：後台出貨、揀貨單、出貨單的提示。
+> 片 1（商品頁「位置」維）已 commit（rebase 後 `dac11e353`）。本計畫是片 2：後台出貨彈窗與揀貨單的提示（出貨單原本也列入，後來裁定不印）。
 > **實作更正**：原本打算改 `packages/domain` 的共用型別，實際**沒有改**；改成後台自己查、用 prop 傳進三個畫面（見第 2 節最後一條）。
 
 ## 1. 查到的事實
@@ -19,7 +19,8 @@
 - 讀取失敗 ⇒ 同上的保守句，不擋出貨、不讓頁面壞掉。
 - ~~型別：`AdminOrderDetailItem` 加一欄 `pairSplit`~~ ⇒ **實作改成不動共用型別**：
   - 判定與找兄弟：`apps/admin/src/lib/orders/pair-split.ts`；讀資料庫：`pair-split-read.ts`（`loadPairNotesForItems`，沒有一對款就不查）。
-  - 揀貨單頁、出貨單頁、出貨單 PDF 下載各自呼叫一次，把 `{ 料號: 提示字 }` 以 `pairNotes` prop 傳給 `PickingDoc`／`ShippingDoc`。
+  - 揀貨單頁呼叫一次，把 `{ 料號: 提示字 }` 以 `pairNotes` prop 傳給 `PickingDoc`。
+  - **出貨單與它的 PDF 不印**（主視窗 2026-09-27 在 Fable R1 後裁定）：出貨單隨貨給客人，員工用的提示不該出現在客人拿到的紙上。
   - 出貨彈窗：`ShipmentCandidateItem` 加 `pairNote`（只有料號，不是價格、客人資料或供應商），在 `loadShipmentCandidates` 補上。
 
 **乙：改同步，把 `pair_components` 帶進 `product_variants.metadata`。**
@@ -29,7 +30,7 @@
 
 ## 3. 畫面文字（員工看的）
 
-- 出貨彈窗、揀貨單、出貨單在那一列品名下方加一行：
+- 出貨彈窗、揀貨單在那一列品名下方加一行（出貨單不印，見第 2 節）：
   - 找得到：「一對：出貨時請拆成左、右各一件（左 料號A、右 料號B）」
   - 找不到：「一對：出貨時請拆成左、右各一件（料號請到報價單確認）」
 - 印刷版面照 OD 稿既有的品項列樣式，不另開欄位；這一行用現有的小字樣式。
