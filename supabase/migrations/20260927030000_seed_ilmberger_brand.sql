@@ -9,6 +9,8 @@
 -- premium_extra_pct=0:比照 arrow / dna / ebc / k-speed 等新家的保守值(高級店家目前不啟用,Sean 2026-09-25)。
 -- 🔴 跨庫比對一律用 slug('ilmberger'),不用顯示名。
 -- 🔴 執行:Sean 貼或他授權的那一次(Claude 不自己貼正式庫)。回滾:supabase/rollbacks/20260927030000-rollback.sql。
+-- 冪等:ON CONFLICT (slug) DO NOTHING,重跑仍是 1 列(拋棄式 PG 驗兩次;09-27 Fable R1 核 brands_slug_key 存在、正式庫無同名同 slug)。
+-- pcm:idempotent: yes
 -- ============================================================
 
 INSERT INTO brands (name, slug, premium_extra_pct) VALUES
