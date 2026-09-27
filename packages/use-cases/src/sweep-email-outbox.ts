@@ -53,6 +53,9 @@ import {
   ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE,
   ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE,
   ORDER_PARTIALLY_CANCELLED_COMPANY_LINES,
+  ORDER_RETURN_RECEIVED_HEADLINE,
+  ORDER_RETURN_RECEIVED_REFUND_SENTENCE,
+  orderReturnReceivedItemLine,
   orderPartiallyCancelledOverpaidSentence,
   orderPartiallyCancelledUnpaidSentence,
   orderPartiallyCancelledShortSentence,
@@ -292,6 +295,8 @@ export type SweepEmailOutboxOptions = {
   allowPartialRefund: boolean;
   /** 部分取消補寄信(2026-09-14)。route 讀到 PARTIAL_CANCEL_EMAIL_CUTOFF 合法才 true(同 allowPartialRefund:拔掉 env 要停得了已排進去的列)。 */
   allowPartiallyCancelled: boolean;
+  /** 退貨收回通知(2026-09-27, Sean A3)。route 讀到 RETURN_RECEIVED_EMAIL_CUTOFF 合法才 true(同上:拔掉 env 要停得了已排進去的列)。 */
+  allowReturnReceived: boolean;
   claimLimit: number;
   /**
    * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**送出層 cutoff**(ISO 8601)。成立於它之前的單, 一封都不寄。
@@ -562,8 +567,10 @@ const SEND_TAIL_ALLOWANCE_SECONDS = 12;
 /**
  * ⟦line-PUSH⟧ 哪些事件翻成 LINE 推播(Sean 2026-09-14 Q10 甲:訂單確認 + 出貨)。
  * 🛑 `bank_order_created`(匯款單成立)**刻意不在**:內容是匯款金額,有自己的 `bankOrderMailable` 閘與 cutoff —— 要另一片 + Sean 點頭。
+ * 🔵 `order_return_received`(退貨收回通知)2026-09-27 加入:Sean A3 Q1 甲「有真 email 才寄;沒真 email 的 LINE 好友照既有二選一規則」。
+ *    內容沒有金額、沒有期限, 與 email 同一份文字。
  */
-const LINE_PUSH_EVENT_TYPES: readonly EmailOutboxEventType[] = ['order_created', 'order_shipped'];
+const LINE_PUSH_EVENT_TYPES: readonly EmailOutboxEventType[] = ['order_created', 'order_shipped', 'order_return_received'];
 
 /**
  * 依 eventType 窮舉分派內文模板(codex 關卡2 R1 must-fix:DB CHECK 與 `ClaimedEmailJob` 型別
@@ -642,6 +649,7 @@ function buildExcludeEventTypes(
   if (!opts.allowBankOrderAmountChanged) exclude.push('bank_order_amount_changed');
   if (!opts.allowPartialRefund) exclude.push('order_partially_refunded');
   if (!opts.allowPartiallyCancelled) exclude.push('order_partially_cancelled');
+  if (!opts.allowReturnReceived) exclude.push('order_return_received');
   return exclude.length === 0 ? undefined : { excludeEventTypes: exclude };
 }
 
@@ -694,6 +702,8 @@ function buildEmailContent(
   correctedTrackingPageUrl: string | null,
 ): EmailContent {
   switch (job.eventType) {
+    case 'order_return_received':
+      return buildOrderReturnReceivedText(job, siteUrl);
     case 'order_partially_cancelled':
       return buildOrderPartiallyCancelledText(job, siteUrl);
     case 'order_partially_refunded':
@@ -1430,6 +1440,44 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   // 🔴 聯絡資訊與取消信同一份來源(他的錢剛被動過, 而他要找得到我們)。
+  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
+}
+
+/**
+ * 退貨收回通知(`order_return_received`, 2026-09-27;Sean A3 甲甲甲)。
+ * 兩段:已收到哪些商品(實收數量)/ 會盡快處理退款。不寫商品狀況、不寫金額(Q3 甲)。
+ * 🔴 fail-closed:payload 缺 display_id 或品項為空 ⇒ throw 不寄。
+ */
+function buildOrderReturnReceivedText(job: ClaimedEmailJob, siteUrl: string | undefined): EmailContent {
+  const payload = job.payload;
+  const rec = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : null;
+  const rawDisplayId = rec?.['display_id'];
+  const displayId =
+    typeof rawDisplayId === 'string' && rawDisplayId.trim() !== '' ? sanitizeCustomerFacingReason(rawDisplayId) : null;
+  if (displayId === null) {
+    throw new Error('sweepEmailOutbox:order_return_received payload 缺 display_id、fail-closed 不寄');
+  }
+  const rawItems = rec?.['received_items'];
+  const items = Array.isArray(rawItems)
+    ? rawItems.flatMap((el) => {
+        if (el === null || typeof el !== 'object') return [];
+        const q = (el as { quantity?: unknown }).quantity;
+        const t = (el as { title?: unknown }).title;
+        if (typeof q !== 'number' || !Number.isSafeInteger(q) || q <= 0) return [];
+        const title = typeof t === 'string' && t.trim() !== '' ? sanitizeCustomerFacingReason(t) : null;
+        return [{ title: title ?? ORDER_LINE_TITLE_MISSING, quantity: q }];
+      })
+    : [];
+  if (items.length === 0) {
+    throw new Error('sweepEmailOutbox:order_return_received payload 品項為空、fail-closed 不寄');
+  }
+  const body: string[] = [
+    ORDER_RETURN_RECEIVED_HEADLINE,
+    ...items.map((i) => orderReturnReceivedItemLine(i.title, i.quantity)),
+    '',
+    ORDER_RETURN_RECEIVED_REFUND_SENTENCE,
+  ];
+  const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
 }
 

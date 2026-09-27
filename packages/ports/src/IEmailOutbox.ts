@@ -160,6 +160,12 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, Inelig
   // 部分取消補寄信(2026-09-14):講的是「這張單【還會發生什麼】」(其餘商品照常處理 / 請補付 / 會退差額)
   //    ⇒ 單整個取消或全退之後那些話變假 ⇒ 該擋。整單取消那一刻本來就有取消信 ⇒ 不會漏講。
   order_partially_cancelled: 'refunded_or_cancelled',
+  // 退貨收回通知(2026-09-27, Sean A3 甲甲甲):**false(不擋)**, 照判別句走過:
+  //    主句「已收到您寄回的商品」講的是【已經發生的事】;後半句「退款會盡快處理」看起來是未來式,
+  //    🛑 而擋它的代價是真的:員工最常見的順序是「確認收到 ⇒ 馬上登記退款」, 全額退款會讓單變成已退款
+  //      ⇒ 標成擋的話, 寄信排程(5 分鐘一輪)還沒送出前單就不合格 ⇒ **這封信大多寄不出去**,
+  //      客人收到退款信卻不知道東西到了沒。⇒ 不擋:最壞情況是客人先收到這封、再收到退款信, 兩封都對。
+  order_return_received: false,
 };
 
 /** 退款信 payload 裡的訂單狀態(掃描面 `pcm_partial_refund_email_pending.order_state` 帶下來的)。 */
@@ -238,7 +244,11 @@ export type EmailOutboxEventType =
   //    其餘 ⇒ 本信寄。兩張 view 對彼此已排的列有對稱 anti-join。原本寫的「兩張 view 在 DB 端互斥」是抄四條靜態條件的舊設計, 已推翻。
   //    dedup_key 綁那一次取消(cancellation_id 加 order_id)不綁單 ⇒ 同一張單取消兩次各寄一封。
   //    DB 那半在 20260915150000。本段註解不得出現半形分號、不得出現帶單引號的字串, 理由同上面那段。
-  | 'order_partially_cancelled';
+  | 'order_partially_cancelled'
+  // 退貨收回通知(2026-09-27, Sean A3 甲甲甲):員工在後台確認收到退貨之後, 告訴客人東西到了、會盡快處理退款。
+  //    不寫商品狀況、不寫金額。dedup_key 綁那一筆退貨(return_id 加 order_id)⇒ 同一張單退兩次各寄一封。
+  //    DB 那半在 20260927080000。本段註解不得出現半形分號、不得出現帶單引號的字串, 理由同上面那段。
+  | 'order_return_received';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
@@ -787,7 +797,22 @@ export type EnqueueOrderPartiallyCancelledEmailInput = EnqueueEmailInputBase & {
   paidTotal: number;
 };
 
+/**
+ * 退貨收回通知(2026-09-27, Sean A3 甲甲甲)。掃描面 `pcm_return_received_email_pending`(20260927080000)。
+ * 只帶訂單號、退貨編號、收回時間與實收品項 —— 不帶金額、不帶商品狀況(Q3 甲)。
+ */
+export type EnqueueOrderReturnReceivedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_return_received';
+  /** order_returns.id —— dedup_key 的一半(綁那一筆退貨)。 */
+  returnId: string;
+  /** order_returns.received_at(ISO 8601)。 */
+  receivedAt: string;
+  /** 實收數量 > 0 的品項;title 可能缺(快照沒記品名), 寄信端印「(品名未記錄)」。 */
+  receivedItems: ReadonlyArray<{ title: string | null; quantity: number }>;
+};
+
 export type EnqueueEmailInput =
+  | EnqueueOrderReturnReceivedEmailInput
   | EnqueueOrderPartiallyCancelledEmailInput
   | EnqueueBankOrderAmountChangedEmailInput
   | EnqueueBankOrderCreatedEmailInput

@@ -147,6 +147,13 @@ export {
   SupabasePartiallyCancelledEmailContextAdapter,
   type PartiallyCancelledEmailContextClient,
 } from './email/SupabasePartiallyCancelledEmailContextAdapter';
+// 退貨收回通知(2026-09-27, Sean A3 甲甲甲)—— 掃描端。
+export {
+  SupabaseReturnReceivedScannerAdapter,
+  ReturnReceivedScanQueryError,
+  RETURN_RECEIVED_PENDING_VIEW,
+  type ReturnReceivedScannerClient,
+} from './email/SupabaseReturnReceivedScannerAdapter';
 // 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):匯款單成立信 —— 掃描端。
 //    回兩個 email 欄(PII)+ **三個金額欄**(錢)⇒ server-only + service_role。
 //    🛑 它與上面那支【型別不同形】:多帶 total / balance_due / created_at,

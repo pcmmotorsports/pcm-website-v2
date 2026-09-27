@@ -32,6 +32,7 @@ import type {
   EnqueueOrderCancelledEmailsDeps,
   EnqueueOrderPartiallyRefundedEmailsDeps,
   EnqueueOrderPartiallyCancelledEmailsDeps,
+  EnqueueOrderReturnReceivedEmailsDeps,
   EnqueueBankOrderCreatedEmailsDeps,
   EnqueueBankOrderAmountChangedEmailsDeps,
   EnqueueTrackingCorrectedEmailsDeps,
@@ -48,6 +49,7 @@ import {
   SupabasePartialRefundOrderScannerAdapter,
   SupabasePartiallyCancelledOrderScannerAdapter,
   SupabasePartiallyCancelledEmailContextAdapter,
+  SupabaseReturnReceivedScannerAdapter,
   SupabaseBankOrderCreatedScannerAdapter,
   SupabaseBankOrderAmountChangedScannerAdapter,
   SupabaseBankOrderMailableCheckAdapter,
@@ -363,6 +365,16 @@ export function getEnqueueOrderPartiallyCancelledDeps(): EnqueueOrderPartiallyCa
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabasePartiallyCancelledOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/** 退貨收回通知 —— 掃描端 deps(2026-09-27, Sean A3;同上一支的形狀, 不帶 sender)。 */
+export function getEnqueueOrderReturnReceivedDeps(): EnqueueOrderReturnReceivedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseReturnReceivedScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

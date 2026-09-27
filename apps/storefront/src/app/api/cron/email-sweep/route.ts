@@ -47,6 +47,7 @@ import {
   enqueueOrderCancelledEmails,
   enqueueOrderPartiallyRefundedEmails,
   enqueueOrderPartiallyCancelledEmails,
+  enqueueOrderReturnReceivedEmails,
   enqueueBankOrderCreatedEmails,
   enqueueBankOrderAmountChangedEmails,
   enqueueTrackingCorrectedEmails,
@@ -66,6 +67,7 @@ import {
   getEnqueueOrderCancelledDeps,
   getEnqueueOrderPartiallyRefundedDeps,
   getEnqueueOrderPartiallyCancelledDeps,
+  getEnqueueOrderReturnReceivedDeps,
   getEnqueueBankOrderCreatedDeps,
   getEnqueueBankOrderAmountChangedDeps,
   getEnqueueTrackingCorrectedDeps,
@@ -80,6 +82,7 @@ import {
   CancelledScanQueryError,
   PartialRefundScanQueryError,
   PartiallyCancelledScanQueryError,
+  ReturnReceivedScanQueryError,
   BankOrderScanQueryError,
   BankAmountChangedScanQueryError,
 } from '@pcm/adapters/server';
@@ -429,6 +432,29 @@ function pickPartiallyCancelledEnqueueCounts(result: {
   };
 }
 
+/** 退貨收回通知(2026-09-27, Sean A3)—— 同上一支的形狀, 前綴 rrc。 */
+function pickReturnReceivedEnqueueCounts(result: {
+  scanned: number;
+  truncated: boolean;
+  enqueued: number;
+  skippedNoRealEmail: number;
+  duplicate: number;
+  noRecipient: number;
+  unusable: number;
+  errors: number;
+}) {
+  return {
+    rrcScanned: result.scanned,
+    rrcTruncated: result.truncated,
+    rrcEnqueued: result.enqueued,
+    rrcSkippedNoRealEmail: result.skippedNoRealEmail,
+    rrcDuplicate: result.duplicate,
+    rrcNoRecipient: result.noRecipient,
+    rrcUnusable: result.unusable,
+    rrcErrors: result.errors,
+  };
+}
+
 // 🔵 **第四支同款 picker(⟦b4-BANKNOEMAIL⟧ 匯款單成立信)。**
 // 🔴🔴 **不共用, 而理由不是整潔** —— 型別剛好相容, 而**輸出的鍵不能相同**:
 //    五條線的計數會落在**同一個 JSON 物件**裡, 共用會讓後寫的那條**安靜覆蓋**前一條
@@ -770,6 +796,56 @@ export async function GET(request: Request): Promise<Response> {
     }
   }
   const trackFixSection = { trackFixEnqueueStatus: trackFixStatus, ...(trackFixCounts ?? {}) };
+
+  // ── 退貨收回通知(2026-09-27, Sean A3 甲甲甲)—— 第十條序列 enqueue, 形狀逐字照下面部分取消那段(少了讓路) ──
+  // 🔴 2026-09-27 本段刻意排在【取消信 / 部分退款信】那幾段之前(Fable R1 C1):同一輪裡先入列的先被認領
+  //    (claimDue 依 next_retry_at 由舊到新)⇒ 員工「確認收到 ⇒ 馬上登記退款」落在同一個 5 分鐘窗時,
+  //    客人先收到「已收到您寄回的商品」、再收到退款信, 不會反過來。搬回後面 ⇒ route.test 那一格紅。
+  //    ⚠️ 殘餘情境(Fable R2 要求寫實話):這封第一次寄送失敗而退避(next_retry_at 往後推)時,
+  //       同一輪或下一輪入列的退款信可能先寄出 ⇒ 客人先收到退款信、再收到這封。順序只在「兩封都第一次就寄成」時保證。
+  // 上膛順序:① 貼 20260927080000(view + CHECK)② 部署本碼 ③ 設 RETURN_RECEIVED_EMAIL_CUTOFF + redeploy。
+  // 🔴 RETURN_RECEIVED_EMAIL_CUTOFF 的值 = 【上膛當下的時間】(ISO UTC, 例:2026-09-28T02:00:00Z)。
+  //    它是「只寄這個時刻之後收回的退貨」的起點 —— 填一個舊日期 ⇒ 那之後所有已收回的退貨會一口氣補寄。
+  // 🔴 env 沒設 ⇒ 這段不跑、寄送端也不認領這一型(開關預設關)。只設 env 不貼 view ⇒ 每輪 42P01 ⇒ failed ⇒ 503。
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
+  const returnReceivedRaw = process.env['RETURN_RECEIVED_EMAIL_CUTOFF'];
+  const returnReceivedCutoff = readDeployCutoff(returnReceivedRaw);
+  let returnReceivedCounts: ReturnType<typeof pickReturnReceivedEnqueueCounts> | null = null;
+  let returnReceivedStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
+    returnReceivedCutoff.kind === 'unset'
+      ? 'skipped_no_cutoff'
+      : returnReceivedCutoff.kind === 'invalid'
+        ? 'skipped_bad_cutoff'
+        : 'completed';
+  if (returnReceivedCutoff.kind === 'invalid') {
+    console.error('[email-sweep] 🔴 RETURN_RECEIVED_EMAIL_CUTOFF 格式不合 ⇒ 整段退貨收回通知 enqueue 不跑', {
+      env: 'RETURN_RECEIVED_EMAIL_CUTOFF',
+      reason: 'bad_cutoff_format',
+    });
+  }
+  if (returnReceivedCutoff.kind === 'ok') {
+    try {
+      returnReceivedCounts = pickReturnReceivedEnqueueCounts(
+        await enqueueOrderReturnReceivedEmails(getEnqueueOrderReturnReceivedDeps(), {
+          cutoff: returnReceivedCutoff.cutoff,
+          limit: ENQUEUE_LIMIT,
+        }),
+      );
+    } catch (err) {
+      returnReceivedStatus = 'failed';
+      const scan =
+        err instanceof ReturnReceivedScanQueryError ? { stage: err.stage, code: err.code } : {};
+      console.error('[email-sweep] 🔴 退貨收回通知 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
+        reason: 'return_received_enqueue_scan_throw',
+        ...scan,
+        ...describeEnqueueBatchCap(err),
+      });
+    }
+  }
+  const returnReceivedSection = {
+    returnReceivedEnqueueStatus: returnReceivedStatus,
+    ...(returnReceivedCounts ?? {}),
+  };
 
   // ── 1f. 🔴 刷卡已退款的整單取消通知信, 掃描式 enqueue(Sean 2026-09-02 拍甲)──────────
   //
@@ -1166,6 +1242,8 @@ export async function GET(request: Request): Promise<Response> {
       //    ✅ 形狀與匯款線逐字同形(它也是 cutoff 驅動)—— 不另發明。
       allowPartialRefund: partialRefundCutoff.kind === 'ok',
       allowPartiallyCancelled: partialCancelCutoff.kind === 'ok',
+      // 退貨收回通知(2026-09-27):同一顆 RETURN_RECEIVED_EMAIL_CUTOFF 同時控排信與寄信(拔掉 env 連認領都不做)。
+      allowReturnReceived: returnReceivedCutoff.kind === 'ok',
       // 🔴🔴 **同一個 cutoff 同時控【排信】與【寄信】**(codex 2026-08-30 R1 must-fix 1)。
       //    在這一行之前,cutoff 只擋得住 enqueue ⇒ outbox 裡**已經排好的** `order_shipped` 列
       //    會在 env 關著的情況下被 sweeper 照常寄出去
@@ -1337,6 +1415,10 @@ export async function GET(request: Request): Promise<Response> {
       partialCancelStatus === 'failed' ||
       partialCancelStatus === 'skipped_bad_cutoff' ||
       (partialCancelCounts?.pcnErrors ?? 0) > 0 ||
+      // 退貨收回通知(第十條線, 2026-09-27):同上面三格的理由 —— 少了這三行, 壞掉的線每 5 分鐘回報自己成功。
+      returnReceivedStatus === 'failed' ||
+      returnReceivedStatus === 'skipped_bad_cutoff' ||
+      (returnReceivedCounts?.rrcErrors ?? 0) > 0 ||
       // 🔴🔴 **第八條線 —— 而這一格【就是】上面那兩段話預言的那個人。**
       //    上面逐字記著前面幾次加線漏掉這三行的後果:scanner 拋錯 / 單筆 enqueue 失敗
       //    ⇒ 仍回 200 ok:true、心跳記成功 ⇒ 📌 **一條壞掉的線每 5 分鐘回報自己成功。**
@@ -1353,6 +1435,7 @@ export async function GET(request: Request): Promise<Response> {
         ...cancelledSection,
         ...partialRefundSection,
         ...partialCancelSection,
+        ...returnReceivedSection,
         ...amountChangedSection,
       });
       // 🔴 慢輪要在【兩條】回傳路徑都問一次 —— 一輪可以又慢又有錯, 而那時最需要這一行。
@@ -1360,7 +1443,7 @@ export async function GET(request: Request): Promise<Response> {
         enqueueStatus, shippedStatus, trackFixStatus, cancelledStatus, unpaidCancelStatus,
       });
       await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
-      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...amountChangedSection }, { status: 503 });
+      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...returnReceivedSection, ...amountChangedSection }, { status: 503 });
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要(零 PII counts;含 deferred 供調參可見度)。
@@ -1395,9 +1478,9 @@ export async function GET(request: Request): Promise<Response> {
      */
     console.log(
       '[email-sweep] round',
-      JSON.stringify({ ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...amountChangedSection }),
+      JSON.stringify({ ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...returnReceivedSection, ...amountChangedSection }),
     );
-    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...amountChangedSection }, { status: 200 });
+    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...returnReceivedSection, ...amountChangedSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;不把任意 err.message 入 log 縱深、杜絕密鑰 drift 帶進 log)。

@@ -153,6 +153,7 @@ import {
   getEnqueueOrderCancelledDeps,
   getEnqueueOrderPartiallyCancelledDeps,
   getEnqueueOrderPartiallyRefundedDeps,
+  getEnqueueOrderReturnReceivedDeps,
 } from '@/lib/email/composition';
 import { readPartialCancelReconciliationCounts } from '@/lib/payment/partial-cancel-reconciliation-read';
 import { readDealerApplicationsPendingCount } from '@/lib/payment/dealer-applications-pending-read';
@@ -1159,6 +1160,15 @@ async function findUnarmedEmailLanesWithPending(now: Date = new Date()): Promise
             yieldToBank: process.env['BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED'] === 'on',
           })
         ).rows.length > 0,
+    },
+    {
+      // 退貨收回通知(2026-09-27, Sean A3):開關沒上膛而近 7 天有收回的退貨沒通知 ⇒ 告訴 Sean 客人收不到。
+      env: 'RETURN_RECEIVED_EMAIL_CUTOFF',
+      // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+      raw: process.env['RETURN_RECEIVED_EMAIL_CUTOFF'],
+      hasPending: async () =>
+        (await getEnqueueOrderReturnReceivedDeps().scanner.listReturnReceivedWithoutEmail({ cutoff, limit: 1 })).rows
+          .length > 0,
     },
   ];
   const out: string[] = [];
