@@ -3,7 +3,13 @@ import Link from 'next/link';
 // ⇒ admin 檔案用 `@/` 在測試裡 resolve 不到、這頁就測不起來(先例逐字見
 // `app/settings/suppliers/page.tsx:14-19`、`app/customers/page.tsx:2-4`)。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
+import { cookies } from 'next/headers';
 import { ProductsTable } from '../../components/products/products-table';
+import { ProductsCards } from '../../components/products/products-cards';
+import { ProductViewToggle } from '../../components/products/product-view-toggle';
+import { ProductQuickEditDrawer } from '../../components/products/product-quick-edit-drawer';
+import { loadProductGallery, type ProductGalleryState } from '../../lib/products/gallery-loader';
+import { PRODUCTS_VIEW_COOKIE, parseProductsViewMode } from '../../lib/products/product-view-mode';
 import { ProductToolbar } from '../../components/products/product-toolbar';
 import { ProductAttentionChips, ProductCategoryLockedChip, ProductFilterChips } from '../../components/products/product-filter-chips';
 import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
@@ -16,6 +22,8 @@ import {
   listProductsForAdmin,
   type AdminProductPage,
   type ProductFilterOptions,
+  getProductForAdmin,
+  type AdminProductDetailRow,
 } from '../../lib/products/product-repository';
 import { resolveProductListQuery } from '../../lib/products/product-taxonomy-options';
 import {
@@ -31,6 +39,7 @@ import {
   CATEGORY_PARAM,
   buildProductListHref,
   buildProductListHrefResetPage,
+  productDetailHref,
   parseProductListParams,
 } from '../../lib/products/product-list-view';
 import { detectPageTruncation } from '../../lib/shared/list-params';
@@ -62,6 +71,8 @@ export default async function ProductsPage({
 }) {
   const raw = await searchParams;
   const { filter, view } = parseProductListParams(raw);
+  // 商品頁乙 E1:清單 / 卡片(存在 cookie, 理由見 product-view-toggle.tsx)。
+  const viewMode = parseProductsViewMode((await cookies()).get(PRODUCTS_VIEW_COOKIE)?.value);
   const offset = (view.page - 1) * view.size;
 
   // 🔴🔴 **下拉選項先撈,而且它【失敗不算列表失敗】** —— 兩個 try 是刻意分開的:
@@ -126,6 +137,30 @@ export default async function ProductsPage({
   //       ⚠️ 同 builder 那道的限定:它只保證「每個軸都被做過決定」,
   //          保證不了那個決定是對的(對到錯的 param 名一樣過)—— 那半靠往返測試。
   const filterFields = filterHiddenFields(filter);
+
+  // Sean 2026-09-28「快速編輯」:?edit=<id> 才讀那一件與它的照片;讀不到只影響側邊欄, 列表照常。
+  let quickProduct: AdminProductDetailRow | null = null;
+  let quickFailed = false;
+  let quickGallery: ProductGalleryState | null = null;
+  if (view.edit !== undefined) {
+    try {
+      quickProduct = await getProductForAdmin(view.edit);
+      if (quickProduct) quickGallery = await loadProductGallery(quickProduct);
+    } catch (error) {
+      console.error('[admin/products] 快速編輯讀取商品失敗', error);
+      quickFailed = true;
+    }
+  }
+  // 列表網址(帶篩選與頁碼, 不帶展開與快速編輯)⇒ 點進整頁時帶著、關掉側邊欄時回到這裡。
+  const listHref = buildProductListHref(filter, { page: view.page, size: view.size });
+  const editHref = (id: string) => buildProductListHref(filter, { page: view.page, size: view.size, edit: id });
+
+  const emptyText =
+    filter.keyword !== undefined
+      ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
+      : filter.attention !== undefined
+        ? `目前沒有「${filter.attention.map((k) => PRODUCT_ATTENTION_LABEL[k]).join('」或「')}」的商品。`
+        : '目前沒有商品。';
 
   return (
     <div className='pcm-plist pcm-sticky mx-auto space-y-3'>
@@ -197,24 +232,26 @@ export default async function ProductsPage({
           {/* 🔴 `#661`:有搜尋詞而零命中 ⇒ 換一句話。
               「目前沒有商品」與「找不到符合的商品」在畫面上是同一個空框,
               而前者讀起來像系統壞了或還沒進貨、後者讀起來像「再打一次」。 */}
+          <div className='flex justify-end'>
+            <ProductViewToggle mode={viewMode} />
+          </div>
           <ProductBatchBar
             categories={(options?.categories ?? [])
               .map((c) => ({ id: c.id, label: c.raw_path }))
               .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))}
           />
-          <ProductsTable
-            rows={items}
-            openId={view.open}
-            listHref={buildProductListHref(filter, { page: view.page, size: view.size })}
-            openHref={(id) => `${buildProductListHref(filter, { page: view.page, size: view.size, open: id })}${id ? `#p-${id}` : ''}`}
-            emptyText={
-              filter.keyword !== undefined
-                ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
-                : filter.attention !== undefined
-                  ? `目前沒有「${filter.attention.map((k) => PRODUCT_ATTENTION_LABEL[k]).join('」或「')}」的商品。`
-                  : '目前沒有商品。'
-            }
-          />
+          {viewMode === 'cards' ? (
+            <ProductsCards rows={items} listHref={listHref} emptyText={emptyText} editHref={editHref} />
+          ) : (
+            <ProductsTable
+              rows={items}
+              openId={view.open}
+              listHref={listHref}
+              editHref={editHref}
+              openHref={(id) => `${buildProductListHref(filter, { page: view.page, size: view.size, open: id })}${id ? `#p-${id}` : ''}`}
+              emptyText={emptyText}
+            />
+          )}
           <p className='pcm-note2'>這裡列出所有商品，含已下架的。勾選後可以整批上架、下架或改分類；標題、副標、賣點和照片請點進商品明細頁修改，價格目前不能修改。</p>
           {/* 被截斷的字滑到看全文、可框選複製(同訂單列表那一支;只在真的被截時出現)。 */}
           <TruncationReveal root='table' />
@@ -236,10 +273,19 @@ export default async function ProductsPage({
               defaultSize: DEFAULT_PAGE_SIZE,
             }}
           />
-        </>
+                </>
       )}
       </div>
       </div>
+      {view.edit !== undefined && (
+        <ProductQuickEditDrawer
+          product={quickProduct}
+          loadFailed={quickFailed}
+          gallery={quickGallery}
+          closeHref={listHref}
+          detailHref={productDetailHref(view.edit, listHref)}
+        />
+      )}
     </div>
   );
 }

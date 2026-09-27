@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ProductSelectAllOnPage } from './product-batch-bar';
 import { ProductQuickListing } from './product-quick-listing';
 import { ProductTextDialog } from './product-text-dialog';
+import { ProductStatusCaps } from './product-status-caps';
 import { productDetailHref } from '../../lib/products/product-list-view';
 import {
   AdminDataTable,
@@ -10,7 +11,6 @@ import {
 import {
   displayTitle,
   isSourceMissing,
-  resolveListingSetBy,
   resolveListingState,
   resolvePrice,
   type AdminProductListRow,
@@ -25,17 +25,6 @@ import {
 //    `resolveListingSetBy` / `isSourceMissing`(plan §3 設計約束)。
 //    這條由 products-table 的來源掃描測試釘住,不是靠這段註解。
 
-/**
- * 「誰決定的」標記(`#20` 片2c;文案為 Sean 2026-08-15 拍板字面,**不得自行改寫**)。
- *
- * 🔴 **每一列都必須顯示其一。** 這不是排版偏好 —— Sean 把文案從「員工設定」改成「手動/自動」,
- *    理由就是**兩種狀態都要有名字**:只有一種有標記時,「空白」會同時代表「自動」與「資料壞了」。
- * ⇒ 值不在白名單時顯示「⚠ 資料異常」,**不得靜靜落回「自動」**(負測釘住)。
- *
- * ⚠️ **上線初期會全部是「自動」、「手動」chip 篩出 0 筆** —— 因為寫入 `staff` 的員工入口
- *    在後續片才做(plan §5 `Q3=乙`)。**那不是壞掉**,空狀態文案要講清楚。
- */
-const SET_BY_LABEL = { staff: '手動', sync: '自動', unknown: '⚠ 資料異常' } as const;
 
 /** 售價顯示:`null` 回 null ⇒ AdminDataTable 自己渲染「—」,不在這裡編一個假的 0。 */
 function priceCell(row: AdminProductListRow) {
@@ -59,6 +48,7 @@ function buildColumns(
   openId: string | undefined,
   openHref: (id: string | undefined) => string,
   listHref: string | undefined,
+  editHref: ((id: string) => string) | undefined,
 ): ReadonlyArray<AdminColumn<AdminProductListRow>> {
   return [
   {
@@ -93,11 +83,27 @@ function buildColumns(
         <Link href={productDetailHref(row.id, listHref)} className='text-foreground font-bold hover:underline'>
           {displayTitle(row)}
         </Link>
+
         {openId === row.id && <ProductRowSummary row={row} closeHref={openHref(undefined)} detailHref={productDetailHref(row.id, listHref)} />}
       </div>
     ),
     mobile: 'title',
   },
+  // Sean 2026-09-28:「快速編輯」從右側側邊欄調照片、改文字;點名稱照舊進整頁。
+  //   自己一欄, 不塞進名稱欄:名稱欄的文字只放商品名稱(測試與複製都讀它)。
+  ...(editHref
+    ? [
+        {
+          key: 'quick',
+          header: '',
+          cell: (row: AdminProductListRow) => (
+            <Link href={editHref(row.id)} scroll={false} className='text-primary text-xs whitespace-nowrap hover:underline'>
+              快速編輯
+            </Link>
+          ),
+        },
+      ]
+    : []),
   { key: 'external_id', header: '料號', cell: (row) => <span className='font-mono'>{row.external_id}</span>, mobile: 'sub' },
   {
     key: 'brand',
@@ -127,30 +133,8 @@ function buildColumns(
   {
     key: 'listing',
     header: '狀態',
-    // 🔴 「已下架」要看得出來 —— 後台存在的理由之一就是把下架的那批找回來上架。
-    cell: (row) => (
-      <span className='flex flex-wrap items-center gap-1.5'>
-        {/* 2026-09-14:方角 cap(稿 .cap);上架中 綠 / 已下架 灰,顏色走 token */}
-        {resolveListingState(row) === 'listed' ? (
-          <span className='pcm-cap pcm-cap--on'>上架中</span>
-        ) : (
-          <span className='pcm-cap'>已下架</span>
-        )}
-        {/* 商品頁乙 A4:缺貨另外標,不跟「已下架」「原廠已無此品」合併 —— 缺貨的可能還在架上。 */}
-        {resolveListingState(row) === 'listed' && row.availability === 'out-of-stock' && (
-          <span className='pcm-cap'>缺貨</span>
-        )}
-        <span className='text-muted-foreground text-xs'>
-          {SET_BY_LABEL[resolveListingSetBy(row)]}
-        </span>
-        {/* 🔴 「原廠已無此品」≠「已停產、不能賣」——
-            Sean 的規則正好相反:原廠停產但他有現貨時,商品要繼續賣。
-            文案只陳述來源端的事實,不暗示能不能賣(migration 20260815030000 欄位註解同字面)。 */}
-        {isSourceMissing(row) && (
-          <span className='text-muted-foreground text-xs'>原廠已無此品</span>
-        )}
-      </span>
-    ),
+    // 商品頁乙 E1:狀態標示搬到 product-status-caps.tsx, 表格與卡片共用同一份。
+    cell: (row) => <ProductStatusCaps row={row} />,
     mobile: 'meta',
   },
 ];
@@ -191,8 +175,11 @@ export function ProductsTable({
   openId,
   openHref = () => '/products',
   listHref,
+  editHref,
 }: {
   rows: readonly AdminProductListRow[];
+  /** Sean 2026-09-28:「快速編輯」的網址(保留篩選與頁碼, 多帶 ?edit=);沒給 = 不畫那個連結。 */
+  editHref?: (id: string) => string;
   /** 商品頁乙 A9:展開摘要的那一件;沒給 = 都收合。 */
   openId?: string;
   /** 商品頁乙 A9:展開 / 收合某一件的網址(保留目前的篩選與頁碼);`undefined` = 收合。 */
@@ -211,6 +198,6 @@ export function ProductsTable({
   emptyText?: string;
 }) {
   return (
-    <AdminDataTable rows={rows} columns={buildColumns(openId, openHref, listHref)} getRowKey={(row) => row.id} emptyText={emptyText} />
+    <AdminDataTable rows={rows} columns={buildColumns(openId, openHref, listHref, editHref)} getRowKey={(row) => row.id} emptyText={emptyText} />
   );
 }

@@ -499,3 +499,22 @@ describe('商品頁乙 A11:從列表進商品頁、再回原列表', () => {
     expect(parseProductListReturn(undefined)).toBeNull();
   });
 });
+
+// 商品頁 Sean 2026-09-28「快速編輯」側邊欄:?edit=<商品 id>。檢視參數(不是篩選);關掉 = 只拿掉 edit。
+describe('?edit= 快速編輯', () => {
+  const ID = '11111111-2222-4333-8444-555555555555';
+  it('合法 uuid 才收, 其他當成沒開', () => {
+    expect(parseProductListParams({ edit: ID }).view.edit).toBe(ID);
+    expect(parseProductListParams({ edit: 'x' }).view.edit).toBeUndefined();
+    expect(parseProductListParams({}).view.edit).toBeUndefined();
+  });
+  it('🔴 組網址帶著 edit, 篩選與頁碼照舊;不帶 edit 就是關掉', () => {
+    const { filter } = parseProductListParams({ attn: 'out_of_stock' });
+    const withEdit = buildProductListHref(filter, { page: 2, size: DEFAULT_PAGE_SIZE, edit: ID });
+    expect(withEdit).toContain(`edit=${ID}`);
+    expect(withEdit).toContain('attn=out_of_stock');
+    expect(withEdit).toContain('page=2');
+    expect(buildProductListHref(filter, { page: 2, size: DEFAULT_PAGE_SIZE })).not.toContain('edit=');
+  });
+});
+

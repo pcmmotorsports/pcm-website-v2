@@ -28,3 +28,15 @@ describe('商品頁乙 A4:縮圖與缺貨標記', () => {
     expect(delisted).not.toContain('缺貨');
   });
 });
+
+// Sean 2026-09-28:「快速編輯」側邊欄。每一列多一個連結(帶 ?edit=), 點名稱照舊進整頁。
+describe('快速編輯連結', () => {
+  it('🔴 有給 editHref ⇒ 每一列都有「快速編輯」, 指向那一件的 ?edit=', () => {
+    const out = renderToStaticMarkup(<ProductsTable rows={[ROW]} editHref={(id) => `/products?edit=${id}`} />);
+    expect(out).toMatch(/href="\/products\?edit=p1"[^>]*>快速編輯</);
+  });
+  it('沒給 editHref ⇒ 不畫(其他用到表格的地方不受影響)', () => {
+    expect(renderToStaticMarkup(<ProductsTable rows={[ROW]} />)).not.toContain('快速編輯');
+  });
+});
+

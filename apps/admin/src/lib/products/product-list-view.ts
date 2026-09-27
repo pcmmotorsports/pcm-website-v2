@@ -235,6 +235,8 @@ export interface AdminProductFilter {
  */
 /** 商品頁乙 A9:展開哪一列的摘要(`?open=<商品 id>`)。 */
 export const OPEN_PARAM = 'open';
+/** Sean 2026-09-28「快速編輯」:右側側邊欄編輯哪一件(`?edit=<商品 id>`)。 */
+export const EDIT_PARAM = 'edit';
 
 export interface AdminProductView {
   /** `?page=`;1-indexed,已下界 1。 */
@@ -243,6 +245,8 @@ export interface AdminProductView {
   readonly size: number;
   /** 商品頁乙 A9:`?open=`;展開摘要的那一件(合法 uuid)。`undefined` = 都收合。換篩選、翻頁時不帶。 */
   readonly open?: string;
+  /** Sean 2026-09-28「快速編輯」:`?edit=`;側邊欄打開的那一件(合法 uuid)。`undefined` = 沒開。換篩選、翻頁時不帶。 */
+  readonly edit?: string;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -602,6 +606,8 @@ export function parseProductListParams(raw: SearchParams): {
       page: parseProductPage(raw[PAGE_PARAM]),
       size: parseProductPageSize(raw[SIZE_PARAM]),
       open: parseProductOpen(raw[OPEN_PARAM]),
+      // 形狀規則同 ?open=(合法 uuid 才收)。
+      edit: parseProductOpen(raw[EDIT_PARAM]),
     },
   };
 }
@@ -697,6 +703,7 @@ export function buildProductListHref(
     //    ⇒ 書籤與分享出去的連結不會把一個【當時的預設值】凍在裡面。
     size: [SIZE_PARAM, view.size === DEFAULT_PAGE_SIZE ? undefined : String(view.size)],
     open: [OPEN_PARAM, view.open],
+    edit: [EDIT_PARAM, view.edit],
   };
 
   const params = new URLSearchParams();
