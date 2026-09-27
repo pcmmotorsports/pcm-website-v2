@@ -86,10 +86,35 @@ describe('調整順序', () => {
     expect(view.container.textContent).not.toContain('尚未儲存');
   });
 
-  it('設為封面 ⇒ 移到第 1 張;取消變更 ⇒ 回到原本', () => {
-    const { view, order, tiles, button } = setup();
-    fireEvent.click(button(tiles()[2]!, '設為封面')!);
+  // 商品頁乙 B4:「設為封面」按下去直接存(以前只是換位置, 還要再按「儲存順序」)。
+  it('🔴 設為封面 ⇒ 移到第 1 張並直接儲存, 不用再按「儲存順序」', async () => {
+    const { view, order, tiles, button, onSaveOrder } = setup();
+    await act(async () => fireEvent.click(button(tiles()[2]!, '設為封面')!));
     expect(order()).toEqual(['supA', 'front', 'side']);
+    expect(onSaveOrder).toHaveBeenCalledWith(['https://img.example/a.jpg', 'https://img.example/front.webp', 'https://img.example/side.webp']);
+    expect(view.container.textContent).toContain('已設為封面');
+    expect(view.container.textContent).not.toContain('尚未儲存');
+  });
+
+  it('🔴 設為封面時還有沒存的順序變更 ⇒ 畫面上的順序一起存(存的就是看到的)', async () => {
+    const { tiles, button, onSaveOrder } = setup();
+    fireEvent.click(button(tiles()[0]!, '往後移一張')!); // side, front, supA(未存)
+    await act(async () => fireEvent.click(button(tiles()[2]!, '設為封面')!));
+    expect(onSaveOrder).toHaveBeenCalledWith(['https://img.example/a.jpg', 'https://img.example/side.webp', 'https://img.example/front.webp']);
+  });
+
+  it('設為封面沒存成功 ⇒ 說失敗, 順序留著可以按「儲存順序」再試', async () => {
+    const { view, order, tiles, button, onSaveOrder } = setup();
+    onSaveOrder.mockRejectedValueOnce(new Error('boom'));
+    await act(async () => fireEvent.click(button(tiles()[2]!, '設為封面')!));
+    expect(order()).toEqual(['supA', 'front', 'side']);
+    expect(view.container.textContent).toContain('尚未儲存');
+    expect(button(view.container, '儲存順序')!.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('取消變更 ⇒ 回到原本', () => {
+    const { view, order, tiles, button } = setup();
+    fireEvent.click(button(tiles()[0]!, '往後移一張')!);
     fireEvent.click(button(view.container, '取消變更')!);
     expect(order()).toEqual(['front', 'side', 'supA']);
     expect(view.container.textContent).not.toContain('尚未儲存');
@@ -185,6 +210,15 @@ describe('刪除、隱藏、上傳', () => {
     expect(onHide).toHaveBeenCalledWith('https://img.example/a.jpg');
   });
 
+  // 商品頁乙 B4:上傳鈕放在照片區頂端(標題列), 不用捲到最後一格。
+  it('🔴 上傳鈕在頂端標題列, 只有一個上傳入口', () => {
+    const { view } = setup();
+    const header = view.container.querySelector('[data-gallery-header]')!;
+    expect(header.textContent).toContain('上傳照片');
+    expect(header.querySelector('input[type="file"]')).not.toBeNull();
+    expect(view.container.querySelectorAll('input[type="file"]')).toHaveLength(1);
+  });
+
   it('上傳:只送出 JPG / PNG / WebP, 其他的列出原因', async () => {
     const { view, onUpload } = setup();
     const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -224,8 +258,8 @@ describe('尚未整理(G2 6f44e9ff:照片沒有 id)', () => {
     const tiles = () => [...view.container.querySelectorAll<HTMLElement>('[data-gallery-tile]')];
     const btn = (root: ParentNode, label: string) =>
       [...root.querySelectorAll('button')].find((b) => b.textContent === label || b.getAttribute('aria-label') === label)!;
-    fireEvent.click(btn(tiles()[1]!, '設為封面'));
-    await act(async () => fireEvent.click(btn(view.container, '儲存順序')));
+    // 商品頁乙 B4 起「設為封面」按下去就存
+    await act(async () => fireEvent.click(btn(tiles()[1]!, '設為封面')));
     expect(onSaveOrder).toHaveBeenCalledWith(['https://cdn.sup/2.jpg', 'https://cdn.sup/1.jpg']);
     await act(async () => fireEvent.click(btn(tiles()[0]!, '隱藏')));
     expect(onHide).toHaveBeenCalled();

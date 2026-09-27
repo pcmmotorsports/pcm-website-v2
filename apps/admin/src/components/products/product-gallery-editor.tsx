@@ -120,16 +120,22 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
     }
   }
 
-  async function save() {
-    const next = [...order];
+  async function save(next: string[] = [...order], ok = '順序已儲存。') {
     await run(
       async () => {
         await onSaveOrder(next);
         setOriginal(next);
       },
-      '順序已儲存。',
+      ok,
       '順序儲存失敗，請再按一次「儲存順序」。若仍失敗，請聯絡系統管理員。',
     );
+  }
+
+  /** 商品頁乙 B4:「設為封面」按下去直接存。還有沒存的順序變更時, 存的就是畫面上看到的整個順序。 */
+  async function makeCover(index: number) {
+    const next = moveGalleryPhoto(order, index, 0);
+    setOrder(next);
+    await save(next, '已設為封面，順序已儲存。');
   }
 
   async function upload(list: FileList | null, input: HTMLInputElement) {
@@ -148,9 +154,24 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
 
   return (
     <section data-od-pe='card' data-product-gallery className='rounded-lg border p-4'>
-      <div className='mb-3 flex flex-wrap items-center justify-between gap-3'>
+      <div data-gallery-header className='mb-3 flex flex-wrap items-center justify-between gap-3'>
         <h3 className='text-sm font-medium'>{`照片（${order.length} 張）`}</h3>
         <div className='flex flex-wrap items-center gap-2'>
+          {/* 商品頁乙 B4:上傳放在頂端, 不用捲到最後一格(原本是照片格最後一格的「＋ 上傳照片」)。 */}
+          <label
+            title='可一次選多張，手機可直接拍照。只收 JPG、PNG、WebP。'
+            className={`${BTN} inline-flex items-center ${locked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+          >
+            ＋ 上傳照片
+            <input
+              type='file'
+              accept={GALLERY_ACCEPT}
+              multiple
+              disabled={locked}
+              className='sr-only'
+              onChange={(e) => void upload(e.currentTarget.files, e.currentTarget)}
+            />
+          </label>
           {dirty && <span className='text-sm font-semibold text-amber-700'>順序已變更，尚未儲存</span>}
           {dirty && (
             <button type='button' className={BTN} disabled={busy} onClick={() => { setOrder(original); setStatus(IDLE); }}>
@@ -161,7 +182,7 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
             type='button'
             className='bg-primary text-primary-foreground min-h-9 rounded-md px-4 text-sm font-semibold disabled:opacity-45'
             disabled={!dirty || busy}
-            onClick={save}
+            onClick={() => void save()}
           >
             儲存順序
           </button>
@@ -175,14 +196,14 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
       )}
 
       <p className='text-muted-foreground mb-3 text-xs'>
-        網站和報價單都照這個順序顯示，第 1 張是封面。按住「拖曳」移到想要的位置，或用「往前」「往後」調整，調完按「儲存順序」。
+        網站和報價單都照這個順序顯示，第 1 張是封面。按「設為封面」會直接儲存；用「拖曳」或「往前」「往後」調整時，調完按「儲存順序」。可一次上傳多張，手機可直接拍照，只收 JPG、PNG、WebP。
       </p>
 
       <p role='status' aria-live='polite' className={status.kind === 'error' ? 'text-destructive mb-2 text-sm' : 'text-muted-foreground mb-2 text-sm'}>
         {status.message}
       </p>
 
-      {order.length === 0 && <p className='text-muted-foreground mb-3 text-sm'>這件商品還沒有照片。可以從下面上傳。</p>}
+      {order.length === 0 && <p className='text-muted-foreground mb-3 text-sm'>這件商品還沒有照片。可以按上方的「上傳照片」加入。</p>}
 
       <ol className='grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]'>
         {order.map((url, i) => {
@@ -239,7 +260,7 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
                   →
                 </button>
                 {i > 0 && (
-                  <button type='button' className={BTN} disabled={busy} onClick={() => move(i, 0)}>
+                  <button type='button' className={BTN} disabled={busy} onClick={() => void makeCover(i)}>
                     設為封面
                   </button>
                 )}
@@ -287,22 +308,6 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
             </li>
           );
         })}
-        <li>
-          <label
-            className={`border-input text-primary flex aspect-square flex-col items-center justify-center rounded-md border-2 border-dashed p-3 text-center text-sm font-semibold ${locked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-          >
-            ＋ 上傳照片
-            <span className='text-muted-foreground mt-1 block text-xs font-normal'>可一次選多張，手機可直接拍照。只收 JPG、PNG、WebP。</span>
-            <input
-              type='file'
-              accept={GALLERY_ACCEPT}
-              multiple
-              disabled={locked}
-              className='sr-only'
-              onChange={(e) => void upload(e.currentTarget.files, e.currentTarget)}
-            />
-          </label>
-        </li>
       </ol>
 
       {dirty && <p className='text-muted-foreground mt-2 text-xs'>請先儲存或取消順序變更，才能刪除、隱藏或上傳照片。</p>}
