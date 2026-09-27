@@ -67,6 +67,13 @@ export type ListShippedWithoutShippedEmailInput = {
   cutoff: string;
   /** 單輪上限(route 端常數、零 client 輸入)。 */
   limit: number;
+  /**
+   * 2026-09-27 出貨信分批排:只掃 `shipped_at` 嚴格晚於這個時點的(「新的」那一堆)。疊在 cutoff 之後, 不取代它。
+   * 🔴 分堆一定要在查詢裡做 —— 掃一次再在程式裡分, 舊的仍會占掉 limit 的名額(Codex R1 必修 1)。
+   */
+  shippedAfter?: string;
+  /** 2026-09-27:只掃 `shipped_at` 等於或早於這個時點的(「舊的」那一堆)。與 `shippedAfter` 用同一個值 ⇒ 兩堆不重疊、不遺漏。 */
+  shippedAtOrBefore?: string;
 };
 
 /**

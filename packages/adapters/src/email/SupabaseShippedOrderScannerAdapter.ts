@@ -47,6 +47,9 @@ import type {
  */
 /** 可鏈式 `.order()` 的中繼形狀(排序要帶唯一鍵 ⇒ 至少三段)。 */
 type ShippedScanOrderable = {
+  /** 2026-09-27 出貨信分批排:在 cutoff 之後再疊一道時間條件(新 / 舊兩堆)。 */
+  gt(column: string, value: string): ShippedScanOrderable;
+  lte(column: string, value: string): ShippedScanOrderable;
   order(column: string, opts: { ascending: boolean }): ShippedScanOrderable;
   limit(count: number): PromiseLike<{ data: unknown[] | null; error: { code?: string } | null }>;
 };
@@ -149,11 +152,15 @@ export class SupabaseShippedOrderScannerAdapter implements IShippedOrderScanner 
 
     let outcome: { data: unknown[] | null; error: { code?: string } | null };
     try {
-      outcome = await this.client
+      let scan = this.client
         .from(SHIPPED_EMAIL_PENDING_VIEW)
         .select(SELECT_COLUMNS)
         // 🔴 嚴格大於:cutoff 那一刻本身**不含**。等於的那一發是上一次上線的邊界,重複納入沒有意義。
-        .gt('shipped_at', input.cutoff)
+        .gt('shipped_at', input.cutoff);
+      // 2026-09-27 出貨信分批排:新 / 舊兩堆在查詢裡分(疊在 cutoff 之後), 兩堆用同一個分界值 ⇒ 不重疊、不遺漏。
+      if (input.shippedAfter !== undefined) scan = scan.gt('shipped_at', input.shippedAfter);
+      if (input.shippedAtOrBefore !== undefined) scan = scan.lte('shipped_at', input.shippedAtOrBefore);
+      outcome = await scan
         // 🔴 **排序帶唯一鍵**:只用 shipped_at 排的話,同一毫秒的兩箱在兩次查詢間順序可能不同
         //    ⇒ 翻頁會漏(docs/patterns/pagination-loop-review.md 第五條)。
         //    本片單輪不翻頁,但 `truncated` 之後下一輪會再查一次 —— 順序不穩一樣會漏。

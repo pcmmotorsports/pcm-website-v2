@@ -35,10 +35,20 @@ function makeClient(data: unknown[] | null, error: { code?: string } | null = nu
     table: '' as string,
     columns: '' as string,
     gt: [] as Array<[string, string]>,
+    lte: [] as Array<[string, string]>,
     order: [] as Array<[string, { ascending: boolean }]>,
     limit: 0,
   };
   const orderable = {
+    // 2026-09-27 出貨信分批排:cutoff 之後可再疊 gt / lte。
+    gt(column: string, value: string) {
+      calls.gt.push([column, value]);
+      return orderable;
+    },
+    lte(column: string, value: string) {
+      calls.lte.push([column, value]);
+      return orderable;
+    },
     order(column: string, opts: { ascending: boolean }) {
       calls.order.push([column, opts]);
       return orderable;
@@ -69,6 +79,24 @@ function makeClient(data: unknown[] | null, error: { code?: string } | null = nu
 
 const scan = (c: ShippedOrderScannerClient, limit = 25, cutoff = CUTOFF) =>
   new SupabaseShippedOrderScannerAdapter(c).listShippedWithoutShippedEmail({ cutoff, limit });
+
+describe('SupabaseShippedOrderScannerAdapter — 出貨信分批排的時間條件(2026-09-27)', () => {
+  it('🔴 shippedAfter ⇒ 在 cutoff 之後再疊一個 gt;shippedAtOrBefore ⇒ 疊一個 lte;都沒給 ⇒ 只有 cutoff', async () => {
+    const T = '2026-09-27T10:00:00.000Z';
+    const fresh = makeClient([goodRow()]);
+    await new SupabaseShippedOrderScannerAdapter(fresh.client).listShippedWithoutShippedEmail({ cutoff: CUTOFF, limit: 25, shippedAfter: T });
+    expect(fresh.calls.gt).toEqual([['shipped_at', CUTOFF], ['shipped_at', T]]);
+    expect(fresh.calls.lte).toEqual([]);
+    const stale = makeClient([goodRow()]);
+    await new SupabaseShippedOrderScannerAdapter(stale.client).listShippedWithoutShippedEmail({ cutoff: CUTOFF, limit: 25, shippedAtOrBefore: T });
+    expect(stale.calls.gt).toEqual([['shipped_at', CUTOFF]]);
+    expect(stale.calls.lte).toEqual([['shipped_at', T]]);
+    const plain = makeClient([goodRow()]);
+    await scan(plain.client);
+    expect(plain.calls.gt).toEqual([['shipped_at', CUTOFF]]);
+    expect(plain.calls.lte).toEqual([]);
+  });
+});
 
 describe('SupabaseShippedOrderScannerAdapter — 查詢形狀', () => {
   it('查的是那支 view、cutoff 走【嚴格大於】shipped_at', async () => {

@@ -1,7 +1,7 @@
 import { suppressCustomerEmailFallback } from '@pcm/domain';
 import type { IEmailOutbox, IShippedOrderScanner } from '@pcm/ports';
 import type { EnqueueOrderShippedEmailInput } from '@pcm/ports';
-import { assertEnqueueBatchWithinCap } from './enqueue-batch-cap';
+import { assertEnqueueBatchWithinCap, ENQUEUE_BATCH_CAP } from './enqueue-batch-cap';
 
 /**
  * enqueueOrderShippedEmails:把「已出貨但還沒排過 `order_shipped`」的 (箱, 單) 配對排進 outbox
@@ -88,11 +88,23 @@ export type EnqueueOrderShippedEmailsDeps = {
 export type EnqueueOrderShippedEmailsOptions = {
   cutoff: string;
   limit: number;
+  /**
+   * 2026-09-27 出貨信分批排(Sean 答 Q1 甲;計畫 ~/pcm-mailbox/計畫-後台出貨流程乙-20260927.md 第九節)。
+   * 分界線 = 這一輪開始 − 2 小時(ISO), 由排程算好傳進來, 本層不讀時鐘。
+   * · 出貨時間**晚於**它 =「新的」:一輪最多排 `ENQUEUE_BATCH_CAP` 封, 其餘延到下一輪, 不報錯。
+   * · **等於或早於**它 =「舊的」:維持原本的保護(新的列超過上限就整批不排、報錯, 照 runbook 放行)。
+   */
+  freshSince: string;
 };
 
-/** counts-only(零 PII)。五個桶互斥、加總 = `scanned`。 */
+/**
+ * counts-only(零 PII)。
+ * 2026-09-27 起:`scanned` = 新舊兩堆合計;`deferred` = 這一輪掃到、因為新的滿 20 封而沒處理的(下一輪再排)。
+ * ⚠️ 既有例外照舊:手動單留痕失敗時同一筆同時算進 noRecipient 與 errors ⇒ 不宣稱各桶加總恆等於 scanned。
+ */
 export type EnqueueOrderShippedEmailsResult = {
   scanned: number;
+  deferred: number;
   /**
    * 🔴 true = **這一輪沒有掃完**(收滿 limit)⇒ 後面還有,下一輪會繼續。
    * 沒有這一欄的話,「剛好只有 2 筆待排」與「還有 300 筆沒掃到」在回應上長得一模一樣。
@@ -121,16 +133,23 @@ export async function enqueueOrderShippedEmails(
   deps: EnqueueOrderShippedEmailsDeps,
   options: EnqueueOrderShippedEmailsOptions,
 ): Promise<EnqueueOrderShippedEmailsResult> {
-  const scan = await deps.scanner.listShippedWithoutShippedEmail({
+  // 2026-09-27:新 / 舊兩堆分開掃(分堆在查詢裡做, 舊的才不會占掉新的名額;Codex R1 必修 1)。
+  const freshScan = await deps.scanner.listShippedWithoutShippedEmail({
     cutoff: options.cutoff,
     limit: options.limit,
+    shippedAfter: options.freshSince,
   });
-  const rows = scan.rows;
+  const staleScan = await deps.scanner.listShippedWithoutShippedEmail({
+    cutoff: options.cutoff,
+    limit: options.limit,
+    shippedAtOrBefore: options.freshSince,
+  });
 
 
   const result: EnqueueOrderShippedEmailsResult = {
-    scanned: rows.length,
-    truncated: scan.truncated,
+    scanned: freshScan.rows.length + staleScan.rows.length,
+    truncated: freshScan.truncated || staleScan.truncated,
+    deferred: 0,
     enqueued: 0,
     skippedNoRealEmail: 0,
     duplicate: 0,
@@ -141,7 +160,8 @@ export async function enqueueOrderShippedEmails(
   // ── 第一段:先把「要排的」全部建好(純函式, 一次 DB 都不打)────────────
   // 🔴 ⟦b4-EMAILTRIAGE⟧ 甲-3:閘的分母必須是「**會變成新的一列**的數量」,
   //    而那要問過 outbox 才知道 ⇒ 所以要先有 inputs, 才問得出來。
-  const inputs: EnqueueOrderShippedEmailInput[] = [];
+  const freshInputs: EnqueueOrderShippedEmailInput[] = [];
+  const staleInputs: EnqueueOrderShippedEmailInput[] = [];
   /**
    * ⟦auth-MANUALORDERLIMITBURN⟧ 片 2b —— 「手動單留白 = 不寄」那一種,**要留痕**。
    * 🔴 **刻意與 `inputs` 分開兩個陣列**:這些列一封都不會寄,
@@ -150,6 +170,10 @@ export async function enqueueOrderShippedEmails(
    *    ⇒ 📌 **本片要修的病, 換一個地方發作**(codex 2026-09-10 R1 should-fix ②)。
    */
   const suppressedInputs: EnqueueOrderShippedEmailInput[] = [];
+  for (const [rows, target] of [
+    [freshScan.rows, freshInputs],
+    [staleScan.rows, staleInputs],
+  ] as const) {
   for (const row of rows) {
     // 與 order_created 同一條 fallback:訂單欄 NULL → 取 customers.email。
     // 🔴 空字串也要當成沒有:`enqueue` 對空 recipient 會 throw,而那會被下面吞成 errors ——
@@ -196,7 +220,8 @@ export async function enqueueOrderShippedEmails(
       result.noRecipient += 1;
       continue;
     }
-    inputs.push(input);
+    target.push(input);
+  }
   }
 
   // ── 第二段:問一次「這批裡有幾個是真的新的」+ 閘 ──────────────────────
@@ -218,15 +243,8 @@ export async function enqueueOrderShippedEmails(
     }
   }
 
-  assertEnqueueBatchWithinCap('order_shipped', await deps.outbox.countNewEvents(inputs), {
-    // 🔵 撞閘就 throw ⇒ 呼叫端拿不到 result ⇒ 這兩個數只剩錯誤物件裡有。
-    //    少了它們, 那一輪的 log 上「沒有讀數」與「讀數是 0」長得一樣。
-    scanned: result.scanned,
-    noRecipient: result.noRecipient,
-  });
-
   // ── 第三段:排 ────────────────────────────────────────────────────────
-  for (const input of inputs) {
+  const enqueueOne = async (input: EnqueueOrderShippedEmailInput): Promise<'enqueued' | 'other' | 'error'> => {
     try {
       // 🔴 **合成域不在這裡判**:那道閘在 adapter 內(單一常數來源),judged 之後會落一列
       //    `skipped_no_real_email` ⇒ 查得到痕跡。本層若自己先判一次,就長出第二套 LINE 判準。
@@ -234,16 +252,47 @@ export async function enqueueOrderShippedEmails(
 
       if (enqueued.kind === 'enqueued') {
         result.enqueued += 1;
-      } else if (enqueued.kind === 'skipped_no_real_email') {
+        return 'enqueued';
+      }
+      if (enqueued.kind === 'skipped_no_real_email') {
         result.skippedNoRealEmail += 1;
       } else {
         result.duplicate += 1;
       }
+      return 'other';
     } catch {
       // 🔴 零 PII:連錯誤物件都不留(它可能帶著 recipient)。下一輪會再撈到這一筆。
       result.errors += 1;
+      return 'error';
     }
+  };
+
+  // 2026-09-27 出貨信分批排 ── a. 新的:照出貨時間由舊到新排, 真的排進去滿 `ENQUEUE_BATCH_CAP` 封就停,
+  //    其餘延到下一輪(下一輪掃描還會讀到它們)。重複與假信箱不佔名額。
+  //    🔴 先排新的、再處理舊的:舊的撞保護時, 新的這一批已經排好, 不被拖住。
+  const errorsBeforeFresh = result.errors;
+  let freshEnqueued = 0;
+  for (let i = 0; i < freshInputs.length; i += 1) {
+    if (freshEnqueued >= ENQUEUE_BATCH_CAP) {
+      result.deferred = freshInputs.length - i;
+      break;
+    }
+    if ((await enqueueOne(freshInputs[i]!)) === 'enqueued') freshEnqueued += 1;
   }
+  const freshErrors = result.errors - errorsBeforeFresh;
+
+  // b. 舊的(出貨超過 2 小時):維持原本的保護 —— 新的列超過上限就整批不排、報錯, 照 runbook 放行。
+  //    「停信後的新信不再被保護」與「延後的信跨過 2 小時改走保護」是這個做法的範圍, 計畫第九節寫明。
+  assertEnqueueBatchWithinCap('order_shipped', await deps.outbox.countNewEvents(staleInputs), {
+    // 🔵 撞閘就 throw ⇒ 呼叫端拿不到 result ⇒ 這幾個數只剩錯誤物件裡有。
+    //    少了它們, 那一輪的 log 上「沒有讀數」與「讀數是 0」長得一樣。
+    scanned: result.scanned,
+    noRecipient: result.noRecipient,
+    freshEnqueued,
+    freshDeferred: result.deferred,
+    freshErrors,
+  });
+  for (const input of staleInputs) await enqueueOne(input);
 
   return result;
 }

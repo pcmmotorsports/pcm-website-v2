@@ -57,6 +57,13 @@ export const ENQUEUE_BATCH_CAP = 20;
  *    **沒有讀數**, 而「沒有讀數」與「讀數是 0」在報告上長得一樣(主視窗 B 2026-09-07 指出)。
  */
 export type EnqueueBatchCapContext = {
+  /**
+   * 2026-09-27 出貨信分批排:舊的那堆撞閘時, 新的那堆這一輪已經排了幾封 / 延後幾封 / 失敗幾封。
+   * 只有出貨信帶;其他幾種信不帶 ⇒ 排程紀錄上是 null(沒有這件事), 不是 0。
+   */
+  freshEnqueued?: number;
+  freshDeferred?: number;
+  freshErrors?: number;
   /** 掃描回來幾列(閘看的不是它, 而它是判讀那一輪的分母)。 */
   scanned?: number;
   /** 這一輪有幾筆是「沒有收件人」被篩掉的 —— 撞閘之後這個數就只剩這裡有。 */
@@ -114,6 +121,9 @@ export function describeEnqueueBatchCap(
       cap: number;
       scanned: number | null;
       noRecipient: number | null;
+      freshEnqueued: number | null;
+      freshDeferred: number | null;
+      freshErrors: number | null;
     }
   | Record<string, never> {
   if (err instanceof EnqueueBatchCapExceededError) {
@@ -126,6 +136,9 @@ export function describeEnqueueBatchCap(
       //    `?? null` 而不是 `?? 0` —— **沒有讀數不得印成 0**。
       scanned: err.context.scanned ?? null,
       noRecipient: err.context.noRecipient ?? null,
+      freshEnqueued: err.context.freshEnqueued ?? null,
+      freshDeferred: err.context.freshDeferred ?? null,
+      freshErrors: err.context.freshErrors ?? null,
     };
   }
   return {};

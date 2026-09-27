@@ -179,6 +179,14 @@ function readCutoff(): CutoffRead {
  */
 const ENQUEUE_LIMIT = 50;
 
+/**
+ * 2026-09-27 出貨信分批排(Sean 答 Q1 甲;計畫 ~/pcm-mailbox/計畫-後台出貨流程乙-20260927.md 第九節)。
+ * 出貨時間在這一輪開始前 2 小時內 =「新的」:一輪最多排 20 封、其餘下一輪, 不報錯。
+ * 超過 2 小時 =「舊的」:維持原本的整批保護(排程停過或壞過才會有, 要人照 runbook 看)。
+ * 排程每 5 分鐘跑一次 ⇒ 正常情況出貨幾分鐘內就會被掃到, 2 小時遠大於正常延遲。
+ */
+const SHIPPED_FRESH_WINDOW_MS = 2 * 60 * 60 * 1000;
+
 /** 等長 constant-time 比對;長度不等先回 false(timingSafeEqual 要求等長 Buffer;沿 settle-sweep safeEqual)。 */
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -289,6 +297,7 @@ function pickEnqueueCounts(result: {
 function pickShippedEnqueueCounts(result: {
   scanned: number;
   truncated: boolean;
+  deferred: number;
   enqueued: number;
   skippedNoRealEmail: number;
   duplicate: number;
@@ -298,6 +307,8 @@ function pickShippedEnqueueCounts(result: {
   return {
     shpScanned: result.scanned,
     shpTruncated: result.truncated,
+    // 2026-09-27 出貨信分批排:新的滿 20 封、延到下一輪的封數(只算這一輪掃到的)。
+    shpDeferred: result.deferred,
     shpEnqueued: result.enqueued,
     shpSkippedNoRealEmail: result.skippedNoRealEmail,
     shpDuplicate: result.duplicate,
@@ -711,6 +722,8 @@ export async function GET(request: Request): Promise<Response> {
       ? ({ kind: 'bad-format', why: '這顆 env 設了,而值是空的(多半是貼上時只貼到空白)' } as const)
       : resolveShippedEmailCutoff(shippedRaw);
   let shippedCounts: ReturnType<typeof pickShippedEnqueueCounts> | null = null;
+  let shippedFreshOnCap: { shpFreshEnqueued: number | null; shpDeferred: number | null; shpFreshErrors: number | null } | null =
+    null;
   let shippedStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
     shippedCutoff.kind === 'not-configured'
       ? 'skipped_no_cutoff'
@@ -731,6 +744,8 @@ export async function GET(request: Request): Promise<Response> {
         await enqueueOrderShippedEmails(shippedDeps, {
           cutoff: shippedCutoff.iso,
           limit: ENQUEUE_LIMIT,
+          // 2026-09-27 出貨信分批排:分界線 = 這一輪開始 − 2 小時(用本輪既有的起點, use-case 不讀時鐘)。
+          freshSince: new Date(invocationStartedAtMs - SHIPPED_FRESH_WINDOW_MS).toISOString(),
         }),
       );
     } catch (err) {
@@ -744,9 +759,18 @@ export async function GET(request: Request): Promise<Response> {
         //    與一次「權限壞掉」在 log 上長得一模一樣(與上面 ScanQueryError 同一個手法)。
         ...describeEnqueueBatchCap(err),
       });
+      // 2026-09-27:舊的那堆撞保護時, 新的那一批已經排好 ⇒ 數字也接回這一輪的摘要(不只寫在錯誤紀錄)。
+      const cap = describeEnqueueBatchCap(err);
+      if ('freshEnqueued' in cap) {
+        shippedFreshOnCap = {
+          shpFreshEnqueued: cap.freshEnqueued,
+          shpDeferred: cap.freshDeferred,
+          shpFreshErrors: cap.freshErrors,
+        };
+      }
     }
   }
-  const shippedSection = { shippedEnqueueStatus: shippedStatus, ...(shippedCounts ?? {}) };
+  const shippedSection = { shippedEnqueueStatus: shippedStatus, ...(shippedCounts ?? {}), ...(shippedFreshOnCap ?? {}) };
 
   // ── 1e. 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C:更正貨運單號的通知信, 掃描式 enqueue ──────────
   //     (主視窗 2026-09-04 批乙+;Sean 拍板逐字「甲 = 做, 改完自動再寄」)
