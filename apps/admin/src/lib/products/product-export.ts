@@ -15,7 +15,8 @@ import { readProductOverrides } from './product-overrides-view';
 //    商品的店家價 = 【基準款變體】的 `product_variants.price_store`;基準款 = 一般價最低、同價取 sku 最小(COLLATE "C")。
 //    `products.price_store` 同步程式永遠寫 NULL(20260924100000 檔頭)⇒ 不能讀那一欄。
 //    ⚠️ 不讀 view:view 只有上架中的商品,而匯出含已下架。所以在這裡照同一條規則挑,兩邊規則改了要一起改。
-//    ⚠️ 與 view 的差別(刻意):基準款沒有經銷價時 view 退回一般價,這裡留空白 ⇒ 員工分得出「還沒設經銷價」。
+//    ⚠️ 基準款沒有經銷價 ⇒ 這裡留空白。view 從 20260925050000(B2B D1)起也是 NULL:經銷會員看到「價格暫時無法取得」、不能下單
+//       (2026-09-27 正式庫唯讀確認 view 已是 D1 版;原本這行寫「view 退回一般價」,那是 D1 之前的事,Fable R1 抓到)。
 //    ⚠️ 不含每位經銷商各自的品牌折扣(那是每位客人不同的數字,不是商品的價格)。
 // 🔴 不含成本(計畫 §三第二片:成本不在網站資料庫)。
 
@@ -121,7 +122,7 @@ export type ProductExportContext = { total: number; filterNote: string; dataAsOf
 export function buildProductExportCsv(rows: readonly ProductExportRow[], ctx: ProductExportContext): string {
   const describe =
     `本檔 = 後台商品列表 篩選結果(不分頁) 共 ${ctx.total} 件 · 篩選:${ctx.filterNote} · 資料截至 ${ctx.dataAsOf}` +
-    ' · 品名是客人在網站上看到的名稱 · 店家價是經銷會員的基本價,未含個別經銷商的品牌折扣;空白表示還沒設定經銷價,經銷會員看到的是一般價。';
+    ' · 品名是客人在網站上看到的名稱 · 店家價是經銷會員的基本價,未含個別經銷商的品牌折扣;空白表示還沒設定經銷價,經銷會員目前看不到價格、無法下單。';
   return toCsv([describe], [[...PRODUCT_EXPORT_HEADER], ...rows.map(productExportRow)]);
 }
 

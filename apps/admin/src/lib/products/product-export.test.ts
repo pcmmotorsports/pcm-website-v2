@@ -179,6 +179,9 @@ describe('整份 CSV', () => {
     expect(lines[0]).toContain('品牌 BREMBO');
     expect(lines[0]).toContain('資料截至 2026-09-27 12:00');
     expect(lines[0]).toContain('未含個別經銷商的品牌折扣');
+    // 缺經銷價時經銷會員看不到價格、不能下單(20260925050000 D1 起);不能寫成「看到一般價」
+    expect(lines[0]).toContain('經銷會員目前看不到價格、無法下單');
+    expect(lines[0]).not.toContain('看到的是一般價');
     expect(lines[1]).toBe(PRODUCT_EXPORT_HEADER.join(','));
   });
 
