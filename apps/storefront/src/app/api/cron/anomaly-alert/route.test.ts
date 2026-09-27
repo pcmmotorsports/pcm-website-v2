@@ -47,10 +47,12 @@ vi.mock('@/lib/payment/composition', () => ({
 }));
 
 // 稽核 P2-3:三條寄信線的掃描面(route 只用 scanner)。
-const { cancelledScanSpy, partialRefundScanSpy, partialCancelScanSpy } = vi.hoisted(() => ({
+const { cancelledScanSpy, partialRefundScanSpy, partialCancelScanSpy, returnReceivedScanSpy } = vi.hoisted(() => ({
   cancelledScanSpy: vi.fn(),
   partialRefundScanSpy: vi.fn(),
   partialCancelScanSpy: vi.fn(),
+  // 退貨收回通知(2026-09-27):第四條以 cutoff 上膛的線。
+  returnReceivedScanSpy: vi.fn(),
 }));
 vi.mock('@/lib/email/composition', () => ({
   getEnqueueOrderCancelledDeps: () => ({ scanner: { listCancelledWithoutEmail: cancelledScanSpy } }),
@@ -58,6 +60,7 @@ vi.mock('@/lib/email/composition', () => ({
   getEnqueueOrderPartiallyCancelledDeps: () => ({
     scanner: { listPartiallyCancelledWithoutEmail: partialCancelScanSpy },
   }),
+  getEnqueueOrderReturnReceivedDeps: () => ({ scanner: { listReturnReceivedWithoutEmail: returnReceivedScanSpy } }),
 }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
@@ -327,6 +330,7 @@ afterEach(() => {
   delete process.env.CANCELLED_EMAIL_CUTOFF;
   delete process.env.PARTIAL_REFUND_EMAIL_CUTOFF;
   delete process.env.PARTIAL_CANCEL_EMAIL_CUTOFF;
+  delete process.env.RETURN_RECEIVED_EMAIL_CUTOFF;
   delete process.env.BANK_ORDER_AMOUNT_CHANGED_EMAIL_ARMED;
   vi.clearAllMocks();
 });
@@ -1816,5 +1820,25 @@ describe('GET anomaly-alert — 一般會員這一班新滿 10 萬(Sean 2026-09-
     expect(res.status).not.toBe(503);
     expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ newMilestoneMemberCount: null }));
     errSpy.mockRestore();
+  });
+});
+
+describe('GET anomaly-alert — 退貨收回通知那條線沒上膛而有待寄(2026-09-27)', () => {
+  const lanesPassed = () =>
+    (checkSpy.mock.calls[0]![1] as { unarmedEmailLanesWithPending: readonly string[] }).unarmedEmailLanesWithPending;
+
+  it('🔴 RETURN_RECEIVED_EMAIL_CUTOFF 沒設而掃到待寄 ⇒ 報那一條(客人收不到「已收到退貨」通知)', async () => {
+    returnReceivedScanSpy.mockResolvedValue({ rows: [{}], scannedPages: 1, truncated: false });
+    await GET(makeReq(bearer()));
+    expect(lanesPassed()).toContain('RETURN_RECEIVED_EMAIL_CUTOFF');
+    expect(returnReceivedScanSpy).toHaveBeenCalledWith(expect.objectContaining({ limit: 1 }));
+  });
+
+  it('🟢 上膛了(cutoff 合法)⇒ 不掃、不報', async () => {
+    process.env.RETURN_RECEIVED_EMAIL_CUTOFF = '2026-08-22T00:00:00.000Z';
+    returnReceivedScanSpy.mockResolvedValue({ rows: [{}], scannedPages: 1, truncated: false });
+    await GET(makeReq(bearer()));
+    expect(returnReceivedScanSpy).not.toHaveBeenCalled();
+    expect(lanesPassed()).not.toContain('RETURN_RECEIVED_EMAIL_CUTOFF');
   });
 });

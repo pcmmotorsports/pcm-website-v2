@@ -11,7 +11,13 @@
 -- ③ view `pcm_return_received_email_pending`:一列 = 一筆已收回(status = 'received')的退貨,
 --    帶實收品項 jsonb(只列實收數量 > 0 的品項);
 --    WHERE:至少收到一件(實收全是 0 ⇒ 沒有東西可說已收到, 不寄)· 手動單要有通知信箱(20260907230000 那句)
---    · 兩個信箱至少一個非空 · anti-join 同鍵 outbox 列(不分 status, 同族既有語意)。
+--    · 兩個信箱至少一個非空 · anti-join 同鍵 outbox 列(不看 status:這一筆退貨排過一次就不再排)。
+--    🔵 這一型實際會出現的同鍵列(Fable R1 C3 要求寫實話;與 20260915150000 那兩條互讓 anti-join 的 status 條件不是同一件事):
+--       pending / sending / sent / failed / dead ⇒ 擋, 對;
+--       skipped_no_real_email ⇒ 擋, 對 —— 寄信排程會把它翻成 LINE(好友)或留著(不是好友就沒有可送的對象);
+--       skipped_order_ineligible ⇒ 走不到 —— SUPPRESS_WHEN_ORDER_INELIGIBLE 對這一型是 false, 送出前的閘不會擋它;
+--       skipped_manual_no_recipient ⇒ 實務上走不到 —— 手動單沒有通知信箱時本 view 根本不列那筆退貨;
+--       收件人變了而退休的列 ⇒ writer 換了 dedup_key, 不等於本鍵 ⇒ 不擋, 會用新收件人重排。
 -- 🔴 不做「寄出當下重讀」view:退貨收回之後 status 不會再變(admin_void_return 只作廢 registered, 20260927010000),
 --    信裡也沒有會漂的金額 ⇒ 排信那一刻的內容就是寄出時的真值。
 -- 🔴 零 trigger、零改既有物件;view security_invoker = false(以 owner 讀 orders / customers / order_returns, 同族都這樣)。
@@ -147,7 +153,7 @@ WHERE r.status = 'received'
 COMMENT ON VIEW public.pcm_return_received_email_pending IS
   '退貨收回通知的掃描面(20260927080000;Sean 09-27 A3 甲甲甲)。一列 = 一筆 status = received 的退貨。'
   'received_items = 實收數量 > 0 的品項 [{title, quantity}];實收全是 0 的退貨不列(沒有東西可說已收到)。'
-  '排除:手動單無通知信箱 / 兩個信箱都空。anti-join 同鍵 order_return_received(不分 status)。'
+  '排除:手動單無通知信箱 / 兩個信箱都空。anti-join 同鍵 order_return_received 的任何一列(不看 status, 排過一次就不再排;這一型不會被 order_ineligible 標成 skipped)。'
   '不帶金額、不帶商品狀況(Sean Q3 甲)。退貨收回後 status 不再變 ⇒ 沒有寄出當下重讀的 view。';
 
 REVOKE ALL ON public.pcm_return_received_email_pending FROM PUBLIC;

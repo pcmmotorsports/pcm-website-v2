@@ -25,7 +25,11 @@ const {
   unpaidCancelSpy, getUnpaidCancelDepsSpy,
   trackFixSpy, getTrackFixDepsSpy,
   cancelledSpy, getCancelledDepsSpy,
+  returnReceivedSpy, getReturnReceivedDepsSpy,
 } = vi.hoisted(() => ({
+  // 退貨收回通知(第十條線, 2026-09-27)同樣自己一套。
+  returnReceivedSpy: vi.fn(),
+  getReturnReceivedDepsSpy: vi.fn(),
   hbOkSpy: vi.fn(),
   hbFailSpy: vi.fn(),
   sweepSpy: vi.fn(),
@@ -65,6 +69,7 @@ vi.mock('@pcm/use-cases', async (orig) => ({
   enqueueOrderUnpaidCancelledEmails: unpaidCancelSpy,
   enqueueTrackingCorrectedEmails: trackFixSpy,
   enqueueOrderCancelledEmails: cancelledSpy,
+  enqueueOrderReturnReceivedEmails: returnReceivedSpy,
 }));
 vi.mock('@/lib/email/composition', () => ({
   getSweepEmailOutboxDeps: getDepsSpy,
@@ -73,6 +78,7 @@ vi.mock('@/lib/email/composition', () => ({
   getEnqueueOrderUnpaidCancelledDeps: getUnpaidCancelDepsSpy,
   getEnqueueTrackingCorrectedDeps: getTrackFixDepsSpy,
   getEnqueueOrderCancelledDeps: getCancelledDepsSpy,
+  getEnqueueOrderReturnReceivedDeps: getReturnReceivedDepsSpy,
 }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
@@ -166,6 +172,13 @@ beforeEach(() => {
   getTrackFixDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
   // 🔴 第五條線(取消信):env 預設**沒設** —— 它是那條線的開關, 漏清會讓別的測項意外走進 enqueue。
   delete process.env.CANCELLED_EMAIL_CUTOFF;
+  // 第十條線(退貨收回通知):同上, 開關預設沒設;設了的測項自己設。
+  delete process.env.RETURN_RECEIVED_EMAIL_CUTOFF;
+  returnReceivedSpy.mockReset().mockResolvedValue({
+    scanned: 0, scannedPages: 1, truncated: false, enqueued: 0,
+    skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, unusable: 0, errors: 0,
+  });
+  getReturnReceivedDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
   // 🔴🔴 **2026-09-06 ⟦b4-BANKNOEMAIL⟧:第四顆也要在這裡清掉。**
   //    ⛔ 我第一版忘了 ⇒ 前一個測項設的 `ARMED` **漏到下一個測項**
   //    ⇒ 那一段 enqueue 真的跑起來、deps 沒 mock ⇒ throw ⇒ `bankOrder: 'failed'` ⇒ **503**
@@ -434,6 +447,8 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         'partialRefundEnqueueStatus',
         // 🔴 2026-09-14 第九條線(部分取消補寄信):env 沒設 ⇒ `skipped_no_cutoff`、其餘 `pcn*` 欄不出現。
         'partialCancelEnqueueStatus',
+        // 2026-09-27 第十條線(退貨收回通知):env 沒設 ⇒ `skipped_no_cutoff`、其餘 `rrc*` 欄不出現。
+        'returnReceivedEnqueueStatus',
         // 🔴🔴 **2026-09-13:第五個人, 同一格, 同一段話。** 新欄必須有人明說。
         //    部分取消補寄信那條線多出來的一欄。env 沒設 ⇒ `skipped_not_armed`、其餘 `amc*` 欄不出現。
         //    ⚠️ 它的四態與上面五支**不同形**:本線**沒有 cutoff** ⇒ 沒有 `skipped_bad_cutoff`,
@@ -522,6 +537,8 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       allowPartialRefund: false,
       // 🔴 2026-09-14 第九條線(部分取消補寄信):同一個理由;值 false —— PARTIAL_CANCEL_EMAIL_CUTOFF 在本檔沒設。
       allowPartiallyCancelled: false,
+      // 2026-09-27 第十條線(退貨收回通知):同一個理由;值 false —— RETURN_RECEIVED_EMAIL_CUTOFF 在本檔沒設。
+      allowReturnReceived: false,
       // 🔴 第 24 件:取消信兩種的送出側開關 —— 本檔 beforeEach 清掉 CANCELLED_EMAIL_CUTOFF 與 B4_DEPLOY_CUTOFF ⇒ 兩個都 false。
       allowOrderCancelled: false,
       allowOrderUnpaidCancelled: false,
@@ -1559,10 +1576,17 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C:更正單號信那條線的【接線】', 
  */
 describe('GET email-sweep — 🔴 整輪太慢要印一行找得到的東西', () => {
   const SLOW_PREFIX = '[email-sweep-slowround]';
+  // 🔴 2026-09-27:Date.now 的替身要在每格之後還原 —— 原本沒還原 ⇒ 漏到排在本檔後面的 describe,
+  //    `recentCutoffIso()` 算出 2023 年 ⇒ 被 cutoff 的地板判不合法(退貨收回通知那一節撞到的)。
+  let dateNowSpy: { mockRestore: () => void } | null = null;
+  afterEach(() => {
+    dateNowSpy?.mockRestore();
+    dateNowSpy = null;
+  });
 
   function runWithElapsed(ms: number) {
     let now = 1_700_000_000_000;
-    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
     sweepSpy.mockImplementation(async () => {
       now += ms; // sweeper 跑掉 ms 毫秒
       return { ...CLEAN_RESULT };
@@ -1731,5 +1755,77 @@ describe('⟦QB-2⟧ 每輪一行 log —— 只數字, 零識別資訊', () => 
     // 🟢 而那一行要真的有東西(不是靠空字串通過)。
     expect(line.length).toBeGreaterThan(20);
     logSpy.mockRestore();
+  });
+});
+
+describe('第十條線:退貨收回通知(Sean 2026-09-27 A3 甲甲甲;開關 RETURN_RECEIVED_EMAIL_CUTOFF 預設沒設)', () => {
+  it('🔴 env 沒設 ⇒ 不排信、寄送端不認領這一型、回 200', async () => {
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.returnReceivedEnqueueStatus).toBe('skipped_no_cutoff');
+    expect(returnReceivedSpy).not.toHaveBeenCalled();
+    expect(sweepSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ allowReturnReceived: false }));
+  });
+
+  it('🔴 env 合法 ⇒ 用那個 cutoff 排信、寄送端認領這一型、計數進回應', async () => {
+    const cutoff = recentCutoffIso();
+    process.env.RETURN_RECEIVED_EMAIL_CUTOFF = cutoff;
+    returnReceivedSpy.mockResolvedValue({
+      scanned: 2, scannedPages: 1, truncated: false, enqueued: 1,
+      skippedNoRealEmail: 1, duplicate: 0, noRecipient: 0, unusable: 0, errors: 0,
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(returnReceivedSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cutoff }));
+    expect(body).toMatchObject({ returnReceivedEnqueueStatus: 'completed', rrcEnqueued: 1, rrcSkippedNoRealEmail: 1 });
+    expect(sweepSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ allowReturnReceived: true }));
+  });
+
+  it('🔴 env 格式不合 ⇒ 不排、寄送端不認領、回 503(填錯要吵)', async () => {
+    process.env.RETURN_RECEIVED_EMAIL_CUTOFF = 'not-a-date';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.returnReceivedEnqueueStatus).toBe('skipped_bad_cutoff');
+    expect(returnReceivedSpy).not.toHaveBeenCalled();
+    expect(sweepSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ allowReturnReceived: false }));
+    errSpy.mockRestore();
+  });
+
+  it('🔴 排信整段丟例外 ⇒ failed、回 503(不吞成 200)', async () => {
+    process.env.RETURN_RECEIVED_EMAIL_CUTOFF = recentCutoffIso();
+    returnReceivedSpy.mockRejectedValue(new Error('42P01'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.returnReceivedEnqueueStatus).toBe('failed');
+    errSpy.mockRestore();
+  });
+});
+
+describe('第十條線的位置:退貨收回通知要排在退款 / 取消信之前入列(Fable R1 C1, 2026-09-27)', () => {
+  it('🔴 同一輪裡, 退貨收回通知比取消信【先】入列(claimDue 依 next_retry_at 由舊到新 ⇒ 先入列的先寄)', async () => {
+    process.env.RETURN_RECEIVED_EMAIL_CUTOFF = new Date(new Date().getTime() - 20 * 24 * 60 * 60 * 1000).toISOString();
+    process.env.CANCELLED_EMAIL_CUTOFF = new Date(new Date().getTime() - 20 * 24 * 60 * 60 * 1000).toISOString();
+    await GET(makeReq(bearer()));
+    expect(returnReceivedSpy).toHaveBeenCalledTimes(1);
+    expect(cancelledSpy).toHaveBeenCalledTimes(1);
+    expect(returnReceivedSpy.mock.invocationCallOrder[0]!).toBeLessThan(cancelledSpy.mock.invocationCallOrder[0]!);
+  });
+
+  it('🔴 原始碼順序:退貨收回那段在取消信、部分退款信、部分取消信三段之前(部分退款那兩段本檔沒 mock, 用原始碼釘)', () => {
+    const at = (s: string) => {
+      const i = ROUTE_SOURCE.indexOf(s);
+      expect(i, `route.ts 裡找不到 ${s}`).toBeGreaterThan(-1);
+      return i;
+    };
+    const rr = at('await enqueueOrderReturnReceivedEmails(');
+    expect(rr).toBeLessThan(at('await enqueueOrderCancelledEmails('));
+    expect(rr).toBeLessThan(at('await enqueueOrderPartiallyRefundedEmails('));
+    expect(rr).toBeLessThan(at('await enqueueOrderPartiallyCancelledEmails('));
   });
 });

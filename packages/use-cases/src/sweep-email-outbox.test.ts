@@ -47,6 +47,7 @@ const OPTS: SweepEmailOutboxOptions = {
   allowBankOrderAmountChanged: true,
     allowPartialRefund: true,
   allowPartiallyCancelled: true,
+  allowReturnReceived: true,
   claimLimit: 20,
   // 🔴 與 `now` 同一個時鐘 ⇒ 本輪已用時間恆為 0 ⇒ 這組預設仍是「預算滿滿」的那個世界
   //    (`⟦b4-SWEEPBUDGET1⟧`)。預算相關的測項自己覆寫這一欄,不改這裡。
@@ -856,7 +857,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true, allowOrderCancelled: true, allowOrderUnpaidCancelled: true,
   allowBankOrderCreated: true,
   allowBankOrderAmountChanged: true,
-    allowPartialRefund: true, allowPartiallyCancelled: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
+    allowPartialRefund: true, allowPartiallyCancelled: true, allowReturnReceived: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
     const after = Date.now();
     const [staleBefore, nextRetryAt] = outbox.reclaimStaleLeases.mock.calls[0]! as [Date, Date];
     expect(nextRetryAt.getTime() - staleBefore.getTime()).toBe(3600 * 1000 + LEASE_RECLAIM_RETRY_DELAY_MS);
@@ -4419,7 +4420,7 @@ describe('sweepEmailOutbox — ⟦line-PUSH⟧ LINE 推播', () => {
     expect(outbox.promoteSkippedNoRealEmailToLine).not.toHaveBeenCalled();
   });
 
-  it("🔴 on ⇒ 起跑先翻列(兩種事件、不含 bank_order_created)、認領帶 lineChannel:'include'", async () => {
+  it("🔴 on ⇒ 起跑先翻列(三種事件, 2026-09-27 加退貨收回通知;不含 bank_order_created)、認領帶 lineChannel:'include'", async () => {
     const outbox = outboxFake([], { promoteSkippedNoRealEmailToLine: vi.fn().mockResolvedValue(3) });
     const res = await sweepEmailOutbox(
       { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]), linePush: pushOk(), lineRecipient: friend() },
@@ -4427,7 +4428,8 @@ describe('sweepEmailOutbox — ⟦line-PUSH⟧ LINE 推播', () => {
     );
     expect(res.linePromoted).toBe(3);
     expect(outbox.promoteSkippedNoRealEmailToLine).toHaveBeenCalledWith(
-      expect.objectContaining({ eventTypes: ['order_created', 'order_shipped'] }),
+      // 退貨收回通知(Sean 2026-09-27 A3 Q1 甲):沒真 email 的 LINE 好友照既有二選一規則 ⇒ 也翻成 LINE。
+      expect.objectContaining({ eventTypes: ['order_created', 'order_shipped', 'order_return_received'] }),
     );
     expect(outbox.claimDue).toHaveBeenCalledWith(ON.claimLimit, { lineChannel: 'include' });
   });
@@ -4767,6 +4769,17 @@ describe('order_partially_cancelled —— 部分取消補寄信(Sean 2026-09-14
     );
     expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
       excludeEventTypes: ['order_partially_cancelled'],
+      lineChannel: 'exclude',
+    });
+  });
+  it('🔴 allowReturnReceived false ⇒ claimDue 的 excludeEventTypes 含 order_return_received(開關關著連認領都不做)', async () => {
+    const outbox = outboxFake([]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) },
+      { ...OPTS, allowReturnReceived: false },
+    );
+    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
+      excludeEventTypes: ['order_return_received'],
       lineChannel: 'exclude',
     });
   });
