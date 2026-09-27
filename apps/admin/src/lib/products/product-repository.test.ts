@@ -27,7 +27,7 @@ const q = vi.hoisted(() => ({
 }));
 vi.mock('@pcm/adapters/server', () => {
   const builder: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'maybeSingle']) {
+  for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'maybeSingle', 'abortSignal']) {
     builder[m] = (...args: unknown[]) => {
       q.calls.push([m, ...args]);
       return builder;
@@ -39,6 +39,8 @@ vi.mock('@pcm/adapters/server', () => {
 });
 
 import {
+  ATTENTION_CONDITION,
+  countProductAttention,
   listProductFilterOptions,
   listProductsForAdmin,
   resolveListingState,
@@ -491,6 +493,37 @@ describe('#20 片1a — 取值落點的行為', () => {
     expect(resolveListingState({ ...base, delisted_at: '2026-08-01T00:00:00Z' })).toBe(
       'delisted',
     );
+  });
+});
+
+describe('商品頁乙 A2:「要處理」篩選與件數', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+  });
+
+  it('勾兩種 ⇒ 一個 or 條件包兩種(彼此是「或」);沒勾 ⇒ 沒有 or 條件', async () => {
+    await listProductsForAdmin(20, 0, { attention: ['delisted', 'image_missing'] });
+    expect(q.calls).toContainEqual(['or', 'delisted_at.not.is.null,admin_card_image_missing.is.true']);
+    q.calls.length = 0;
+    await listProductsForAdmin(20, 0);
+    expect(q.calls.filter((c) => c[0] === 'or')).toEqual([]);
+  });
+
+  it('缺貨 = 上架中而且缺貨(與側欄「商品 缺貨 N 筆」同一個定義);代表圖待補不看 images 是否為空', () => {
+    expect(ATTENTION_CONDITION.out_of_stock).toBe('and(delisted_at.is.null,availability.eq.out-of-stock)');
+    expect(ATTENTION_CONDITION.image_missing).toBe('admin_card_image_missing.is.true');
+  });
+
+  it('件數:五顆各查一次、只算數不撈列、只帶自己那一種,其他篩選照帶', async () => {
+    await countProductAttention({ setBy: 'staff', attention: ['delisted'] });
+    const ors = q.calls.filter((c) => c[0] === 'or').map((c) => c[1] as string);
+    expect([...ors].sort()).toEqual(Object.values(ATTENTION_CONDITION).sort());
+    const selects = q.calls.filter((c) => c[0] === 'select');
+    expect(selects).toHaveLength(5);
+    expect(selects.every((c) => (c[2] as { head: boolean }).head === true)).toBe(true);
+    expect(q.calls.filter((c) => c[0] === 'eq' && c[1] === 'listing_set_by')).toHaveLength(5);
+    // 每一顆都有自己的期限,卡住的那一顆不會拖住整頁(A2 Codex 必修 2)
+    expect(q.calls.filter((c) => c[0] === 'abortSignal')).toHaveLength(5);
   });
 });
 

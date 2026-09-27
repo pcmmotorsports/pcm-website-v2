@@ -5,9 +5,11 @@ import Link from 'next/link';
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductToolbar } from '../../components/products/product-toolbar';
+import { ProductAttentionChips } from '../../components/products/product-filter-chips';
 import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
 import { ListPagination } from '../../components/shared/list-pagination';
 import {
+  countProductAttention,
   listProductFilterOptions,
   listProductsForAdmin,
   type AdminProductPage,
@@ -20,6 +22,7 @@ import {
   KEYWORD_PARAM,
   PAGE_PARAM,
   PAGE_SIZE_OPTIONS,
+  PRODUCT_ATTENTION_LABEL,
   SET_BY_PARAM,
   SIZE_PARAM,
   BRAND_PARAM,
@@ -79,12 +82,18 @@ export default async function ProductsPage({
   //    server log 留鑑識、DB error 不外洩到畫面(同 customers/page.tsx:37-48)。
   let result: AdminProductPage | null = null;
   let loadFailed = false;
+  // 商品頁乙 A2:「要處理」件數與列表平行查;件數失敗只讓數字不顯示,列表照常。
+  const countsPromise = countProductAttention(query).catch((error: unknown) => {
+    console.error('[admin/products] 要處理件數載入失敗(列表不受影響)', error);
+    return null;
+  });
   try {
     result = await listProductsForAdmin(view.size, offset, query);
   } catch (error) {
     console.error('[admin/products] 商品列表載入失敗', error);
     loadFailed = true;
   }
+  const attentionCounts = await countsPromise;
 
   const items = result?.items ?? [];
   const total = result?.total ?? 0;
@@ -130,6 +139,7 @@ export default async function ProductsPage({
           total={total}
           loadFailed={loadFailed}
         />
+        {!loadFailed && <ProductAttentionChips filter={filter} size={view.size} counts={attentionCounts} />}
       </div>
       {!loadFailed && brandFilterDropped && (
         <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
@@ -177,9 +187,11 @@ export default async function ProductsPage({
           <ProductsTable
             rows={items}
             emptyText={
-              filter.keyword === undefined
-                ? '目前沒有商品。'
-                : `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
+              filter.keyword !== undefined
+                ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
+                : filter.attention !== undefined
+                  ? `目前沒有「${filter.attention.map((k) => PRODUCT_ATTENTION_LABEL[k]).join('」或「')}」的商品。`
+                  : '目前沒有商品。'
             }
           />
           <p className='pcm-note2'>這裡列出所有商品,含已下架的。上架/下架請點進商品明細頁,其餘欄位目前不能修改。</p>

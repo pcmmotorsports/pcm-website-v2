@@ -15,7 +15,7 @@ import {
 //    ③ 清除只拿掉搜尋詞、保留分類(拿錯 ⇒ 員工被踢回全部商品)
 
 const NONE: AdminProductFilter = { brandIds: undefined, categoryPath: undefined,
-      skus: undefined, setBy: undefined, keyword: undefined };
+      skus: undefined, attention: undefined, setBy: undefined, keyword: undefined };
 
 afterEach(cleanup);
 
@@ -36,7 +36,7 @@ describe('#661 ProductKeywordSearch', () => {
 
   it('輸入框的 name 是 q,並回填目前的搜尋詞', () => {
     render(<ProductKeywordSearch filter={{ brandIds: undefined, categoryPath: undefined,
-      skus: undefined, setBy: undefined, keyword: 'brembo' }} size={DEFAULT_PAGE_SIZE} />);
+      skus: undefined, attention: undefined, setBy: undefined, keyword: 'brembo' }} size={DEFAULT_PAGE_SIZE} />);
     const input = screen.getByLabelText('搜尋');
     expect(input.getAttribute('name')).toBe('q');
     expect((input as HTMLInputElement).value).toBe('brembo');
@@ -45,7 +45,7 @@ describe('#661 ProductKeywordSearch', () => {
   it('🔴🔴 有分類時要有 set_by 的 hidden —— 沒有它,搜尋一次就把分類洗掉', () => {
     const { container } = render(
       <ProductKeywordSearch filter={{ brandIds: undefined, categoryPath: undefined,
-      skus: undefined, setBy: 'staff', keyword: undefined }} size={DEFAULT_PAGE_SIZE} />,
+      skus: undefined, attention: undefined, setBy: 'staff', keyword: undefined }} size={DEFAULT_PAGE_SIZE} />,
     );
     const hidden = container.querySelector('input[type="hidden"][name="set_by"]');
     expect(hidden).not.toBeNull();
@@ -60,7 +60,7 @@ describe('#661 ProductKeywordSearch', () => {
   it('🔴 沒有 page 的 hidden —— 換搜尋詞要回第 1 頁,而「沒有那個欄位」就是做法', () => {
     const { container } = render(
       <ProductKeywordSearch filter={{ brandIds: undefined, categoryPath: undefined,
-      skus: undefined, setBy: 'sync', keyword: 'x' }} size={DEFAULT_PAGE_SIZE} />,
+      skus: undefined, attention: undefined, setBy: 'sync', keyword: 'x' }} size={DEFAULT_PAGE_SIZE} />,
     );
     expect(container.querySelector('input[name="page"]')).toBeNull();
   });
@@ -72,7 +72,7 @@ describe('#661 ProductKeywordSearch', () => {
 
   it('🔴 清除搜尋只拿掉 q、保留分類 —— 拿錯會把員工踢回全部商品', () => {
     render(<ProductKeywordSearch filter={{ brandIds: undefined, categoryPath: undefined,
-      skus: undefined, setBy: 'staff', keyword: 'brembo' }} size={DEFAULT_PAGE_SIZE} />);
+      skus: undefined, attention: undefined, setBy: 'staff', keyword: 'brembo' }} size={DEFAULT_PAGE_SIZE} />);
     const link = screen.getByText('清除搜尋');
     expect(link.getAttribute('href')).toBe('/products?set_by=staff');
   });
@@ -80,7 +80,7 @@ describe('#661 ProductKeywordSearch', () => {
   it('目前搜尋的詞要顯示出來(員工要看得到自己在哪個篩選狀態)', () => {
     const { container } = render(
       <ProductKeywordSearch filter={{ brandIds: undefined, categoryPath: undefined,
-      skus: undefined, setBy: undefined, keyword: '煞車皮' }} size={DEFAULT_PAGE_SIZE} />,
+      skus: undefined, attention: undefined, setBy: undefined, keyword: '煞車皮' }} size={DEFAULT_PAGE_SIZE} />,
     );
     expect(container.textContent ?? '').toContain('煞車皮');
   });

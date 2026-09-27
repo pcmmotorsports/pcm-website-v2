@@ -3,6 +3,7 @@ import {
   buildProductListHref,
   buildProductListHrefResetPage,
   parseProductKeyword,
+  parseProductAttention,
   parseProductListParams,
   parseProductPage,
   parseProductSetBy,
@@ -32,7 +33,7 @@ const NONE: AdminProductFilter = {
   keyword: undefined,
   brandIds: undefined,
   categoryPath: undefined,
-      skus: undefined,
+      skus: undefined, attention: undefined,
 };
 
 describe('parseProductPage', () => {
@@ -448,5 +449,23 @@ describe('🔴 新增的兩軸也要活過翻頁(與 set_by 那個真 bug 同一
         expect(parseProductListParams(raw).filter).toEqual(filter);
       }
     }
+  });
+});
+
+describe('商品頁乙 A2:?attn= 要處理篩選', () => {
+  it('逗號串與同名多鍵都收;去重、照按鈕順序;認不得的丟掉;一個都沒有 ⇒ undefined', () => {
+    expect(parseProductAttention('image_missing,delisted')).toEqual(['delisted', 'image_missing']);
+    expect(parseProductAttention(['out_of_stock', 'delisted', 'delisted'])).toEqual(['delisted', 'out_of_stock']);
+    expect(parseProductAttention('nope,title_no_cjk')).toEqual(['title_no_cjk']);
+    expect(parseProductAttention('nope')).toBeUndefined();
+    expect(parseProductAttention(undefined)).toBeUndefined();
+  });
+
+  it('翻頁與換篩選都帶著走(網址來回不走樣)', () => {
+    const filter = { ...NONE, attention: ['delisted', 'source_missing'] as const };
+    const href = buildProductListHref(filter, { page: 2, size: 200 });
+    expect(href).toContain('attn=delisted%2Csource_missing');
+    const back = parseProductListParams(Object.fromEntries(new URL(href, 'http://x').searchParams));
+    expect(back.filter.attention).toEqual(['delisted', 'source_missing']);
   });
 });

@@ -225,3 +225,10 @@ describe('篩選說明、檔名、網址', () => {
     expect(productExportHref('/products?brand=u1&q=x')).toBe('/products/export?brand=u1&q=x');
   });
 });
+
+describe('商品頁乙 A2:匯出說明寫出「要處理」條件', () => {
+  it('只勾「缺貨」匯出 ⇒ 不能寫成「無篩選」', () => {
+    const note = productExportFilterNote({ brandNames: [], skuCount: 0, attentionLabels: ['缺貨'], brandFilterDropped: false, categoryFilterDropped: false });
+    expect(note).toBe('要處理 缺貨');
+  });
+});

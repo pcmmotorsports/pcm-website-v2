@@ -70,6 +70,22 @@ export const CATEGORY_PARAM = 'category';
  *      而產生連結時一律只寫 `?category=<raw_path>` ⇒ **網址是正規化的、只有一種寫法**。
  */
 export const SUBCATEGORY_PARAM = 'subcategory';
+/** 商品頁乙 A2:「要處理」篩選(可複選,逗號串)。 */
+export const ATTENTION_PARAM = 'attn';
+
+/**
+ * 「要處理」五種條件(Sean 2026-09-28 Q2 甲)。順序 = 畫面上按鈕的順序。
+ * 條件本身在 `product-repository.ts` 的 `ATTENTION_CONDITION`;名稱是畫面文字。
+ */
+export const PRODUCT_ATTENTION_KEYS = ['delisted', 'out_of_stock', 'image_missing', 'title_no_cjk', 'source_missing'] as const;
+export type ProductAttention = (typeof PRODUCT_ATTENTION_KEYS)[number];
+export const PRODUCT_ATTENTION_LABEL: Record<ProductAttention, string> = {
+  delisted: '已下架',
+  out_of_stock: '缺貨',
+  image_missing: '代表圖待補',
+  title_no_cjk: '標題無中文字',
+  source_missing: '原廠已無此品',
+};
 
 /**
  * 每頁筆數的**白名單**。🔴 **不收任意整數** —— 這個值會直接變成 `.range()` 的頁大小。
@@ -152,6 +168,8 @@ export interface AdminProductFilter {
    *          ORDER BY length(sku) DESC LIMIT 100) x`
    */
   readonly skus: readonly string[] | undefined;
+  /** `?attn=`;「要處理」條件,彼此是「或」。`undefined` = 不篩(不是空陣列)。 */
+  readonly attention: readonly ProductAttention[] | undefined;
 }
 
 /**
@@ -487,6 +505,14 @@ function resolveCategoryPath(
 }
 
 /** 一次把網址參數解析成型別化的狀態。 */
+/** `?attn=` → 認得的條件(去重、照按鈕順序);逗號串與同名多鍵都收,認不得的丟掉,一個都沒有 ⇒ `undefined`。 */
+export function parseProductAttention(value: string | string[] | undefined): readonly ProductAttention[] | undefined {
+  if (value === undefined) return undefined;
+  const picked = new Set((Array.isArray(value) ? value : [value]).flatMap((v) => v.split(',')).map((v) => v.trim()));
+  const keys = PRODUCT_ATTENTION_KEYS.filter((k) => picked.has(k));
+  return keys.length > 0 ? keys : undefined;
+}
+
 export function parseProductListParams(raw: SearchParams): {
   filter: AdminProductFilter;
   view: AdminProductView;
@@ -501,6 +527,7 @@ export function parseProductListParams(raw: SearchParams): {
         parseProductCategoryPath(raw[SUBCATEGORY_PARAM]),
       ),
       skus: parseProductSkus(raw[SKU_PARAM]),
+      attention: parseProductAttention(raw[ATTENTION_PARAM]),
     },
     view: {
       page: parseProductPage(raw[PAGE_PARAM]),
@@ -558,6 +585,7 @@ export function filterHrefEntries(
     //      ⇒ 網址是 `?sku=AKR+S+Y10R12%0ABRM-19RCS-CL`(**不是逗號**),而回填與結果都正確。
     //    📌 我原本在這裡寫「網址用逗號、人看得懂」—— **那句對【連結】為真,對【表單送出】為假。**
     skus: [SKU_PARAM, filter.skus === undefined ? undefined : filter.skus.join(',')],
+    attention: [ATTENTION_PARAM, filter.attention === undefined ? undefined : filter.attention.join(',')],
   };
 }
 

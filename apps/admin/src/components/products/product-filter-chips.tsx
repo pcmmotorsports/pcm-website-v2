@@ -2,7 +2,10 @@ import Link from 'next/link';
 import type { ProductSetByFilter } from '../../lib/products/product-repository';
 import {
   buildProductListHrefResetPage,
+  PRODUCT_ATTENTION_KEYS,
+  PRODUCT_ATTENTION_LABEL,
   type AdminProductFilter,
+  type ProductAttention,
 } from '../../lib/products/product-list-view';
 
 // M-4b `#20` 片2c:商品列表工具列的快速篩選 chip(手動 / 自動)。
@@ -57,6 +60,48 @@ export function ProductFilterChips({
             href={buildProductListHrefResetPage({ ...filter, setBy: chip.value }, size)}
           >
             {chip.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * 商品頁乙 A2:「要處理」五顆(Sean 2026-09-28 Q2 甲),可複選、每顆帶件數。
+ * 按一下 = 加進或拿掉這個條件;幾顆之間是「或」。件數讀不到(`null`)就只顯示名稱。
+ */
+export function ProductAttentionChips({
+  filter,
+  size,
+  counts,
+}: {
+  filter: AdminProductFilter;
+  size: number;
+  counts: Readonly<Record<ProductAttention, number | null>> | null;
+}) {
+  const selected = new Set(filter.attention ?? []);
+  const toggle = (key: ProductAttention): AdminProductFilter => {
+    const next = PRODUCT_ATTENTION_KEYS.filter((k) => (k === key ? !selected.has(k) : selected.has(k)));
+    return { ...filter, attention: next.length > 0 ? next : undefined };
+  };
+  return (
+    <div className='flex flex-wrap items-center gap-2' data-product-attention>
+      <span className='text-muted-foreground text-sm'>要處理：</span>
+      {PRODUCT_ATTENTION_KEYS.map((key) => {
+        const active = selected.has(key);
+        const count = counts?.[key];
+        return (
+          <Link
+            key={key}
+            className='fchip'
+            aria-current={active ? 'true' : undefined}
+            data-active={active ? 'true' : undefined}
+            data-attention={key}
+            href={buildProductListHrefResetPage(toggle(key), size)}
+          >
+            {PRODUCT_ATTENTION_LABEL[key]}
+            {count !== null && count !== undefined && ` ${count.toLocaleString('zh-TW')}`}
           </Link>
         );
       })}

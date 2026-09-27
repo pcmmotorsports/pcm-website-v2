@@ -1,4 +1,5 @@
 import {
+  ATTENTION_PARAM,
   BRAND_PARAM,
   CATEGORY_PARAM,
   DEFAULT_PAGE_SIZE,
@@ -60,6 +61,10 @@ export function ProductSkuFilter({
       )}
       {filter.categoryPath !== undefined && (
         <input type='hidden' name={CATEGORY_PARAM} value={filter.categoryPath} />
+      )}
+      {/* 商品頁乙 A2:「要處理」也要帶著走,不然勾了「缺貨」再用這個表單,條件就被洗掉(A2 Codex 必修 1)。 */}
+      {filter.attention !== undefined && (
+        <input type='hidden' name={ATTENTION_PARAM} value={filter.attention.join(',')} />
       )}
 
       <label htmlFor='product-sku-filter' className='text-muted-foreground text-xs font-medium'>

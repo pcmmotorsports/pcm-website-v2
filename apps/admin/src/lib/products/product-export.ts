@@ -132,6 +132,8 @@ export interface ProductExportFilterFacts {
   readonly brandNames: readonly string[];
   readonly categoryPath?: string;
   readonly skuCount: number;
+  /** 商品頁乙 A2:「要處理」條件的名稱(畫面上的字)。 */
+  readonly attentionLabels?: readonly string[];
   readonly brandFilterDropped: boolean;
   readonly categoryFilterDropped: boolean;
 }
@@ -144,6 +146,7 @@ export function productExportFilterNote(f: ProductExportFilterFacts): string {
   if (f.brandNames.length > 0) parts.push(`品牌 ${f.brandNames.join('、')}`);
   if (f.categoryPath && !f.categoryFilterDropped) parts.push(`分類 ${f.categoryPath}`);
   if (f.skuCount > 0) parts.push(`料號批次 ${f.skuCount} 個`);
+  if (f.attentionLabels && f.attentionLabels.length > 0) parts.push(`要處理 ${f.attentionLabels.join('或')}`);
   if (f.brandFilterDropped) parts.push('網址帶的品牌有找不到的,那部分沒有套用');
   if (f.categoryFilterDropped) parts.push('網址帶的分類套用不上,沒有依分類篩選');
   return parts.length === 0 ? '無篩選' : parts.join(' · ');
