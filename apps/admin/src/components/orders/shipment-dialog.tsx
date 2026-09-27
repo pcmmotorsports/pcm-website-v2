@@ -556,6 +556,8 @@ export function ShipmentDialog({
                   <span className='text-muted-foreground block truncate font-mono text-xs'>
                     {c.variantSku}
                   </span>
+                  {/* Ilmberger「左右一對」拆件提示(2026-09-27 主視窗裁 Q1 甲):不 truncate, 左右料號要看得完整。 */}
+                  {c.pairNote ? <span className='text-muted-foreground block text-xs'>{c.pairNote}</span> : null}
                 </span>
                 {/* 🔴 2026-08-10 #351②:出不了的品項**留在清單裡並說明原因**,不是整列消失。
                     改成「到貨量起算」之後「可出 0」是常態(貨還沒到),整列不見會讓員工

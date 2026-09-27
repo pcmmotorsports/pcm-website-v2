@@ -54,6 +54,9 @@ vi.mock('../orders/order-repository', () => ({
     listOrderItemsForPrint,
   }),
 }));
+// Ilmberger「左右一對」拆件提示(2026-09-27):預設「這張單沒有一對款」⇒ {}(不查、不影響既有格)。
+const { loadPairNotesForItems } = vi.hoisted(() => ({ loadPairNotesForItems: vi.fn() }));
+vi.mock('../orders/pair-split-read', () => ({ loadPairNotesForItems }));
 vi.mock('./shipment-repository', () => ({
   listAssignedQuantitiesByOrderItemIds: listAssigned,
   listOrderCustomerUserIds: listCustomers,
@@ -104,6 +107,8 @@ beforeEach(() => {
   //    而症狀長得像被測程式多跑了一次。預設 `[]` = 訂單在、還沒收款。
   listOrderPayments.mockReset();
   listOrderPayments.mockResolvedValue([]);
+  loadPairNotesForItems.mockReset();
+  loadPairNotesForItems.mockResolvedValue({});
   findAdminOrderDetail.mockReset();
   detailsSeen.clear();
   listOrderItemsForPrint.mockReset();
@@ -184,7 +189,7 @@ describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
     ).toEqual(['balanceWarning', 'customerUserId', 'items', 'recipient']);
   });
 
-  it('🔴 實際回傳的品項物件只有白名單七個鍵(逐鍵檢查,不是只看型別)', async () => {
+  it('🔴 實際回傳的品項物件只有白名單八個鍵(逐鍵檢查,不是只看型別)', async () => {
     findAdminOrderDetail.mockResolvedValue(detail());
     const { loadShipmentCandidates } = await import('./shipment-candidates');
     const r = await loadShipmentCandidates(['o1']);
@@ -197,6 +202,7 @@ describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
       'orderDisplayId',
       'orderId',
       'orderItemId',
+      'pairNote',
       'remaining',
       'title',
       'variantSku',
@@ -907,5 +913,24 @@ describe('尾款警告(勾單那條路也要看得到)', () => {
     listOrderPayments.mockResolvedValue(null);
     const { loadShipmentCandidates } = await import('./shipment-candidates');
     expect((await loadShipmentCandidates(['o1'])).balanceWarning).toContain('尾款未知');
+  });
+});
+
+
+describe('Ilmberger「左右一對」拆件提示(2026-09-27)', () => {
+  it('🔴 那個料號有提示 ⇒ 候選品項帶著那一行;用的是撈到盡的那份品項', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    loadPairNotesForItems.mockResolvedValue({ 'S-Y10E9-HGEH': '一對：出貨時請拆成左、右各一件（左 A、右 B）' });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const res = await loadShipmentCandidates(['o1']);
+    expect(res.items.map((i) => i.pairNote)).toEqual(['一對：出貨時請拆成左、右各一件（左 A、右 B）']);
+    expect(loadPairNotesForItems).toHaveBeenCalledWith([expect.objectContaining({ variantSku: 'S-Y10E9-HGEH' })]);
+  });
+
+  it('沒有提示 ⇒ pairNote 是 null', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const res = await loadShipmentCandidates(['o1']);
+    expect(res.items.map((i) => i.pairNote)).toEqual([null]);
   });
 });

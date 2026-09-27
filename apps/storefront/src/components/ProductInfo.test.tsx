@@ -223,6 +223,25 @@ describe('ProductInfo', () => {
     expect(screen.getByText('NT$ 2,400')).toBeDefined();
   });
 
+  it('Ilmberger 左右合卡:位置維顯「位置」, 左 / 右 / 左右一對 都能選, 選一對換成一對的價(2026-09-27)', () => {
+    const ilmProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      price: 12000,
+      variants: [
+        { id: 'v-l', sku: 'CG.VFL.007.M125S', spec: { material: '碳纖', finish: '亮面', position: '左' }, price: 12000, images: [] },
+        { id: 'v-r', sku: 'CM.VFR.008.M125S', spec: { material: '碳纖', finish: '亮面', position: '右' }, price: 12000, images: [] },
+        { id: 'v-p', sku: 'ILM-VF.007.M125S-PAIR-G', spec: { material: '碳纖', finish: '亮面', position: '左右一對' }, price: 23280, images: [] },
+      ],
+    };
+    renderInfo(ilmProduct);
+    expect(screen.getByText('位置')).toBeDefined();
+    expect(screen.queryByText('position')).toBeNull();
+    expect(screen.getByRole('button', { name: '左' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '右' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: '左右一對' }));
+    expect(screen.getByText('NT$ 23,280')).toBeDefined();
+  });
+
   it('should render single 顏色 dim for cncracing-shaped spec and change price (W2)', () => {
     const cncProduct: MockProduct = {
       ...MOCK_PRODUCTS[0]!,

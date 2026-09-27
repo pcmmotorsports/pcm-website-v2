@@ -106,6 +106,20 @@ describe('🔴 每一列三件都在:訂單編號 + 商品名稱 + 料號(Sean 2
   });
 });
 
+describe('Ilmberger「左右一對」:料號下一行小字印拆件提示(2026-09-27 主視窗裁 Q1 甲)', () => {
+  const NOTE = '一對：出貨時請拆成左、右各一件（左 CG.VFL.007、右 CM.VFR.008）';
+
+  it('🔴 一對那一列有那一行, 一般那一列沒有', () => {
+    const { container } = open({ candidates: [{ ...CANDIDATES[0]!, pairNote: NOTE }, { ...CANDIDATES[1]!, pairNote: null }] });
+    expectCandidateRowsRendered(container);
+    const rows = [...container.querySelectorAll('li')];
+    const pairRow = rows.find((li) => li.textContent?.includes('S-Y10E9-HGEH'));
+    const normalRow = rows.find((li) => li.textContent?.includes('K-9921-BLK'));
+    expect(pairRow?.textContent, '一對那一列沒有拆件提示 ⇒ 倉庫會整組寄一件').toContain(NOTE);
+    expect(normalRow?.textContent).not.toContain('一對：');
+  });
+});
+
 // ── `#503` 乙(2026-08-18):收件人不完整時的畫面行為 ────────────────────────
 //
 // 🔴 判定本身在 `lib/shipping/recipient.ts`,**由 `recipient.test.ts` 直接打純函式**。

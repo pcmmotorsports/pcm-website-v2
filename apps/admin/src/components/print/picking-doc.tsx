@@ -111,7 +111,14 @@ function Alert({ children, slot }: { children: React.ReactNode; slot?: string })
 //       ⇒ **兩個都不存在了** ⇒ 留著會讓下一個人以為這張紙還有勾選邏輯。
 //    🔴 而 `eslint`/`tsc` 對它【零輸出】—— 死碼在這個設定下沒有任何機制看得見。
 
-export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
+export function PickingDoc({
+  detail,
+  pairNotes,
+}: {
+  detail: AdminOrderDetail;
+  /** Ilmberger「左右一對」拆件提示 { 一對款 sku: 那一行字 }(lib/orders/pair-split-read;沒傳 = 不印)。 */
+  pairNotes?: Record<string, string>;
+}) {
   // 🔴 面1:整單已取消 ⇒ **不印品項表**。
   //    理由不是版面,是「已取消訂單的揀貨單沒有任何正當用途」——
   //    印出一張看起來正常的紙,員工就會照著去倉庫揀一批不該出的貨。
@@ -457,6 +464,12 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                               {Object.entries(item.spec)
                                 .map(([k, v]) => `${k}: ${v}`)
                                 .join(' · ')}
+                            </span>
+                          )}
+                          {/* Ilmberger「左右一對」:倉庫要拆成左、右各一件(2026-09-27;沿用稿的 .pd-spec 小字, 不另開欄) */}
+                          {pairNotes?.[item.variantSku] && (
+                            <span className='pd-spec' data-slot='pair-note'>
+                              {pairNotes[item.variantSku]}
                             </span>
                           )}
                         </td>
