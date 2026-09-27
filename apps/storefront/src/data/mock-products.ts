@@ -45,8 +45,10 @@ export type UIVariant = {
   sku: string;
   /** 規格自由 key-value(weave/finish/special;選擇器資料驅動渲染) */
   spec: Record<string, string>;
-  /** 對外顯示價(= priceByTier.general.amount、整數元位) */
+  /** 對外顯示價(= priceByTier.general.amount、整數元位;特價期間就是特價) */
   price: number;
+  /** 商品頁乙 P12:特價生效時的原價(一般價,整數元位);沒有特價 ⇒ 沒有這個欄位。經銷會員拿它當「原本的一般價」。 */
+  origPrice?: number;
   /**
    * ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08 —— **這個變體的經銷價**(元位整數)。
    * 規則與 `MockProduct.dealerPrice` **逐字相同**:只在 `tier === 'store'` 時存在、

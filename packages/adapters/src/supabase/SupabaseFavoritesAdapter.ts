@@ -64,7 +64,31 @@ export class SupabaseFavoritesAdapter implements IFavoritesRepository {
     if (error) {
       throw error;
     }
-    return (data as unknown as FavoriteRow[]).map((row) => ({
+    const rows = data as unknown as FavoriteRow[];
+    // 商品頁乙 P12(P1 清單:收藏頁直讀商品表,拿不到特價):價格改讀 products_public 的 price_general
+    //   (20260928230000 起 = 代表款的實際一般價,和商品卡、結帳同一個數字)。一次查詢;下架的商品本來就不在 rows 裡。
+    //   ⛔ 不把上面那個 inner join 換成 view:view 有 LATERAL,PostgREST 不一定推得出關聯,查不到會整頁壞。
+    const priceById = new Map<string, number | null>();
+    // 這一次查詢失敗 ⇒ 收藏清單照樣回(愛心狀態、商品名稱都還在),價格全部標成 null(畫面印「—」),
+    //   不退回商品表的價格:特價期間那是比較貴的舊價,印出來會和結帳對不上(Codex P12 R1 必修)。
+    let pricesUnavailable = false;
+    if (rows.length > 0) {
+      const { data: prices, error: priceError } = await this.supabase
+        .from('products_public')
+        .select('id, price_general')
+        .in(
+          'id',
+          rows.map((r) => r.product_id),
+        );
+      if (priceError) {
+        pricesUnavailable = true;
+      } else {
+        for (const p of prices ?? []) {
+          if (typeof p.id === 'string') priceById.set(p.id, p.price_general);
+        }
+      }
+    }
+    return rows.map((row) => ({
       favorite: {
         customerUserId: row.customer_user_id,
         productId: row.product_id,
@@ -75,7 +99,8 @@ export class SupabaseFavoritesAdapter implements IFavoritesRepository {
         handle: row.products.handle,
         title: row.products.title,
         brandName: row.products.brands.name,
-        priceGeneral: row.products.price_general,
+        // 讀不到那一列(兩次查詢之間下架)⇒ null(不印價格);不退回商品表的價格:那不含特價(Fable P12 R2 nit)
+        priceGeneral: pricesUnavailable ? null : (priceById.get(row.products.id) ?? null),
         // images 是 jsonb ⇒ 可能是 null / 非陣列 / 元素非 string。這裡**收斂不丟錯**:
         // 一張圖讀不出來不該讓整個收藏清單掛掉(對齊 `mappers/product.ts:326` 對 null 的處置)。
         // 🔴🔴 **`hasNoRealImage` 是 2026-09-04 補的(⟦ship-ORDERIMG⟧)** —— 在那之前,

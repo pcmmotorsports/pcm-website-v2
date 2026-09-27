@@ -208,10 +208,21 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     : '通用款';
 
   const effectivePrice = computeEffectivePrice(product, tier);
-  const originalPrice =
-    tier === 'general'
-      ? null
-      : computeEffectivePrice(product, 'general').amount;
+  // 商品頁乙 P12:特價期間 `general` 已經是代表款的特價(view 20260928230000),原價在 `saleOriginalPrice`。
+  //   一般會員:劃線印特價的原價(沒有特價 ⇒ null)。
+  //   經銷 / P價:不吃特價(Q-P2 乙),劃線要用【原本的一般價】——
+  //     有規格 ⇒ 基準款(原一般價最低那一款,與經銷站挑基準款同一個規則)的原一般價;
+  //     沒有規格 ⇒ 商品價(沒有規格就不會有特價)。
+  //     商品在特價中而這裡沒有規格資料(列表讀路徑)⇒ 不知道基準款的原價 ⇒ 不劃線(null),不拿特價頂上。
+  const rawGeneralOf = (v: (typeof product.variants)[number]) => v.saleOriginalPrice ?? v.priceByTier.general.amount;
+  const basisRawGeneral =
+    product.variants.length > 0
+      ? Math.min(...product.variants.map(rawGeneralOf))
+      : product.saleOriginalPrice === undefined
+        ? computeEffectivePrice(product, 'general').amount
+        : null;
+  const saleOriginalPrice = tier === 'general' ? (product.saleOriginalPrice ?? null) : null;
+  const originalPrice = tier === 'general' ? saleOriginalPrice : basisRawGeneral;
   const tierLabel: TierLabel =
     tier === 'premiumStore' ? 'P價' : tier === 'store' ? '店價' : null;
 
@@ -227,9 +238,9 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     name: product.name,
     fits,
     price: effectivePrice.amount,
-    origPrice: null,
+    origPrice: saleOriginalPrice,
     isNew: false,
-    isSale: false,
+    isSale: saleOriginalPrice !== null,
     inStock: availabilityToBool(product.availability),
     category: product.category.raw,
     color: 'silver',
@@ -272,6 +283,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
       sku: v.sku,
       spec: v.spec,
       price: v.priceByTier.general.amount,
+      // 商品頁乙 P12:這個規格特價生效時的原價(沒有特價 ⇒ 不帶)
+      ...(v.saleOriginalPrice !== undefined ? { origPrice: v.saleOriginalPrice } : {}),
       images: v.images,
     })),
     // 2026-08-08 Q28:變體「數量」與變體「資料」是兩件事 —— 列表讀路徑只帶得到前者

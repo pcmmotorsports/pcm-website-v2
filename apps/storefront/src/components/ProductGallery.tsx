@@ -10,7 +10,7 @@
 // - window.__pdSwipeX/Y/T/DidSwipe + __lbSwipeX 全局 → 5 個 useRef(heroSwipeXRef / heroSwipeYRef / heroSwipeTRef / heroDidSwipeRef / lbSwipeXRef)
 // - PRODUCT_IMG_POOL + productGallery inline(第 2 處、第 1 處在 `ProductImage.tsx`:POOL `:28-44` / productGallery `:46-54`〔2026-08-12 拆檔前在 ProductCard.tsx〕、第 3 處撞抽 backlog #155)
 // - e.target → cast as Element 取 .closest()(TypeScript 嚴格)
-// - product.origPrice! non-null assertion(hasDiscount guard 後安全)
+// - shownOrig! non-null assertion(hasDiscount guard 後安全)
 //
 // 'use client' 必要:useState / useEffect / useRef / useMemo + 互動 onClick / onTouch
 // 對齊 ADR-0006 §1 白名單「Hooks → 'use client'」
@@ -46,9 +46,17 @@ import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
 /** 站內自己的佔位圖(`apps/storefront/public/`)。與後台 `product-media.ts` 用的是同一張。 */
 const PLACEHOLDER_IMAGE = '/placeholder-product.png';
 
-export type ProductGalleryProps = { product: MockProduct; selectedVariant?: UIVariant | null };
+export type ProductGalleryProps = {
+  product: MockProduct;
+  selectedVariant?: UIVariant | null;
+  /**
+   * 商品頁乙 P12:折數徽章用的「特價原價」,由 ProductPage 算好傳進來(與價格區、手機購買列同一個值:
+   * 跟著選到的規格走、經銷會員恆 null)。沒傳(舊呼叫端 / 測試)⇒ 退回看商品層的 isSale / origPrice。
+   */
+  saleOrigPrice?: number | null;
+};
 
-export function ProductGallery({ product, selectedVariant }: ProductGalleryProps) {
+export function ProductGallery({ product, selectedVariant, saleOrigPrice }: ProductGalleryProps) {
   // OD-7d(Sean 2026-06-03 Q2:選中變體圖排前 + 其餘全部補後、可一路滑):
   //   gallery = 選中變體的圖排**最前**(正確的那幾張)+ 其餘所有變體圖(變體順序)+ 群代表圖,
   //   Set 去重保序(RPM 各變體圖無跨變體重複;群代表圖通常已是某變體的圖、去重不重出)。
@@ -143,8 +151,11 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
     };
   }, [lightbox, gallery.length]);
 
-  const hasDiscount = product.origPrice != null && product.origPrice > product.price;
-  const discountPct = hasDiscount ? Math.round((1 - product.price / product.origPrice!) * 100) : 0;
+  // 商品頁乙 P12:折數跟著選到的規格走(沒選 ⇒ 商品代表款),經銷會員看不到(ProductPage 傳 null)。
+  const shownPrice = selectedVariant?.price ?? product.price;
+  const shownOrig = saleOrigPrice !== undefined ? saleOrigPrice : product.isSale ? product.origPrice : null;
+  const hasDiscount = shownOrig != null && shownOrig > shownPrice;
+  const discountPct = hasDiscount ? Math.round((1 - shownPrice / shownOrig!) * 100) : 0;
 
   // Lightbox 無限輪播(Sean 2026-07-09:滑到最後一張再往右 → 回第一張)。
   const lbNext = () => setActiveImg((i) => (i + 1) % gallery.length);
@@ -239,7 +250,7 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
           <div className="pd-hero-counter">
             {String(activeImg + 1).padStart(2, '0')} / {String(gallery.length).padStart(2, '0')}
           </div>
-          {product.isSale && <div className="pd-hero-badge">−{discountPct}%</div>}
+          {hasDiscount && <div className="pd-hero-badge">−{discountPct}%</div>}
           {product.isNew && !product.isSale && <div className="pd-hero-badge pd-hero-badge-new">NEW</div>}
         </div>
         {/* 縮圖列:5 格視窗 + 左右翻頁(Sean 2026-06-03 :3001 驗:>5 張不一次全列、橫向 swipe + 箭頭翻頁)。

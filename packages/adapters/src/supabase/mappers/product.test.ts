@@ -686,3 +686,17 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropImagesWithoutRealPhoto', () => {
     ).toThrow(/images\[1\] 非 string/);
   });
 });
+
+describe('商品頁乙 P12:view 的 original_price ⇒ domain saleOriginalPrice', () => {
+  it('原價比現在的價格高 ⇒ 帶 saleOriginalPrice(商品與規格)', () => {
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, price_general: 800, original_price: 1000 }).saleOriginalPrice).toBe(1000);
+    expect(mapVariantRow({ ...baseVariantRow, price_general: 800, original_price: 1000 }).saleOriginalPrice).toBe(1000);
+  });
+
+  it('沒有特價 / 原價不高於現價 / 不是整數 ⇒ 不帶這個欄位', () => {
+    for (const original of [null, undefined, 800, 700, 999.5]) {
+      expect(mapVariantRow({ ...baseVariantRow, price_general: 800, original_price: original })).not.toHaveProperty('saleOriginalPrice');
+      expect(mapSupabaseProductToDomain({ ...baseProductRow, price_general: 800, original_price: original })).not.toHaveProperty('saleOriginalPrice');
+    }
+  });
+});

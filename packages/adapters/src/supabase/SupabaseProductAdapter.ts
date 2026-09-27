@@ -106,7 +106,7 @@ const PRODUCT_SELECT_DETAIL =
  * 部署面:embed 關係已由主視窗對**正式站 PostgREST** 實測(`select=id,product_variants_public(id)`
  * → HTTP 200、每列帶 `[{id},…]`),42703 那格不會發生。
  */
-const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim, product_variants_public(id)`;
+const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim, original_price, product_variants_public(id)`;
 
 /**
  * Detail-with-variants projection(M-1-16c-2、backlog #203):PRODUCT_SELECT_DETAIL +
@@ -137,7 +137,7 @@ const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim, p
  */
 const VARIANT_SKU_ROW_CAP = 500;
 
-const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL}, card_image_trim, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
+const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL}, card_image_trim, original_price, product_variants_public(id, sku, spec, price_general, original_price, availability, images, sort_order)`;
 
 /**
  * SupabaseProductAdapter:Supabase 真實 ProductRepository 實作。

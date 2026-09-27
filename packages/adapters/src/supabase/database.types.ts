@@ -36,6 +36,9 @@
 //    🔵 同上:**不進下面那個計數**。
 // 🟢 **2026-09-28 網站施工窗 86:同一條慣例 —— 商品頁乙價格段 `admin_create_manual_product`(20260928210000,2026-09-28 已貼正式庫)。**
 //    照 migration 手打、字母序;`p_subtitle` / `p_description` 補 `| null`(可不填)。🔵 同上:**不進下面那個計數**。
+// 🟢 **2026-09-28 網站施工窗 86:同一條慣例 —— 商品頁乙價格段 P-M4(20260928230000,2026-09-28 已貼正式庫)。**
+//    `products_public` / `products_list_public` / `product_variants_public` 三個 view 的 Row 加 `original_price`
+//    (代表款或該規格特價生效時的原價,否則 null)。只加 Row(讀路徑);照 migration 手打、字母序。🔵 同上:**不進下面那個計數**。
 // 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
 //    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
 //    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
@@ -8259,6 +8262,7 @@ export type Database = {
           created_at: string | null
           id: string | null
           images: Json | null
+          original_price: number | null
           price_general: number | null
           product_id: string | null
           sku: string | null
@@ -8374,6 +8378,7 @@ export type Database = {
           fits: string | null
           handle: string | null
           id: string | null
+          original_price: number | null
           price_general: number | null
           subtitle: string | null
           supplier_slug: string | null
@@ -8412,6 +8417,7 @@ export type Database = {
           id: string | null
           images: Json | null
           manuals: Json | null
+          original_price: number | null
           price_general: number | null
           sound_clips: Json | null
           subtitle: string | null

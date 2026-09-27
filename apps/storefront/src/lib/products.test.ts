@@ -333,3 +333,57 @@ describe('線E · tryCatalogBrandTaxonomy 的兩個世界(本片唯一決定「�
     expect(res.brands).toEqual([]);
   });
 });
+
+describe('商品頁乙 P12:特價(view 起 general 已是特價,原價在 saleOriginalPrice)', () => {
+  const onSale = () =>
+    fakeProduct({
+      priceByTier: {
+        general: { amount: toMoneyAmount(9000), currency: 'TWD' },
+        store: { amount: toMoneyAmount(DEALER_STORE), currency: 'TWD' },
+        premiumStore: { amount: toMoneyAmount(DEALER_PREMIUM), currency: 'TWD' },
+      },
+      saleOriginalPrice: 12000,
+      variants: [
+        fakeVariant({
+          priceByTier: {
+            general: { amount: toMoneyAmount(9000), currency: 'TWD' },
+            store: { amount: toMoneyAmount(VARIANT_STORE), currency: 'TWD' },
+            premiumStore: { amount: toMoneyAmount(VARIANT_PREMIUM), currency: 'TWD' },
+          },
+          saleOriginalPrice: 12000,
+        }),
+        fakeVariant({ id: 'v-002', sku: 'AKRA-EX-01-B', spec: { weave: 'Forged' }, saleOriginalPrice: undefined }),
+      ],
+      variantCount: 2,
+    });
+
+  it('一般會員:卡片與商品頁顯示特價 9,000、劃線 12,000、標特價;規格帶自己的原價', () => {
+    const ui = toUIProduct(onSale(), 'general');
+    expect(ui.price).toBe(9000);
+    expect(ui.origPrice).toBe(12000);
+    expect(ui.originalPrice).toBe(12000);
+    expect(ui.isSale).toBe(true);
+    expect(ui.variants?.[0]?.origPrice).toBe(12000);
+    expect(ui.variants?.[1]).not.toHaveProperty('origPrice');
+  });
+
+  it('經銷會員:不標特價;劃線用基準款(原一般價最低那一款)的原一般價,不拿特價頂上', () => {
+    const ui = toUIProduct(onSale(), 'store');
+    expect(ui.isSale).toBe(false);
+    expect(ui.origPrice).toBeNull();
+    // 兩個規格的原一般價:12,000(特價中)與 12,000(VARIANT_GENERAL)⇒ 基準款原價 12,000,不是特價 9,000
+    expect(ui.originalPrice).toBe(12000);
+  });
+
+  it('經銷會員 + 列表讀路徑(沒有規格資料)+ 商品在特價中 ⇒ 不知道基準款原價 ⇒ 不劃線', () => {
+    const ui = toUIProduct({ ...onSale(), variants: [] }, 'store');
+    expect(ui.originalPrice).toBeNull();
+  });
+
+  it('沒有特價:和今天一樣(一般會員不劃線、不標特價)', () => {
+    const ui = toUIProduct(fakeProduct(), 'general');
+    expect(ui.origPrice).toBeNull();
+    expect(ui.originalPrice).toBeNull();
+    expect(ui.isSale).toBe(false);
+  });
+});

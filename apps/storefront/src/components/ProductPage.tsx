@@ -189,11 +189,22 @@ export function ProductPage({
   // 🔵 「原價」那一格要**與 `displayPrice` 同一層** —— 選了變體就拿那個變體的一般價。
   //   ⛔ ~~原本直接用 `product.price`~~：`displayPrice` 已經可能是**變體**的經銷價，
   //   而拿商品級的一般價去跟它並排，劃掉的那個數字不屬於同一件東西。
-  const generalPrice = selectedVariant?.price ?? product.price;
+  // 商品頁乙 P12:特價期間 `price` 已經是特價(view 20260928230000);原價放在 `origPrice`,跟著選到的規格走。
+  //   經銷會員不吃特價(Q-P2 乙):不顯示特價標記,劃線要用【原本的一般價】(規格在特價中就取它的原價)。
+  const saleOrigPrice = usesDealerPrice
+    ? null
+    : selectedVariant
+      ? (selectedVariant.origPrice ?? null)
+      : product.origPrice;
+  const generalPrice = usesDealerPrice
+    ? selectedVariant
+      ? (selectedVariant.origPrice ?? selectedVariant.price)
+      : (product.originalPrice ?? product.price)
+    : (selectedVariant?.price ?? product.price);
   // 🔴 **`hasDiscount` 要求 `origPrice > 一般價`**（`design-reference/components/ProductPage.jsx:294` 同形）。
   //   ⛔ ~~原本 ProductInfo 寫 `product.origPrice ?? product.price`~~（codex R2 must-fix ③）：
   //   `origPrice === 0` 會印出**「原價 NT$ 0」**，而比一般價**更低**的假原價也會被照畫。
-  const hasDiscount = product.origPrice != null && product.origPrice > generalPrice;
+  const hasDiscount = saleOrigPrice != null && saleOrigPrice > generalPrice;
   // 🔴🔴 **「有沒有經銷價」與「他是不是經銷商」是兩件事**（codex R3 must-fix ②）。
   //   ⛔ ~~原本標記與原價那一格掛在 `usesDealerPrice`~~ ⇒ **RPC 少回那一列時**，畫面會出現
   //     **`NT$ 8,400` + `原價 NT$ 8,400` + 「經銷價」** = 假標記 + **同一個數字印兩次**
@@ -317,7 +328,7 @@ export function ProductPage({
             Mobile sticky bar 在 main / HomeFooter 之後(對齊 design ProductPage.jsx L501-545 位置)*/}
         {/* TODO M-1-13g: pd-related + pd-toast(responsive media queries 13e-a 已搬 design L662-667 sec 6+7+13 切換規則) */}
         <section className="pd-main">
-          <ProductGallery product={product} selectedVariant={selectedVariant} />
+          <ProductGallery product={product} selectedVariant={selectedVariant} saleOrigPrice={saleOrigPrice} />
           <ProductInfo
             product={product}
             tier={tier}
@@ -440,11 +451,11 @@ export function ProductPage({
               {hasDealerPrice ? (
               <div className="pd-mbb-orig">
                 {showDealerOrig
-                  ? `原價 NT$ ${(hasDiscount ? product.origPrice! : generalPrice).toLocaleString()} · 經銷`
+                  ? `原價 NT$ ${(hasDiscount ? saleOrigPrice! : generalPrice).toLocaleString()} · 經銷`
                   : '經銷'}
               </div>
             ) : hasDiscount && !dealerPriceUnavailable ? (
-              <div className="pd-mbb-orig">NT$ {product.origPrice!.toLocaleString()}</div>
+              <div className="pd-mbb-orig">NT$ {saleOrigPrice!.toLocaleString()}</div>
             ) : null}
           </div>
           <button

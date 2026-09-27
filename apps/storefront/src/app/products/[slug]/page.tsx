@@ -129,6 +129,13 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //     這一段就會把經銷價快取給一般會員** —— 驗收有一格在釘 build 輸出的 `ƒ`。
   const tier = (await resolveDisplayTierStrict(`/products/${slug}`, await searchParams)).tier; // B2B 4c:經銷站查不到 ⇒ 導到登入頁,不退成牌價
   if (tier === 'store') {
+    // 商品頁乙 P12(Q-P2 乙:經銷會員不吃特價):快取裡的是一般會員版(toUIProduct 'general'),特價標記要拿掉;
+    //   劃線改用基準款(原一般價最低那一款)的原一般價,規格在特價中就取它的原價 —— 與 toUIProduct 經銷分支同一條規則。
+    //   🔴 放在下面那個 try 之前(Fable P12 R2 必修):它只依賴規格資料、不依賴取價結果;取價失敗時也要拿掉。
+    product.isSale = false;
+    product.origPrice = null;
+    const rawGenerals = (product.variants ?? []).map((v) => v.origPrice ?? v.price);
+    product.originalPrice = rawGenerals.length > 0 ? Math.min(...rawGenerals) : product.price;
     // 🔴🔴 **商品那半要 uuid, 而 UI 型別裡沒有** —— `MockProduct.id` 是 `number`(不是 uuid),
     //   uuid 在 `toUIProduct` 那一層就沒帶出來。⇒ 與 `app/cart/actions.ts:288-290` 同一個理由,
     //   走同一支 `fetchProductIdsByHandles`。

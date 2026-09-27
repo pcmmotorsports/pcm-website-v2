@@ -77,6 +77,38 @@ describe('ProductGallery', () => {
     expect(screen.getByText(`−${expectedPct}%`)).toBeDefined();
   });
 
+  it('商品頁乙 P12:折數跟著選到的規格走;選到沒特價的規格 ⇒ 不顯示折數', () => {
+    const base = MOCK_PRODUCTS[0]!;
+    const onSale: UIVariant = { id: 'v-b', sku: 'B', spec: { c: 'B' }, price: 500, origPrice: 2000, images: [] };
+    const noSale: UIVariant = { id: 'v-a', sku: 'A', spec: { c: 'A' }, price: 1000, images: [] };
+    const product = { ...base, price: 500, origPrice: 2000, isSale: true, isNew: false, variants: [noSale, onSale] };
+    // ProductPage 傳進來的 saleOrigPrice 跟著選到的規格走
+    const { rerender } = render(<ProductGallery product={product} selectedVariant={onSale} saleOrigPrice={2000} />);
+    expect(screen.getByText('−75%')).toBeDefined();
+    rerender(<ProductGallery product={product} selectedVariant={noSale} saleOrigPrice={null} />);
+    expect(screen.queryByText(/^−\d+%$/)).toBeNull();
+  });
+
+  it('商品頁乙 P12:代表款沒特價(isSale=false),選到在特價中的規格 ⇒ 照樣顯示折數(與價格區一致)', () => {
+    const base = MOCK_PRODUCTS[0]!;
+    const onSale: UIVariant = { id: 'v-b', sku: 'B', spec: { c: 'B' }, price: 8000, origPrice: 10000, images: [] };
+    render(
+      <ProductGallery
+        product={{ ...base, price: 5000, origPrice: null, isSale: false, isNew: false, variants: [onSale] }}
+        selectedVariant={onSale}
+        saleOrigPrice={10000}
+      />,
+    );
+    expect(screen.getByText('−20%')).toBeDefined();
+  });
+
+  it('商品頁乙 P12:經銷會員(route 已把 isSale 拿掉)⇒ 不顯示折數', () => {
+    const base = MOCK_PRODUCTS[0]!;
+    const onSale: UIVariant = { id: 'v-b', sku: 'B', spec: { c: 'B' }, price: 500, origPrice: 2000, images: [] };
+    render(<ProductGallery product={{ ...base, price: 500, origPrice: null, isSale: false, isNew: false, variants: [onSale] }} selectedVariant={onSale} saleOrigPrice={null} />);
+    expect(screen.queryByText(/^−\d+%$/)).toBeNull();
+  });
+
   it('should render NEW badge when product.isNew && !isSale', () => {
     const newSample = MOCK_PRODUCTS.find((p) => p.isNew && !p.isSale)!;
     render(<ProductGallery product={newSample} />);
