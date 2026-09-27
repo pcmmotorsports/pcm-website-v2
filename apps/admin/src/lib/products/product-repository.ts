@@ -86,6 +86,13 @@ export interface AdminProductListRow extends AdminProductRow {
   readonly brands: { readonly name: string } | null;
   /** 內嵌 to-one 的分類完整路徑(`categories(raw_path)`),例 `'引擎部品 · 排氣管'`。理由同 `brands`。 */
   readonly categories: { readonly raw_path: string } | null;
+  /** 員工改過的標題(`staff_overrides->>title`);沒改過是 `null`。列表顯示用 `displayTitle`。 */
+  readonly override_title: string | null;
+}
+
+/** 客人看到的標題:員工改過的優先,沒有才用供應商的(同前台 products_public,20260927040000)。 */
+export function displayTitle(row: Pick<AdminProductListRow, 'title' | 'override_title'>): string {
+  return row.override_title ?? row.title;
 }
 
 /**
@@ -93,7 +100,7 @@ export interface AdminProductListRow extends AdminProductRow {
  * 這串字面被 product-repository.test.ts 釘住。
  */
 const PRODUCT_LIST_COLUMNS =
-  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path)' as const;
+  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title' as const;
 
 /** 上下架狀態的 domain 形狀(頁面與表格只認這個,不認 DB 欄)。 */
 export type ProductListingState = 'listed' | 'delisted';
@@ -225,7 +232,8 @@ export function buildProductKeywordOrFilter(keyword: string): string {
   const inner = ilikeSafe.replace(/(["\\])/g, '\\$1');
   // 前後各一個 `%` = 子字串比對;它們在引號**內**,是 pattern 的一部分。
   const pattern = `"%${inner}%"`;
-  return `external_id.ilike.${pattern},title.ilike.${pattern}`;
+  // 2026-09-28 商品頁乙 A1:員工改過的標題(staff_overrides.title)也要搜得到,不然列表上看得到的名字搜不到。
+  return `external_id.ilike.${pattern},title.ilike.${pattern},staff_overrides->>title.ilike.${pattern}`;
 }
 
 /**
