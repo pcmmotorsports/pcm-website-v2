@@ -69,6 +69,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'product.override.change': '修改商品文字',
   // 商品分類(20260928050000:改分類、改回由同步決定)
   'product.category.change': '修改商品分類',
+  // 特價功能退回時清空所有特價(20260928200000-rollback.sql)
+  'product.sale_price.clear_all': '清空所有特價(退回)',
   // 後台建單把收件地址存進客人地址簿(20260927120000)
   'customer.address.save_from_order': '建單時存入客人地址',
   'order_refund.unknown_state': '退款結果不明(需人工確認)',
