@@ -560,7 +560,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     variantImages: 'per-variant', // 397 個多變體群裡 394 群每變體都有自己的圖
     writeAllowed: true, // ✅ 2026-09-08 Sean 拍板「開」;⛔ ~~false ← Sean 對 WRS 沒有拍過上架~~(見上方授權那段)
   },
-  // Öhlins。2026-09-17 登記，**停在乾跑**：`writeAllowed: false`，一個位元組也不寫。
+  // Öhlins。2026-09-17 登記，停在乾跑(`writeAllowed: false`);⛔ 2026-09-28 兩個條件都滿足、翻成 `true`(見本區塊尾端)。
   //
   // 🔴🔴 **首灌被【兩個】條件損住，而它們是同一天拍的，不要只讀到第一個**：
   //   ① Sean 2026-09-17 拍【乙】= 三家一家一家來、**先 ohlins**（arrow / ilmberger 這一輪不做）。
@@ -620,7 +620,11 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //   乾跑(同日):1,045 群 / 1,045 變體;分類全對上、品名全有中文、handle 全合法且與網站零撞、離群價 0。
     //   既有 ohlins 品牌 5 件(dbk 改掛:DU 468 / OH01–OH04)與本家料號、handle 交集都是 0(同日重查)。
     //   🛑 翻這一格 ≠ 首灌:首灌(--confirm-write --expect-groups)由誰跑、何時跑,主視窗問 Sean(Arrow 09-26 是 Sean 自己跑)。
-    //      這一顆合進 dev 之前,首灌沒有做完的話,每日同步會在隔天自己灌進去 —— 所以要等 Sean 答了再合。
+    //      ⛔ ~~合進 dev 之後每日同步會隔天自己灌進去~~(Codex R1 更正):網站上 ohlins 上架數是 0 時,
+    //      每日同步帶 --confirm-write 但沒帶 --expect-groups ⇒ 群數指紋檢查(rpm-preflight.ts / rpm-import.ts)擋下商品寫入、
+    //      留同步紀錄並告警 —— 不會自己灌,但每天會紅一次。
+    //      ⚠️ 那道檢查只認「上架數是 0」:首灌只成功一部分的話,之後就不再強制群數 ⇒ 不能拿它保證首灌完整。
+    //      ⇒ 合併條件:首灌由 Sean 授權的人跑完、而且驗收(1,045 群)之後,才把這一顆合進 dev。
     writeAllowed: true,
   },
   // Arrow。2026-09-25 登記;2026-09-26 Sean Q15 甲批首灌 ⇒ `writeAllowed: true`。
