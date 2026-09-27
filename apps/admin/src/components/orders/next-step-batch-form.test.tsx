@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({ submit: vi.fn() }));
 vi.mock('../../lib/orders/next-step-batch-actions', () => ({ submitNextStepBatchAction: h.submit }));
 
 import { NextStepBatchForm } from './next-step-batch-form';
+import { NextStepDoneContext } from './next-step-dialog';
 import { useBatchRow } from './next-step-batch-context';
 import { batchFieldName } from '../../lib/orders/next-step-batch';
 
@@ -46,7 +47,7 @@ describe('NextStepBatchForm', () => {
     expect(fd.get(batchFieldName(A, 'submitted_at'))).toMatch(/^2026-09-14T10:30/);
     expect(fd.has(batchFieldName(A, 'submitted_at_original'))).toBe(false);
     await waitFor(() => expect(screen.getByTestId(`ok-${A}`).textContent).toContain('已下訂'));
-    expect(screen.getByTestId('batch-summary').textContent).toContain('這一發成功 1 列');
+    expect(screen.getByTestId('batch-summary').textContent).toContain('已完成 1 樣');
     // 成功的列不再渲染欄位 ⇒ 再送一次不會帶它。
     expect(container.querySelector(`input[name="${batchFieldName(A, 'quantity')}"]`)).toBeNull();
   });
@@ -61,7 +62,7 @@ describe('NextStepBatchForm', () => {
     );
     expect(container.querySelector('[data-batch-done]')).toBeNull();
     fireEvent.submit(container.querySelector('form')!);
-    await waitFor(() => expect(screen.getByTestId('batch-summary').textContent).toContain('這一發成功 1 列'));
+    await waitFor(() => expect(screen.getByTestId('batch-summary').textContent).toContain('已完成 1 樣'));
     const wrap = container.querySelector('[data-batch-done="1"]');
     expect(wrap).not.toBeNull();
     expect(wrap!.querySelector('.next-step-empty')).not.toBeNull();
@@ -76,7 +77,7 @@ describe('NextStepBatchForm', () => {
     );
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('超過'));
-    expect(screen.getByTestId('batch-summary').textContent).toContain('失敗 1 列');
+    expect(screen.getByTestId('batch-summary').textContent).toContain('失敗 1 樣');
     expect(container.querySelector(`input[name="${batchFieldName(A, 'quantity')}"]`)).not.toBeNull();
     h.submit.mockResolvedValueOnce({ status: 'rejected', message: '一次最多 50 列' });
     fireEvent.submit(container.querySelector('form')!);
@@ -137,4 +138,27 @@ describe('NextStepBatchForm', () => {
     expect(fd.has(batchFieldName(A, 'submitted_at'))).toBe(false);
     expect(fd.has(batchFieldName(A, 'submitted_at_original'))).toBe(true);
   });
+
+  // ── 2026-09-27 出貨流程甲片四(報告問題 10):全部成功之後, 彈窗要看得出「做完了」──
+  it('🔴 全部成功 ⇒「確認全部」變灰、通知殼把「取消」換成「關閉」;有失敗的 ⇒ 都不變', async () => {
+    const markDone = vi.fn();
+    h.submit.mockResolvedValueOnce({ status: 'done', rows: { [A]: { ok: false, message: '超過' } }, okCount: 0, failCount: 1, halted: false });
+    const { container } = render(
+      <NextStepDoneContext.Provider value={markDone}>
+        <NextStepBatchForm kind='receipt'>
+          <Row id={A} />
+        </NextStepBatchForm>
+      </NextStepDoneContext.Provider>,
+    );
+    const submitBtn = () => screen.getByRole('button', { name: /確認全部|送出中/ }) as HTMLButtonElement;
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('超過'));
+    expect(submitBtn().disabled).toBe(false);
+    expect(markDone).not.toHaveBeenCalledWith(true);
+    h.submit.mockResolvedValueOnce({ status: 'done', rows: { [A]: { ok: true, text: '已登' } }, okCount: 1, failCount: 0, halted: false });
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(markDone).toHaveBeenCalledWith(true));
+    expect(submitBtn().disabled).toBe(true);
+  });
 });
+

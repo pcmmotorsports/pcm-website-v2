@@ -1,6 +1,7 @@
 'use client';
 
-import { startTransition, useActionState, useRef, type ReactNode } from 'react';
+import { startTransition, useActionState, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { NextStepDoneContext } from './next-step-dialog';
 import { BatchRowContext, PROC_SUBMITTED_AT_ORIGINAL_FIELD, type BatchCtx } from './next-step-batch-context';
 import { submitNextStepBatchAction } from '../../lib/orders/next-step-batch-actions';
 import { BATCH_KIND_FIELD, type BatchActionState, type BatchKind, type BatchRowOutcome } from '../../lib/orders/next-step-batch';
@@ -47,6 +48,12 @@ export function NextStepBatchForm({ kind, children }: { kind: BatchKind; childre
   if (state.status === 'done') {
     for (const [id, o] of Object.entries(state.rows)) if (o.ok) okRows.current[id] = o;
   }
+  // 2026-09-27 出貨流程甲片四(報告問題 10):這一發全部成功 ⇒「確認全部」變灰、殼的「取消」改「關閉」。
+  const allDone = state.status === 'done' && state.okCount > 0 && state.failCount === 0 && !state.halted;
+  const markDone = useContext(NextStepDoneContext);
+  useEffect(() => {
+    if (allDone) markDone(true);
+  }, [allDone, markDone]);
   const ctx: BatchCtx = {
     kind,
     pending,
@@ -82,10 +89,10 @@ export function NextStepBatchForm({ kind, children }: { kind: BatchKind; childre
           )}
           {state.status === 'done' && (
             <p className='text-[13px] leading-[1.4]' data-testid='batch-summary'>
-              這一發成功 <b className='tabular-nums'>{state.okCount}</b> 列
+              已完成 <b className='tabular-nums'>{state.okCount}</b> 樣
               {state.failCount > 0 && (
                 <>
-                  ,失敗 <b className='text-destructive tabular-nums'>{state.failCount}</b> 列
+                  ,失敗 <b className='text-destructive tabular-nums'>{state.failCount}</b> 樣
                 </>
               )}
               {state.halted && <span className='text-destructive'>;中途被拒(可能登入過期),後面的列沒送 —— 前面打勾的已經寫進去了</span>}
@@ -93,7 +100,7 @@ export function NextStepBatchForm({ kind, children }: { kind: BatchKind; childre
           )}
           <button
             type='submit'
-            disabled={pending}
+            disabled={pending || allDone}
             className='bg-primary text-primary-foreground inline-flex min-h-[30px] items-center rounded-lg px-3 text-[13px] leading-[1.4] font-semibold disabled:opacity-50'
           >
             {pending ? '送出中…' : '確認全部'}

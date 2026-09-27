@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useEffect, useRef, useState, type ReactNode } from 'react';
+
+/**
+ * 2026-09-27 出貨流程甲片四(報告問題 10):彈窗裡的表單全部送成功 ⇒ 呼叫它(true), 殼的「取消」改寫「關閉」。
+ * 下訂 / 到貨成功之後彈窗不關(會打勾給他看), 那時還寫「取消」讀起來像要把剛做的事取消掉。
+ */
+export const NextStepDoneContext = createContext<(done: boolean) => void>(() => {});
 import { useRouter } from 'next/navigation';
 import { NEXT_STEP_CANCEL_CLASS, NEXT_STEP_CLOSE_FORM_ID } from './next-step-cancel-button';
 
@@ -49,6 +55,7 @@ export function NextStepDialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const router = useRouter();
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -114,7 +121,9 @@ export function NextStepDialog({
         <h3 id='next-step-title' className='mb-1.5 text-base leading-[1.4] font-semibold'>
           {title}
         </h3>
-        <div>{children}</div>
+        <NextStepDoneContext.Provider value={setDone}>
+          <div>{children}</div>
+        </NextStepDoneContext.Provider>
         {/* 🔴 `form method="dialog"` 的 submit = 原生關閉(觸發 `close` 事件)⇒ 不需要 onClick。
             這支 form **永遠在**(`hidden` 時是空殼):body 裡的 `<NextStepCancelButton form=…>` 靠 id 指到它。
             `inlineCancel` ⇒ 取消鈕在 body 的 `.ft` 那一排,殼不再畫第二排;否則殼自己畫一顆(長相 = 稿的 `.btn`)。 */}
@@ -126,7 +135,7 @@ export function NextStepDialog({
         >
           {!inlineCancel && (
             <button type='submit' className={NEXT_STEP_CANCEL_CLASS} data-next-step-cancel=''>
-              取消
+              {done ? '關閉' : '取消'}
             </button>
           )}
         </form>
