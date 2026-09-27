@@ -269,7 +269,7 @@ describe('#20 片1a — 讀取層守門', () => {
     //    ⇒ 通過。而**內嵌關聯不會夾帶未指名的欄位**:PostgREST 只回 `select` 裡點名的,
     //      2026-08-19 本機實跑回的正是 `{"brands":{"name":"BREMBO"}}` 單欄。
     expect(code).toContain(
-      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title'",
+      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title, thumb:images->>0, image_missing:admin_card_image_missing, availability'",
     );
     // 片1b-1 新增的詳情欄位清單,同樣釘值不釘呼叫字面。
     expect(code).toContain('supplier_slug, handle, brand_id, category_id');

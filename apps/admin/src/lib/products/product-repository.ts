@@ -89,6 +89,12 @@ export interface AdminProductListRow extends AdminProductRow {
   readonly categories: { readonly raw_path: string } | null;
   /** 員工改過的標題(`staff_overrides->>title`);沒改過是 `null`。列表顯示用 `displayTitle`。 */
   readonly override_title: string | null;
+  /** 商品頁乙 A4:第一張圖網址(`images->>0`),縮圖用。 */
+  readonly thumb: string | null;
+  /** 商品頁乙 A4:代表圖待補(20260928030000 計算欄,與「要處理」那顆同一個判斷)。 */
+  readonly image_missing: boolean | null;
+  /** 商品頁乙 A4:庫存狀態(`in-stock` / `out-of-stock`),缺貨標記用。 */
+  readonly availability: string | null;
 }
 
 /** 客人看到的標題:員工改過的優先,沒有才用供應商的(同前台 products_public,20260927040000)。 */
@@ -101,7 +107,7 @@ export function displayTitle(row: Pick<AdminProductListRow, 'title' | 'override_
  * 這串字面被 product-repository.test.ts 釘住。
  */
 const PRODUCT_LIST_COLUMNS =
-  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title' as const;
+  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path), override_title:staff_overrides->>title, thumb:images->>0, image_missing:admin_card_image_missing, availability' as const;
 
 /** 上下架狀態的 domain 形狀(頁面與表格只認這個,不認 DB 欄)。 */
 export type ProductListingState = 'listed' | 'delisted';
