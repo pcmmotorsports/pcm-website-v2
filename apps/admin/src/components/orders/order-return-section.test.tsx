@@ -139,4 +139,30 @@ describe('OrderReturnSection', () => {
     );
     expect(screen.getByText(/這張訂單有折扣 NT\$ 500，建議金額沒有扣掉折扣，請自行判斷要扣多少/)).toBeTruthy();
   });
+
+  describe('Sean A2 甲:收到退貨之後已有退款紀錄 ⇒ 不給連結, 請先核對', () => {
+    const received = ret({ status: 'received', receivedBy: 's', receivedAt: '2026-09-28T01:00:00Z', items: [{ orderItemId: I1, quantity: 1, receivedQuantity: 1, condition: 'good' }] });
+    const view = (refundRecords: { createdAt: string; live: boolean }[] | null) =>
+      render(<OrderReturnSection orderId={ORDER} returnTo={`/orders/${ORDER}`} items={[item(2)]} returns={[received]} tokens={tokens} refundRecords={refundRecords} />);
+
+    it('收到之後有 1 筆有效退款 ⇒ 顯示已有退款紀錄 1 筆, 沒有連結', () => {
+      view([{ createdAt: '2026-09-28T02:00:00Z', live: true }]);
+      expect(screen.getByText('已有退款紀錄 1 筆，請先核對下方退款紀錄。')).toBeTruthy();
+      expect(screen.queryByRole('link', { name: '為這筆退貨登記退款' })).toBeNull();
+    });
+
+    it('收到之前的退款、或已作廢／失敗的退款不算 ⇒ 照常給連結', () => {
+      view([
+        { createdAt: '2026-09-27T23:00:00Z', live: true },
+        { createdAt: '2026-09-28T02:00:00Z', live: false },
+      ]);
+      expect(screen.getByRole('link', { name: '為這筆退貨登記退款' })).toBeTruthy();
+    });
+
+    it('退款紀錄讀不到 ⇒ 不給連結, 說明要先核對', () => {
+      view(null);
+      expect(screen.queryByRole('link', { name: '為這筆退貨登記退款' })).toBeNull();
+      expect(screen.getByText('退款紀錄載入失敗，無法確認是否已退款。請先核對下方退款紀錄。')).toBeTruthy();
+    });
+  });
 });

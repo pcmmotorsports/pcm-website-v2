@@ -41,7 +41,13 @@ export function OrderReturnSection({
   returns,
   tokens,
   discountTotal = 0,
+  refundRecords = [],
 }: {
+  /**
+   * Sean A2 甲:這張單的退款紀錄(時間 + 是否有效:刷卡 processing/confirmed、現金匯款未作廢)。
+   * null = 讀不到或不完整 ⇒ 已收回的退貨一律不給「為這筆退貨登記退款」連結, 請員工先核對。
+   */
+  refundRecords?: readonly RefundRecordStamp[] | null;
   orderId: string;
   returnTo: string;
   items: readonly ReturnSectionItem[];
@@ -68,6 +74,7 @@ export function OrderReturnSection({
           returns={returns}
           tokens={tokens}
           discountTotal={discountTotal}
+          refundRecords={refundRecords}
         />
       )}
     </section>
@@ -82,7 +89,9 @@ function ReturnBody({
   returns,
   tokens,
   discountTotal,
+  refundRecords,
 }: {
+  refundRecords: readonly RefundRecordStamp[] | null;
   discountTotal: number;
   orderId: string;
   returnTo: string;
@@ -134,6 +143,7 @@ function ReturnBody({
               byId={byId}
               tokens={tokens.perReturn[r.id]}
               discountTotal={discountTotal}
+              refundCheck={refundCheckAfter(r.receivedAt, refundRecords)}
               refund={suggestReturnRefund(
                 r,
                 items.map((it) => ({ id: it.id, shippedQuantity: it.quantitySummary?.shippedQuantity ?? 0, unitPrice: it.unitPrice.amount })),
@@ -165,7 +175,9 @@ function ReturnCard({
   tokens,
   refund,
   discountTotal,
+  refundCheck,
 }: {
+  refundCheck: RefundCheck;
   discountTotal: number;
   r: OrderReturnRow;
   orderId: string;
@@ -221,7 +233,9 @@ function ReturnCard({
           {formatOrderDateTime(r.receivedAt)} {r.receivedBy} 確認收到{r.receiveNote ? `。收件備註：${r.receiveNote}` : ''}
         </p>
       )}
-      {refund && <ReturnRefundHint refund={refund} returnTo={returnTo} byId={byId} discountTotal={discountTotal} />}
+      {refund && (
+        <ReturnRefundHint refund={refund} returnTo={returnTo} byId={byId} discountTotal={discountTotal} refundCheck={refundCheck} />
+      )}
       {r.status === 'voided' && r.voidedAt && (
         <p className='text-muted-foreground mt-1 text-xs'>
           {formatOrderDateTime(r.voidedAt)} {r.voidedBy} 作廢。原因：{r.voidReason}
@@ -243,7 +257,9 @@ function ReturnRefundHint({
   returnTo,
   byId,
   discountTotal,
+  refundCheck,
 }: {
+  refundCheck: RefundCheck;
   discountTotal: number;
   refund: NonNullable<ReturnType<typeof suggestReturnRefund>>;
   returnTo: string;
@@ -274,12 +290,37 @@ function ReturnRefundHint({
           ` 這張訂單有折扣 NT$ ${formatOrderAmount(discountTotal)}，建議金額沒有扣掉折扣，請自行判斷要扣多少。`}
         {refund.capped && ' 有品項的實收數量多於目前可退的已出貨數量，已按已出貨數量計算。'}
       </p>
-      <a
-        href={returnRefundHref(returnTo, refund.amount, reason)}
-        className='text-primary inline-block text-sm font-medium underline underline-offset-2'
-      >
-        為這筆退貨登記退款
-      </a>
+      {refundCheck.kind === 'none' ? (
+        <a
+          href={returnRefundHref(returnTo, refund.amount, reason)}
+          className='text-primary inline-block text-sm font-medium underline underline-offset-2'
+        >
+          為這筆退貨登記退款
+        </a>
+      ) : (
+        <p className='font-medium text-amber-700 dark:text-amber-400'>
+          {refundCheck.kind === 'has'
+            ? `已有退款紀錄 ${refundCheck.count} 筆，請先核對下方退款紀錄。`
+            : '退款紀錄載入失敗，無法確認是否已退款。請先核對下方退款紀錄。'}
+        </p>
+      )}
     </div>
   );
+}
+
+/** 一筆退款紀錄的時間與是否有效(刷卡 processing/confirmed、現金匯款未作廢)。由 money tab 從兩本帳組出來。 */
+export type RefundRecordStamp = { createdAt: string; live: boolean };
+type RefundCheck = { kind: 'none' } | { kind: 'has'; count: number } | { kind: 'unknown' };
+
+/**
+ * Sean 2026-09-27 A2 甲:確認收到退貨【之後】這張單已有有效退款 ⇒ 不給「為這筆退貨登記退款」連結, 改成請員工核對。
+ * 退貨與退款之間沒有連結(沒動資料庫), 所以只能用時間判斷;收到之前的退款、作廢或失敗的退款不算。
+ * 讀不到退款紀錄 ⇒ unknown(一樣不給連結)。
+ */
+function refundCheckAfter(receivedAt: string | null, records: readonly RefundRecordStamp[] | null): RefundCheck {
+  if (records === null) return { kind: 'unknown' };
+  if (receivedAt === null) return { kind: 'none' };
+  const since = Date.parse(receivedAt);
+  const count = records.filter((r) => r.live && Date.parse(r.createdAt) >= since).length;
+  return count > 0 ? { kind: 'has', count } : { kind: 'none' };
 }

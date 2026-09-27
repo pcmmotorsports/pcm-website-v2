@@ -23,7 +23,7 @@ import { shouldShowRefundEntry } from './refund-entry-gate';
 import { ManualRefundEntrySection } from './manual-refund-entry-section';
 import { RefundBackfillSection } from './refund-backfill-section';
 import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund-ledger-section';
-import { OrderReturnSection, type ReturnTokens } from './order-return-section';
+import { OrderReturnSection, type RefundRecordStamp, type ReturnTokens } from './order-return-section';
 import type { OrderReturnRow } from '../../lib/orders/return-view';
 import type { ReturnRefundPrefill } from '../../lib/orders/return-action-state';
 import { refundPrefillNotice } from '../../lib/orders/return-view';
@@ -149,6 +149,16 @@ export function OrderDetailMoneyTab({
   //    ⚠️ 這一顆的名字沒有改:它問的仍然是「有沒有卡住的判定在擋」,只是「擋不擋」的答案
   //       現在多看一格更正紀錄。
   const hasStuckRefundVerdict = refunds.some((r) => isBlockingStuckVerdict(r, stuckVerdicts));
+
+  // Sean 2026-09-27 A2 甲:給退貨區塊判斷「收到退貨之後是否已有退款」。兩本帳任一讀不到或被截斷 ⇒ null(不給退款連結)。
+  //   刷卡:processing / confirmed 算有效(failed = 錢沒動);現金匯款:未作廢算有效。
+  const returnRefundRecords: RefundRecordStamp[] | null =
+    refundsFailed || refundsTruncated || manualRefundsFailed || manualRefundsTruncated
+      ? null
+      : [
+          ...refunds.map((r) => ({ createdAt: r.createdAt, live: r.status === 'processing' || r.status === 'confirmed' })),
+          ...manualRefunds.map((m) => ({ createdAt: m.createdAt, live: m.voidedAt === null })),
+        ];
 
   // 線上退款表單顯不顯示(下面 JSX 與退貨預填那句提示共用同一個結果, 不各算一次)。
   const cardRefundShown = shouldShowRefundEntry({
@@ -556,6 +566,7 @@ export function OrderDetailMoneyTab({
                   returns={orderReturns.rows}
                   tokens={orderReturns.tokens}
                   discountTotal={detail.discountTotal.amount}
+                  refundRecords={returnRefundRecords}
                 />
               )}
               {nothingReceived ? (
