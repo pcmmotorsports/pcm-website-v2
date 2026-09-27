@@ -1,6 +1,14 @@
 import Link from 'next/link';
 import { Fragment } from 'react';
-import { ShipmentDispatchAllButton, ShipmentPickBox, ShipmentPickProvider, ShipmentPickResultRow } from '@/components/shipments/shipment-pick';
+import {
+  ShipmentDispatchAllButton,
+  ShipmentPickBox,
+  ShipmentPickGroups,
+  ShipmentPickProvider,
+  ShipmentPickResultRow,
+  ShipmentSubmitAllButton,
+  type PickGroups,
+} from '@/components/shipments/shipment-pick';
 import { AutoApplySubmit } from '@/components/shared/auto-apply-submit';
 import { ShipmentHctQueryProbe } from '@/components/shipments/shipment-hct-query-probe';
 import { resolveManagePermission } from '../../lib/session/resolve-manage-permission';
@@ -57,6 +65,9 @@ import {
 //    `components/print/shipping-doc.tsx` 的 `shippingDocBlocker()`。**兩層都要。**
 
 export const dynamic = 'force-dynamic';
+// 2026-09-27 出貨流程乙(計畫第二節第 8 項):這一頁的叫車 / 要號 server action 執行上限 60 秒。
+// 「重新叫車要等上一次超過 10 分鐘」靠的就是它(加上叫車 action 送出前的 30 秒期限)。有測試釘住這一行。
+export const maxDuration = 60;
 
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm align-middle';
@@ -107,6 +118,19 @@ export default async function ShipmentsPage({
       return b.show && b.enabled;
     })
     .map((r) => r.shipmentId);
+  // 2026-09-27 出貨流程乙第 4 項:上方分群(與訂單列表同一套判定, box-progress.ts)。只有「還沒要號」與「可以叫車」勾得起來。
+  const progressOf = new Map(rows.map((r) => [r.shipmentId, shipmentListProgress(r)] as const));
+  const groups: PickGroups = {
+    needsNumber: rows.filter((r) => progressOf.get(r.shipmentId) === 'needs_number').map((r) => r.shipmentId),
+    ready: rows
+      .filter((r) => {
+        const b = dispatchButton(r, now);
+        return b.show && b.enabled;
+      })
+      .map((r) => r.shipmentId),
+    uncertain: rows.filter((r) => progressOf.get(r.shipmentId) === 'dispatch_uncertain').length,
+    shipped: rows.filter((r) => progressOf.get(r.shipmentId) === 'shipped').length,
+  };
   // 🔴 片 B 臨時(plan §3.4):QueryEDELNO 真打驗證入口。開關沒開 ⇒ 連管理者判定都不查;驗完整段刪。
   const showHctProbe =
     process.env.HCT_QUERY_PROBE_ENABLED === 'true' &&
@@ -119,7 +143,7 @@ export default async function ShipmentsPage({
         「訂單明細」那張紙從這一頁退場 —— 它在明細頁的入口還在(`order-detail-header.tsx`),這一頁是出貨工作台。
      🔴 日期欄兩行(日期 + 那句 note)在稿上是一行 ⇒ note 改成同行小字。 */
   return (
-    <ShipmentPickProvider initialSelected={picked}>
+    <ShipmentPickProvider initialSelected={picked} groups={groups}>
       <div className='pcm-plist mx-auto space-y-3'>
         <div className='pcm-head'>
           <h1>出貨清單</h1>
@@ -132,8 +156,14 @@ export default async function ShipmentsPage({
             <AutoApplySubmit label='查這一天' className='border-border bg-card hover:bg-muted rounded-md border' />
           </form>
           <span className='pcm-sp' />
-          <ShipmentDispatchAllButton />
+          <span className='inline-flex items-center gap-2'>
+            <ShipmentSubmitAllButton />
+            <ShipmentDispatchAllButton />
+          </span>
         </div>
+
+        {/* 2026-09-27 出貨流程乙第 4 項:今天出貨工作台的分群(每群箱數 + 全選)。 */}
+        {rows.length > 0 && <ShipmentPickGroups />}
 
         {showHctProbe && <ShipmentHctQueryProbe />}
 
@@ -176,7 +206,7 @@ export default async function ShipmentsPage({
                       <td className={TD}>
                         <ShipmentPickBox
                           shipmentId={row.shipmentId}
-                          enabled={dispatch.show && dispatch.enabled}
+                          enabled={(dispatch.show && dispatch.enabled) || progressOf.get(row.shipmentId) === 'needs_number'}
                           why={dispatch.show ? (dispatch.enabled ? null : dispatch.why) : '這一箱不是新竹物流'}
                         />
                       </td>

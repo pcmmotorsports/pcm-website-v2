@@ -1,10 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 // @vitest-environment jsdom
 // 出貨清單對稿 v22 §4(2026-09-14 C3):頂列 h1 + 挑日期 + 右上角「新竹物流叫車」;表 8 欄;列印兩顆小鈕;叫車走既有 action 逐箱。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import type { ShipmentListRow } from '../../lib/shipping/shipment-list-view';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), dispatch: vi.fn(), refresh: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), dispatch: vi.fn(), submit: vi.fn(), refresh: vi.fn() }));
 vi.mock('server-only', () => ({}));
 // 片 B 臨時入口:開關預設沒開, 不會渲染;mock 掉免得拉進 server action 的相依。
 vi.mock('@/components/shipments/shipment-hct-query-probe', () => ({ ShipmentHctQueryProbe: () => null }));
@@ -13,6 +15,7 @@ vi.mock('../../lib/shipping/shipment-list-read', async (importOriginal) => ({
   listShipmentsByDay: mocks.list,
 }));
 vi.mock('@/lib/shipping/shipment-dispatch-hct-action', () => ({ dispatchShipmentAction: mocks.dispatch }));
+vi.mock('@/lib/shipping/shipment-submit-hct-action', () => ({ submitShipmentToHctAction: mocks.submit }));
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
   useRouter: () => ({ refresh: mocks.refresh, replace: vi.fn(), push: vi.fn() }),
@@ -63,6 +66,7 @@ const UNCERTAIN: ShipmentListRow = {
 beforeEach(() => {
   mocks.list.mockResolvedValue({ rows: [DISPATCHED, BASE], truncated: false });
   mocks.dispatch.mockReset();
+  mocks.submit.mockReset();
   mocks.refresh.mockReset();
 });
 afterEach(() => cleanup());
@@ -107,8 +111,11 @@ describe('出貨清單 · 稿 v22 §4', () => {
     const btn = [...container.querySelectorAll('.pcm-head button')].find((b) => b.textContent?.startsWith('新竹物流叫車')) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     expect(btn.textContent).toBe('新竹物流叫車(1 箱)');
+    // 2026-09-27 出貨流程乙第 6 項:叫車前先確認一次(寫出箱數)。
+    fireEvent.click(btn);
+    expect(mocks.dispatch).not.toHaveBeenCalled();
     await act(async () => {
-      fireEvent.click(btn);
+      fireEvent.click(container.querySelector('[data-testid="dispatch-confirm"]')!);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -157,8 +164,9 @@ describe('出貨清單 · 稿 v22 §4', () => {
     mocks.dispatch.mockResolvedValue({ ok: false, kind: 'needs_human', message: '這一箱已向新竹送出叫車，但結果不確定' });
     const { container } = await renderPage('s-draft');
     const btn = [...container.querySelectorAll('.pcm-head button')].find((b) => b.textContent?.startsWith('新竹物流叫車')) as HTMLButtonElement;
+    fireEvent.click(btn); // 2026-09-27 起先出現確認
     await act(async () => {
-      fireEvent.click(btn);
+      fireEvent.click(container.querySelector('[data-testid="dispatch-confirm"]')!);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -166,4 +174,63 @@ describe('出貨清單 · 稿 v22 §4', () => {
     expect(msg).toBeDefined();
     expect((msg.closest('td') as HTMLTableCellElement).colSpan).toBe(8);
   });
+
+  // ── 2026-09-27 出貨流程乙第 4–6 項:今天出貨工作台(分群、全選、批次要號、批次叫車) ──
+  const NEEDS_NUMBER = (id: string): ShipmentListRow => ({ ...BASE, shipmentId: id, shipmentReference: id.toUpperCase().slice(0, 6), hctStatus: 'draft', trackingNumber: null, hctRequestId: null });
+  const SHIPPED: ShipmentListRow = { ...BASE, shipmentId: 's-shipped', shipmentReference: 'SHPPED', shippedAt: '2026-09-13T05:00:00.000Z' };
+  const bench = () => mocks.list.mockResolvedValue({ rows: [NEEDS_NUMBER('n-1'), NEEDS_NUMBER('n-2'), BASE, UNCERTAIN, SHIPPED], truncated: false });
+  const headBtn = (c: HTMLElement, prefix: string) => [...c.querySelectorAll('.pcm-head button')].find((b) => b.textContent?.startsWith(prefix)) as HTMLButtonElement;
+
+  it('🔴 上方分群顯示箱數:還沒要託運單號 / 可以叫車 / 結果未確認 / 已出貨', async () => {
+    bench();
+    const { container } = await renderPage();
+    const groups = container.querySelector('[data-testid="pick-groups"]')!.textContent!;
+    expect(groups).toContain('還沒要託運單號 2 箱');
+    expect(groups).toContain('可以叫車 1 箱');
+    expect(groups).toContain('結果未確認 1 箱');
+    expect(groups).toContain('已出貨 1 箱');
+  });
+
+  it('🔴 「還沒要託運單號」全選 ⇒ 兩箱勾起來, 要號鈕寫 2 箱;叫車鈕不算它們', async () => {
+    bench();
+    const { container } = await renderPage();
+    fireEvent.click(container.querySelector('[data-testid="select-needs-number"]')!);
+    expect(headBtn(container, '跟新竹要託運單號').textContent).toBe('跟新竹要託運單號(2 箱)');
+    expect(headBtn(container, '新竹物流叫車').textContent).toBe('新竹物流叫車');
+  });
+
+  it('🔴 批次要號:逐箱各呼叫一次既有的單箱 action(瀏覽器依序送, 不是一支 action 迴圈)', async () => {
+    bench();
+    mocks.submit.mockResolvedValue({ ok: true, kind: 'submitted', requestId: 'R1', remark: null });
+    const { container } = await renderPage();
+    fireEvent.click(container.querySelector('[data-testid="select-needs-number"]')!);
+    await act(async () => {
+      fireEvent.click(headBtn(container, '跟新竹要託運單號'));
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+    expect(mocks.submit.mock.calls.map((c) => c[0])).toEqual([{ shipmentId: 'n-1' }, { shipmentId: 'n-2' }]);
+    expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  it('🔴 批次叫車:「可以叫車」全選 → 按叫車 → 先出現確認(寫箱數、不能取消), 按確認才送', async () => {
+    bench();
+    mocks.dispatch.mockResolvedValue({ ok: true, kind: 'dispatched', edelno: 'E-1' });
+    const { container } = await renderPage();
+    fireEvent.click(container.querySelector('[data-testid="select-ready"]')!);
+    fireEvent.click(headBtn(container, '新竹物流叫車'));
+    expect(container.textContent).toContain('將向新竹物流叫車 1 箱，送出後不能取消。');
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(container.querySelector('[data-testid="dispatch-confirm"]')!);
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+    expect(mocks.dispatch.mock.calls.map((c) => c[0])).toEqual([{ shipmentId: 's-draft' }]);
+  });
+
+  it('🔴 這一頁的 server action 有 60 秒執行上限(叫車「10 分鐘後才能重新叫」靠它)', () => {
+    // jsdom 環境下 import.meta.url 不是 file: ⇒ 照 order-inline-wiring.test.ts 的做法用 __dirname。
+    const src = readFileSync(join(__dirname, 'page.tsx'), 'utf8');
+    expect(src).toMatch(/^export const maxDuration = 60;$/m);
+  });
 });
+
