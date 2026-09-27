@@ -499,6 +499,8 @@ describe('ItemProcurementForm — 失敗 state 只作用在自己那份表單', 
     fireEvent.submit(container.querySelector('form')!);
     const alert = await findByRole('alert');
     expect(alert.textContent).toContain('超過可訂購數量');
+    // ⟦f3-A2B1DEBT1⟧ ③:另一家缺貨卻佔著數量時, 那一筆最少是 1 件、調不到 0 ⇒ 要指到「作廢」那顆鈕的位置。
+    expect(alert.textContent).toContain('已下的採購(作廢在這裡)');
   });
 
   it('失敗屬於**別的品項** → 本表單不顯示錯誤、且欄位值不被別人的 values 蓋掉', async () => {
