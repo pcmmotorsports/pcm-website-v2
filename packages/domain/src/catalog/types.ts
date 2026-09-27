@@ -223,6 +223,11 @@ export type ProductVariant = {
   spec: Record<string, string>;
   /** 三級會員多 tier 價(domain 統一 priceByTier;DB 兩整數欄 mapper 重組) */
   priceByTier: PriceByTier;
+  /**
+   * 商品頁乙 P12:這個規格的特價正在生效時的【原價】(一般價,元位整數);沒有特價 ⇒ 沒有這個欄位。
+   * `priceByTier.general` 在特價期間已經是特價(view 20260928230000 起讀實際一般價)。經銷會員不吃特價(Q-P2 乙)。
+   */
+  saleOriginalPrice?: number;
   /** 變體 availability(對齊 ProductAvailability、與 Product 同 union) */
   availability: ProductAvailability;
   /** 變體圖 URL 陣列;無圖時 16c fallback 商品群代表圖(Q3=C) */
@@ -278,6 +283,11 @@ export type Product = {
   category: CategoryPath;
   fitments: FitmentSpec[];
   priceByTier: PriceByTier;
+  /**
+   * 商品頁乙 P12:代表款(實際一般價最低那一款)的特價正在生效時的【原價】(一般價,元位整數);沒有特價 ⇒ 沒有這個欄位。
+   * `priceByTier.general` 在特價期間已經是代表款的特價(view 20260928230000)。經銷會員不吃特價(Q-P2 乙)。
+   */
+  saleOriginalPrice?: number;
 
   /**
    * 商品主碼 / 產品型號(M-1-16c-4b 落地)。vendor 來源料號(如 RPM 的 `RPM-DCC01`)、

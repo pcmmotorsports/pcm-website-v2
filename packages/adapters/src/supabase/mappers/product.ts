@@ -93,6 +93,11 @@ export type SupabaseProductRow = {
    */
   price_general: number | null;
   /**
+   * 商品頁乙 P-M4(20260928230000):代表款特價生效時的原價(一般價),沒有特價 ⇒ null。
+   * 只有 view 讀路徑有這欄;save 路徑(base 表)沒有 ⇒ optional。
+   */
+  original_price?: number | null;
+  /**
    * 經銷敏感價(TWD 元位整數)。view 永遠排除、僅 save 路徑寫入;
    * read 投射(PRODUCT_SELECT_DETAIL)不含此欄 → optional。
    */
@@ -143,6 +148,8 @@ export type SupabaseVariantRow = {
   //   型別誠實標 nullable、mapVariantRow `?? {}`/`?? []` 防禦,否則 Object.entries(null)/null.map() 讓整頁 500。
   spec: Record<string, unknown> | null;
   price_general: number | null;
+  /** 商品頁乙 P-M4:這個規格特價生效時的原價(一般價),沒有特價 ⇒ null(舊的 select 沒選這欄 ⇒ optional)。 */
+  original_price?: number | null;
   availability: ProductAvailability;
   images: unknown[] | null;
   sort_order: number;
@@ -231,6 +238,7 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     category,
     fitments: row.fitments,
     priceByTier: { general, store, premiumStore },
+    ...saleOriginalOf(row.original_price, row.price_general),
     description: row.description ?? '',
     // A/#270 賣點條列:防禦性 guard(jsonb 來源 shape 不保證)→ 濾出 string、非陣列→[];恆 string[](never null、對齊 domain Product.highlights)。
     highlights: Array.isArray(row.highlights) ? row.highlights.filter((h): h is string => typeof h === 'string') : [],
@@ -353,10 +361,20 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
     sku: row.sku,
     spec,
     priceByTier: { general, store, premiumStore },
+    ...saleOriginalOf(row.original_price, row.price_general),
     availability: row.availability,
     images,
     sortOrder: row.sort_order,
   };
+}
+
+/**
+ * 商品頁乙 P12:view 的 original_price(20260928230000)⇒ domain `saleOriginalPrice`。
+ * 只有「是正整數、而且比現在的價格高」才算特價生效;其餘(沒有特價、資料不合理)⇒ 不帶這個欄位,畫面照舊只印一個價。
+ */
+function saleOriginalOf(original: number | null | undefined, price: number | null): { saleOriginalPrice?: number } {
+  if (typeof original !== 'number' || !Number.isInteger(original) || price === null || original <= price) return {};
+  return { saleOriginalPrice: original };
 }
 
 /**

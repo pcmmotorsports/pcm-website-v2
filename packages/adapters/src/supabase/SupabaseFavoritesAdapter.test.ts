@@ -23,12 +23,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { SupabaseFavoritesAdapter } from './SupabaseFavoritesAdapter';
 
 /** 只記下呼叫參數的假 client。回傳值固定,因為本檔不測資料轉換以外的東西。 */
-function makeFakeClient(rows: unknown[] = []) {
+function makeFakeClient(rows: unknown[] = [], prices: unknown[] = [], priceError: unknown = null) {
   const calls: { table: string; op: string; args: unknown[] }[] = [];
   const chain = {
     select: (...args: unknown[]) => { calls.push({ table: 'x', op: 'select', args }); return chain; },
     eq: (...args: unknown[]) => { calls.push({ table: 'x', op: 'eq', args }); return chain; },
     order: (...args: unknown[]) => { calls.push({ table: 'x', op: 'order', args }); return Promise.resolve({ data: rows, error: null }); },
+    // 商品頁乙 P12:第二次查詢(products_public 的價格)
+    in: (...args: unknown[]) => { calls.push({ table: 'x', op: 'in', args }); return Promise.resolve({ data: priceError ? null : prices, error: priceError }); },
     upsert: (...args: unknown[]) => { calls.push({ table: 'x', op: 'upsert', args }); return Promise.resolve({ error: null }); },
     delete: (...args: unknown[]) => { calls.push({ table: 'x', op: 'delete', args }); return chain; },
     then: undefined as unknown,
@@ -65,6 +67,31 @@ describe('SupabaseFavoritesAdapter', () => {
     const projection = String(calls.find((c) => c.op === 'select')!.args[0]);
     expect(projection).not.toContain('price_store');
     expect(projection).not.toContain('price_by_tier');
+  });
+
+  it('商品頁乙 P12:價格改讀 products_public(特價期間是特價);那邊沒有這一列 ⇒ null(不退回商品表的舊價)', async () => {
+    const row = (id: string, price: number) => ({
+      customer_user_id: 'u-1',
+      product_id: id,
+      created_at: '2026-09-28T00:00:00Z',
+      products: { id, handle: id, title: id, price_general: price, images: [], brands: { name: 'B' } },
+    });
+    const { client, from } = makeFakeClient([row('p-1', 1300), row('p-2', 800)], [{ id: 'p-1', price_general: 500 }]);
+    const list = await new SupabaseFavoritesAdapter(client).listByCustomer('u-1');
+    expect(from).toHaveBeenCalledWith('products_public');
+    expect(list.map((x) => x.product.priceGeneral)).toEqual([500, null]);
+  });
+
+  it('商品頁乙 P12:價格那一次查詢失敗 ⇒ 收藏清單照樣回,價格標成 null(畫面印「—」),不退回商品表的舊價', async () => {
+    const row = (id: string, price: number) => ({
+      customer_user_id: 'u-1',
+      product_id: id,
+      created_at: '2026-09-28T00:00:00Z',
+      products: { id, handle: id, title: id, price_general: price, images: [], brands: { name: 'B' } },
+    });
+    const { client } = makeFakeClient([row('p-1', 1300)], [], { message: 'down' });
+    const list = await new SupabaseFavoritesAdapter(client).listByCustomer('u-1');
+    expect(list.map((x) => [x.product.handle, x.product.priceGeneral])).toEqual([['p-1', null]]);
   });
 
   it('remove 用兩個 eq 鎖到單一列（複合主鍵兩欄都要）', async () => {

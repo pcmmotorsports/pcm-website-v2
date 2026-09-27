@@ -40,7 +40,7 @@ vi.mock('@/components/ProductPage', () => ({
   }: {
     motoBrands?: unknown[];
     vehicleTaxonomyFailed?: boolean;
-    product?: { dealerPrice?: number; variants?: Array<{ id: string; dealerPrice?: number }> };
+    product?: { dealerPrice?: number; isSale?: boolean; originalPrice?: number | null; variants?: Array<{ id: string; dealerPrice?: number }> };
     tier?: string;
   }) {
     return (
@@ -50,6 +50,8 @@ vi.mock('@/components/ProductPage', () => ({
         data-failed={String(vehicleTaxonomyFailed)}
         data-tier={String(tier)}
         data-dealer-price={String(product?.dealerPrice)}
+        data-is-sale={String(product?.isSale)}
+        data-original-price={String(product?.originalPrice)}
         data-variant-dealer-prices={(product?.variants ?? [])
           .map((v) => `${v.id}=${String(v.dealerPrice)}`)
           .join(',')}
@@ -239,6 +241,25 @@ describe('/products/[slug] · 經銷價那條路只對 store 開', () => {
     expect(html).toContain('data-variant-dealer-prices="v-1=6300"');
   });
 
+  it('🔴 商品頁乙 P12:經銷會員 ⇒ 拿掉特價標記,劃線用基準款的原一般價(規格在特價中取原價),不拿特價頂上', async () => {
+    resolveAuthenticatedTier.mockResolvedValueOnce('store');
+    fetchProductByHandle.mockResolvedValue({
+      ...product([], [
+        { id: 'v-1', price: 500, origPrice: 2000 } as { id: string; price: number },
+        { id: 'v-2', price: 1000 },
+      ]),
+      price: 500,
+      isSale: true,
+      origPrice: 2000,
+      originalPrice: 2000,
+    });
+    fetchEffectivePrices.mockResolvedValueOnce(new Map([['product:uuid-a', 900], ['variant:v-1', 1800], ['variant:v-2', 900]]));
+    const html = renderToStaticMarkup(await call([]));
+    expect(html).toContain('data-is-sale="false"');
+    // 原一般價:v-1 2000(特價中取原價)、v-2 1000 ⇒ 基準款 1000;不是特價 500
+    expect(html).toContain('data-original-price="1000"');
+  });
+
   it('🔴🔴 general ⇒ props 裡**一個經銷價都沒有**（一般會員外洩的守門在這一層）', async () => {
     resolveAuthenticatedTier.mockResolvedValueOnce('general');
     fetchProductByHandle.mockResolvedValue(product([], [{ id: 'v-1', price: 8400 }]));
@@ -268,12 +289,14 @@ describe('/products/[slug] · 經銷價那條路只對 store 開', () => {
     // 🛑 `fetchEffectivePrices` 是刻意 fail-closed（會 throw）。沒有 route 那個 try
     //   ⇒ **經銷會員的整張商品頁 500，而一般會員完全正常** ⇒ 沒有人會回報。
     resolveAuthenticatedTier.mockResolvedValueOnce('store');
-    fetchProductByHandle.mockResolvedValue(product([], [{ id: 'v-1', price: 8400 }]));
+    fetchProductByHandle.mockResolvedValue({ ...product([], [{ id: 'v-1', price: 8400 }]), isSale: true });
     fetchEffectivePrices.mockRejectedValueOnce(new Error('get_effective_prices failed'));
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const html = renderToStaticMarkup(await call([]));
     expect(html).toContain('data-stub="pdp"');            // 頁面**有**畫出來
     expect(html).toContain('data-dealer-price="undefined"');
+    // 商品頁乙 P12(Fable R2 必修):取價失敗時,特價標記也要拿掉(經銷會員不吃特價)
+    expect(html).toContain('data-is-sale="false"');
     expect(spy.mock.calls.flat().join(' ')).toContain('整段失敗');
     spy.mockRestore();
   });

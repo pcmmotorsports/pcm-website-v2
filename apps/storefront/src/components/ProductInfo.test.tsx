@@ -837,11 +837,35 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ PDP 經銷價 —— 兩個世界', () => 
   });
 
   // ── `hasDiscount` 那一格的守門（codex R3 must-fix ⑦：原本 fixture 的 origPrice 全是 null）──
-  it('🟢 origPrice **高於**一般價 ⇒ 劃掉的是 origPrice（不是一般價）', () => {
-    renderInfo({ ...WITH_DEALER, origPrice: 9900 }, 'store');
-    const body = document.body.textContent ?? '';
-    expect(body).toContain('6,720');   // 經銷價
-    expect(body).toContain('9,900');   // 劃掉的原價
+  // 商品頁乙 P12(Q-P2 乙:經銷會員不吃特價):`origPrice` 從此是【特價的原價】,經銷會員不看它;
+  //   劃線要用【原本的一般價】= 規格在特價中就取規格的 origPrice、否則規格價。
+  //   ⛔ ~~原本這格釘「經銷會員看到 origPrice 9,900 被劃掉」~~:那是促銷欄位還沒有意義時的假設。
+  it('🟢 經銷會員:規格在特價中(一般價 8,400 是特價、原價 9,900)⇒ 劃掉的是原本的一般價 9,900,不顯示特價折數', () => {
+    renderInfo(
+      {
+        ...WITH_DEALER,
+        origPrice: 9900,
+        variants: [{ id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 8400, origPrice: 9900, dealerPrice: 6720, images: [] }],
+      },
+      'store',
+    );
+    expect(document.querySelector('.pd-price-orig')?.textContent).toContain('9,900');
+    expect(document.body.textContent ?? '').toContain('6,720');
+    expect(document.querySelector('.pd-price-save')).toBeNull();
+  });
+
+  it('🟢 一般會員:規格在特價中 ⇒ 顯示特價 8,400、劃掉原價 9,900、折數', () => {
+    renderInfo(
+      {
+        ...WITH_DEALER,
+        dealerPrice: undefined,
+        origPrice: 9900,
+        variants: [{ id: 'v-1', sku: 'S-1', spec: { weave: 'Forged' }, price: 8400, origPrice: 9900, images: [] }],
+      },
+      'general',
+    );
+    expect(document.querySelector('.pd-price-orig')?.textContent).toContain('9,900');
+    expect(document.querySelector('.pd-price-save')?.textContent).toContain('15%');
   });
 
   it('🔴 origPrice **低於**一般價（假原價）⇒ 不得被畫出來，退回一般價', () => {
