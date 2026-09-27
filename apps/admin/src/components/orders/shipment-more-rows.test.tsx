@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // shipment-more-rows.test.tsx — B13-b:出貨彈窗「更多」六列。守的是【顯示條件逐字照明細頁出貨卡】與【零新寫入路】
 //    (每一列的鈕都是既有元件;這裡把它們換成印名字的替身,只證「這一列在不在、給了哪一箱」)。
 
-const { loadOrderShipments, findAdminOrderDetail } = vi.hoisted(() => ({
+const { loadOrderShipments, findAdminOrderDetail, listLastDispatchAttempts } = vi.hoisted(() => ({
   loadOrderShipments: vi.fn(),
   findAdminOrderDetail: vi.fn(),
+  listLastDispatchAttempts: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('../../lib/shipping/order-shipments', () => ({ loadOrderShipments }));
@@ -27,6 +28,12 @@ vi.mock('./shipment-void-button', () => ({
   ShipmentVoidButton: ({ shipmentReference }: { shipmentReference: string }) => <button type='button'>作廢 {shipmentReference}</button>,
 }));
 vi.mock('./shipment-hct-unknown-notice', () => ({ ShipmentHctUnknownNotice: () => null }));
+vi.mock('../../lib/shipping/hct-redispatch-repository', () => ({ listLastDispatchAttempts }));
+vi.mock('./shipment-hct-uncertain-exits', () => ({
+  ShipmentHctUncertainExits: ({ shipmentReference, lastAttempt, edelno }: { shipmentReference: string; lastAttempt: { lastNo: number } | null; edelno: string | null }) => (
+    <span>兩個出口 {shipmentReference} 次數 {lastAttempt === null ? '讀不到' : lastAttempt.lastNo} 貨號 {edelno ?? '無'}</span>
+  ),
+}));
 vi.mock('./shipment-hct-dispatch-button', () => ({
   ShipmentHctDispatchButton: ({ shipmentReference }: { shipmentReference: string }) => <button type='button'>叫車鈕 {shipmentReference}</button>,
 }));
@@ -50,6 +57,7 @@ const box = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  listLastDispatchAttempts.mockResolvedValue(new Map());
   findAdminOrderDetail.mockResolvedValue({ id: 'o1', items: [{ id: 'oi-1', title: 'x' }] });
 });
 afterEach(cleanup);
@@ -173,14 +181,32 @@ describe('箱子彈窗跟著叫車結果走', () => {
     expect(container.textContent).not.toContain('送新竹');
   });
 
-  it('🔴 叫車結果不確定 ⇒ 不給要號, 印出打電話與「填單號並標記出貨」的指引, 標出貨那顆還在', async () => {
-    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted', hctDispatchAttempted: true, hctDispatched: false }]);
+  // 2026-09-28 出貨流程乙第 8 項:指引從「按填單號並標記出貨」改成「依新竹的回答按下面其中一顆」(兩個出口)。
+  it('🔴 叫車結果不確定 ⇒ 不給要號, 印出打電話的指引與兩個出口(帶這一箱最後一次叫車的次數), 標出貨那顆還在', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted', hctDispatchAttempted: true, hctDispatched: false, hctRequestId: '8947081999' }]);
+    listLastDispatchAttempts.mockResolvedValue(new Map([['s1', { lastNo: 2, lastAt: '2026-09-28T01:00:00Z' }]]));
     const { container, getByText } = await renderRows();
+    expect(listLastDispatchAttempts).toHaveBeenCalledWith(['s1']);
     expect(container.textContent).not.toContain('送新竹');
     expect(container.textContent).toContain('叫車結果未確認');
     expect(container.textContent).toContain('請打電話向新竹物流確認，不要再叫車');
-    expect(container.textContent).toContain('填單號並標記出貨');
+    expect(getByText(/兩個出口 BCDFGH 次數 2 貨號 8947081999/)).toBeTruthy();
     expect(getByText(/標出貨 BCDFGH/)).toBeTruthy();
+  });
+
+  it('🔴 讀不到叫車紀錄 ⇒ 仍畫兩個出口, 但次數是「讀不到」(元件不給重新叫車)', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted', hctDispatchAttempted: true, hctDispatched: false }]);
+    listLastDispatchAttempts.mockRejectedValue(new Error('db down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { getByText } = await renderRows();
+    expect(getByText(/兩個出口 BCDFGH 次數 讀不到/)).toBeTruthy();
+  });
+
+  it('🟢 對照:沒有「結果未確認」的箱 ⇒ 不讀叫車紀錄、不畫兩個出口', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted', hctDispatchAttempted: true, hctDispatched: true }]);
+    const { container } = await renderRows();
+    expect(listLastDispatchAttempts).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain('兩個出口');
   });
 
   it('叫到車而還沒標出貨 ⇒ 說已叫到車、下一步標記出貨', async () => {

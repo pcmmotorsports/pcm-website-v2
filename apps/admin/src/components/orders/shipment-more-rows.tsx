@@ -11,9 +11,11 @@ import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentVoidButton } from './shipment-void-button';
 import { ShipmentHctUnknownNotice } from './shipment-hct-unknown-notice';
 import { ShipmentHctDispatchButton } from './shipment-hct-dispatch-button';
+import { ShipmentHctUncertainExits } from './shipment-hct-uncertain-exits';
+import { listLastDispatchAttempts } from '../../lib/shipping/hct-redispatch-repository';
 
 // shipment-more-rows.tsx — 出貨彈窗「更多」裡,稿(v22 彈窗 9)那六列:一列一句 + 一顆鈕(B13-b,主視窗 2026-09-13)。
-//    ① 跟新竹物流叫車 ② 貨已經被收走了 ③ 列印 ④ 這張單的箱 ⑤ 單號打錯了 ⑥ 這箱不算了
+//    ① 跟新竹物流叫車(叫車結果未確認時換成兩個出口, 2026-09-28) ② 貨已經被收走了 ③ 列印 ④ 這張單的箱 ⑤ 單號打錯了 ⑥ 這箱不算了
 //    🔴 **每一顆鈕都是既有元件原樣**(`shipment-section.tsx` 訂單明細出貨卡上那幾顆):零新寫入路,
 //       顯示條件逐字照那張卡(`!voided` / `shipped` / `carrierCode === 'hct'` / `hctStatus === 'submitted'`)。
 //    🔴 不塞整個 `ShipmentSection`(那是明細頁的卡,520 塞不下);這裡只重排成稿的形狀。
@@ -105,6 +107,20 @@ export async function ShipmentMoreRows({
       </>
     );
   }
+  // 2026-09-28 出貨流程乙第 8 項:「叫車結果未確認」的箱要知道最後一次叫車的次數與時間(決定要不要給「重新叫車」)。
+  //   讀不到 ⇒ 空的 ⇒ 那一箱不給重新叫車(標記出貨那顆照給)。
+  const uncertainIds = rows
+    .filter((r) => r.shipment.voidedAt === null && r.shipment.shippedAt === null && r.hctDispatchAttempted && !r.hctDispatched)
+    .map((r) => r.shipment.id);
+  let lastAttempts = new Map<string, { lastNo: number; lastAt: string }>();
+  if (uncertainIds.length > 0) {
+    try {
+      lastAttempts = await listLastDispatchAttempts(uncertainIds);
+    } catch (e) {
+      console.error('[shipment-more-rows] 讀取叫車紀錄失敗', e);
+    }
+  }
+  const serverNow = new Date().toISOString();
   return (
     <div data-testid='shipment-more-rows'>
       {rows.map(({ shipment, hctStatus, hctPlaceholderStuck, hctRequestId, hctDispatchAttempted, hctDispatched }, i) => {
@@ -145,8 +161,17 @@ export async function ShipmentMoreRows({
                     {hctDispatched ? (
                       <span className='text-foreground text-right'>已叫到車。貨被收走後，請按下面的「填單號並標記出貨」。</span>
                     ) : (
-                      <span className='text-right font-medium text-orange-700'>
-                        叫車結果未確認，車可能已經叫到。請打電話向新竹物流確認，不要再叫車。如果貨已經被收走，請按下面的「填單號並標記出貨」。
+                      <span className='flex flex-col items-end gap-1.5'>
+                        <span className='text-right font-medium text-orange-700'>
+                          叫車結果未確認，車可能已經叫到。請打電話向新竹物流確認，不要再叫車。確認之後，依新竹的回答按下面其中一顆。
+                        </span>
+                        <ShipmentHctUncertainExits
+                          shipmentId={shipment.id}
+                          shipmentReference={shipment.shipmentReference}
+                          edelno={hctRequestId}
+                          lastAttempt={lastAttempts.get(shipment.id) ?? null}
+                          serverNow={serverNow}
+                        />
                       </span>
                     )}
                   </Row>
