@@ -260,6 +260,19 @@ describe('/products/[slug] · 經銷價那條路只對 store 開', () => {
     expect(html).toContain('data-original-price="1000"');
   });
 
+  it('🔴 商品頁乙 P12b:經銷會員 + 一般價空的規格 ⇒ 不帶經銷價(畫面寫取不到、不能買),其他規格照帶', async () => {
+    resolveAuthenticatedTier.mockResolvedValueOnce('store');
+    fetchProductByHandle.mockResolvedValue(
+      product([], [
+        { id: 'v-1', price: null as unknown as number },
+        { id: 'v-2', price: 900 },
+      ]),
+    );
+    fetchEffectivePrices.mockResolvedValueOnce(new Map([['product:uuid-a', 800], ['variant:v-1', 700], ['variant:v-2', 800]]));
+    const html = renderToStaticMarkup(await call([]));
+    expect(html).toContain('data-variant-dealer-prices="v-1=undefined,v-2=800"');
+  });
+
   it('🔴🔴 general ⇒ props 裡**一個經銷價都沒有**（一般會員外洩的守門在這一層）', async () => {
     resolveAuthenticatedTier.mockResolvedValueOnce('general');
     fetchProductByHandle.mockResolvedValue(product([], [{ id: 'v-1', price: 8400 }]));

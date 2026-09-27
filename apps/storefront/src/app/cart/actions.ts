@@ -344,7 +344,10 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
         //    畫面把這一列標成「價格暫時無法取得」、不算進小計、不能結帳;create_order 也會拒絕(D1)。
         console.error('[cart] 經銷會員這一列取不到經銷價 ⇒ 標成沒有價格、不能結帳', { handle: line.productId, key });
       }
-      line.unitPrice = typeof amount === 'number' ? amount : null;
+      // 商品頁乙 P12b(Codex R1 必修):一般價空的規格(上面 variant.price 是 null)經銷會員也不能買 ——
+      //   「一般價空不能賣」(計畫 R6-1)對所有會員成立,不能讓經銷價把它變成可買。
+      const generalMissing = line.unitPrice === null;
+      line.unitPrice = !generalMissing && typeof amount === 'number' ? amount : null;
       // 🔴 與上一行**同一個動作** —— 換價與標記未稅之間不准有第二個判斷。
       line.priceUntaxed = true;
     }

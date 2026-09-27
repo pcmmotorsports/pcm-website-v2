@@ -316,7 +316,7 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
  *   (fail loud、防未來 import 錯 shape 悄悄進 client;migration CHECK 只保證 spec=object / images=array、
  *   不保證值型別)。
  *
- * @throws price_general 為 null / spec 含非 string 值 / images 含非 string 元素
+ * @throws spec 含非 string 值 / images 含非 string 元素(一般價 null 不丟錯,見 generalPriceMissing)
  */
 export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
   // 商品頁乙 P12b:一般價空 ⇒ 不丟錯,帶 generalPriceMissing(規則見 mapSupabaseProductToDomain 那一段)
@@ -393,6 +393,10 @@ export function mapDomainProductToSupabase(
   domain: Product,
   ids: { brandId: string; categoryId: string },
 ): Omit<SupabaseProductRow, 'brands' | 'categories'> {
+  // 商品頁乙 P12b(Codex R1 必修):一般價空的商品 domain 裡是 0 佔位 ⇒ 照寫會把「沒有價格」存成「0 元」。拒絕,不猜。
+  if (domain.generalPriceMissing) {
+    throw new Error(`Product ${domain.id} 一般價是空的(generalPriceMissing),不能經這條路存檔 —— 會把空價寫成 0 元`);
+  }
   return {
     id: domain.id,
     // M-1-16c-4b:external_id ← domain.productCode(vendor 主碼 round-trip、取代原 domain.id placeholder)

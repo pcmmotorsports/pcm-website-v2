@@ -709,3 +709,15 @@ describe('商品頁乙 P12:view 的 original_price ⇒ domain saleOriginalPrice'
     }
   });
 });
+
+describe('商品頁乙 P12b:存檔不能把空價寫成 0 元', () => {
+  it('🔴 一般價空的商品(generalPriceMissing)⇒ mapDomainProductToSupabase 拒絕', () => {
+    const domain = mapSupabaseProductToDomain({ ...baseProductRow, price_general: null });
+    expect(() => mapDomainProductToSupabase(domain, { brandId: 'b-1', categoryId: 'c-1' })).toThrow(/一般價是空的/);
+  });
+
+  it('有價(含 0 元贈品)照常', () => {
+    const domain = mapSupabaseProductToDomain({ ...baseProductRow, price_general: 0 });
+    expect(mapDomainProductToSupabase(domain, { brandId: 'b-1', categoryId: 'c-1' }).price_general).toBe(0);
+  });
+});

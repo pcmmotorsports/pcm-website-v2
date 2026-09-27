@@ -202,6 +202,9 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
       if (own !== undefined) product.dealerPrice = own;
       let missing = productUuid && own === undefined ? 1 : 0;
       for (const v of product.variants ?? []) {
+        // 商品頁乙 P12b:一般價空的規格經銷會員也不能買 ⇒ 不帶經銷價(畫面寫「價格暫時無法取得」);
+        //   這是刻意不給,不算「取不到」(不進下面那道留痕)
+        if (v.price === null) continue;
         const p = priced.get(priceKey('variant', v.id));
         if (p !== undefined) v.dealerPrice = p;
         else missing += 1;
