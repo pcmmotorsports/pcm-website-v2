@@ -303,6 +303,13 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   //    before / after 都是 { category_id, locked };locked = true 代表分類是員工設定的,每日同步不會改回去。
   category_id: '分類',
   locked: '分類由員工設定',
+  // ── 新增手動商品(20260928210000 admin_create_manual_product)──
+  external_id: '商品編號',
+  variant_count: '規格數',
+  price_general: '一般價',
+  // ── 主管改規格價格與特價(20260928220000 admin_set_variant_prices)──
+  price_store: '經銷價',
+  sale_price_general: '特價',
   // ── 員工設定(`StaffRow`)/ 供應商共用 ─────────────────────
   id: '代號',
   label: '名稱',
