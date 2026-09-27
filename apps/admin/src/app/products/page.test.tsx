@@ -404,21 +404,25 @@ describe('/products 列表 · FIX-21 篩選區併成一張卡', () => {
     mocks.list.mockReset();
   });
 
-  it('🟢 搜尋 / 全部手動自動 / 品牌分類 / 料號批次 都在【同一個容器】裡', async () => {
+  it('🟢 商品頁乙 A3:搜尋 / 料號批次在上方工具列;要處理 / 全部手動自動 / 品牌分類在左欄', async () => {
+    // 2026-09-28 Sean Q1 乙(審視文件第六節線框圖):篩選移到左欄。原本這一格釘「全部在工具列同一個容器」(09-14 版),
+    // 依新批准的版面改成兩個容器各自逐項驗 —— 仍對【容器內部】數,某一塊被搬錯地方會紅。
     const { container } = await renderPage();
     const card = container.querySelector('[data-od-prodfilters]');
     expect(card).not.toBeNull();
-    // 🔴 對【容器內部】數, 不對整頁數 —— 整頁數的話, 某一塊被搬出卡片也照樣綠,
-    //    而那正是這一片要修的病(四塊各自散著)。
     const inner = card?.textContent ?? '';
-    for (const must of ['搜尋', '全部', '手動', '自動', '料號批次']) {
+    for (const must of ['搜尋', '料號批次']) {
       expect({ [must]: inner.includes(must) }).toEqual({ [must]: true });
     }
-    // 🔴 品牌/分類用【元件自己的 id】驗(codex must-fix):我第一版的清單裡**根本沒有它們**
-    //    ⇒ 把整個 taxonomy 元件刪掉這一格照樣綠, 而本格名稱寫著「四塊都在同一個容器裡」。
-    //    **宣稱四塊, 實際兩塊。**
-    expect(card?.querySelector('#product-brand-filter')).not.toBeNull();
-    expect(card?.querySelector('#product-category-filter')).not.toBeNull();
+    const side = container.querySelector('[data-product-filter-side]');
+    expect(side).not.toBeNull();
+    const sideText = side?.textContent ?? '';
+    for (const must of ['要處理', '全部', '手動', '自動']) {
+      expect({ [must]: sideText.includes(must) }).toEqual({ [must]: true });
+    }
+    // 🔴 品牌/分類用【元件自己的 id】驗(codex must-fix):只數字面的話把整個 taxonomy 元件刪掉照樣綠。
+    expect(side?.querySelector('#product-brand-filter')).not.toBeNull();
+    expect(side?.querySelector('#product-category-filter')).not.toBeNull();
   });
 
   it('🔴 貼料號收在 details 裡而【預設收合】—— 而它仍然在 DOM 裡', async () => {
@@ -449,8 +453,8 @@ describe('/products 列表 · FIX-21 篩選區併成一張卡', () => {
     mocks.options.mockRejectedValue(new Error('taxonomy boom'));
     const { container } = await renderPage();
     const card = container.querySelector('[data-od-prodfilters]');
-    // 品牌/分類整塊不畫 —— 空下拉點得下去、送得出去、什麼都不會變 = 一個會騙人的控制項
-    expect(card?.querySelector('#product-brand-filter')).toBeNull();
+    // 品牌/分類整塊不畫 —— 空下拉點得下去、送得出去、什麼都不會變 = 一個會騙人的控制項(A3 起住在左欄)
+    expect(container.querySelector('#product-brand-filter')).toBeNull();
     // 🔴🔴 而貼料號**必須還在** —— 這才是那條約束本身
     expect(card?.querySelector('#product-sku-filter')).not.toBeNull();
   });

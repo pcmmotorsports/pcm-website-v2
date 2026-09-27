@@ -86,8 +86,8 @@ export function ProductAttentionChips({
     return { ...filter, attention: next.length > 0 ? next : undefined };
   };
   return (
-    <div className='flex flex-wrap items-center gap-2' data-product-attention>
-      <span className='text-muted-foreground text-sm'>要處理：</span>
+    <div className='flex flex-col items-start gap-1.5' data-product-attention>
+      <span className='text-muted-foreground text-xs font-medium'>要處理</span>
       {PRODUCT_ATTENTION_KEYS.map((key) => {
         const active = selected.has(key);
         const count = counts?.[key];
