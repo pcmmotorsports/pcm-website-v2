@@ -60,7 +60,7 @@ async function runOp(productId: string, action: GalleryAction, op: GalleryOp): P
   const r = await prepare(productId);
   if (!r.ok) return r;
   const res = await r.api.op(r.key, r.actor, op);
-  if (!res.ok) return { ok: false, message: galleryErrorMessage(action, res.status, res.code) };
+  if (!res.ok) return { ok: false, message: galleryErrorMessage(action, res.status, res.code, r.key.supplierSlug) };
   // 成功後一律重讀清單:報價單的操作回應裡沒有照片清單(見 gallery-api.ts op 的註解;2026-09-28 照片變 0 張的根因)。
   return reload(r);
 }
@@ -97,6 +97,6 @@ export async function uploadGalleryPhotoAction(form: FormData): Promise<GalleryA
     return { ok: false, message: `「${file.name}」沒有上傳：縮小後仍超過 4MB，請換一張較小的照片。` };
   }
   const res = await r.api.upload(r.key, r.actor, file);
-  if (!res.ok) return { ok: false, message: galleryErrorMessage('upload', res.status, res.code) };
+  if (!res.ok) return { ok: false, message: galleryErrorMessage('upload', res.status, res.code, r.key.supplierSlug) };
   return reload(r);
 }

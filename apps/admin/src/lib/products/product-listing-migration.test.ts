@@ -62,8 +62,25 @@ describe('#20 上下架 migration:兩欄必須在同一個 UPDATE 裡一起寫',
         const t = readFileSync(join(dir, f), 'utf8');
         return /\blisting_set_by\s*=/.test(t);
       });
-    expect(writers, `listing_set_by 的寫入者不只一支:${writers.join(' / ')}`).toEqual([
+    // 商品頁乙 P3(2026-09-28):新增手動商品 20260928210000 是第二支。它只在 INSERT 新商品時寫【初始值】
+    // (delisted_at = now()、listing_set_by = 'staff' 在同一句 INSERT 裡),不改既有商品 ⇒ 「兩欄原子一起寫」照樣成立。
+    // 下面那一格釘住它「只 INSERT、不 UPDATE」;哪天它開始改既有商品,那一格會紅,要回來重想這裡。
+    expect(writers, `listing_set_by 的寫入者多了:${writers.join(' / ')}`).toEqual([
       '20260819040000_m4b_20_admin_set_product_listing.sql',
+      '20260928210000_m4b_admin_create_manual_product.sql',
     ]);
+  });
+
+  it('🔴 新增手動商品那支只寫初始值:同一句 INSERT 寫兩欄、不 UPDATE 既有商品', () => {
+    const t = readFileSync(
+      join(__dirname, '../../../../../supabase/migrations/20260928210000_m4b_admin_create_manual_product.sql'),
+      'utf8',
+    );
+    expect(t.split('UPDATE public.products').length - 1, '它開始改既有商品了 ⇒ 上下架的寫入者不再只有一支').toBe(0);
+    expect(t.split('INSERT INTO public.products (').length - 1).toBe(1);
+    const start = t.indexOf('INSERT INTO public.products (');
+    const cols = t.slice(start, t.indexOf(')', start));
+    expect(cols, '兩欄要在同一句 INSERT 裡').toContain('delisted_at');
+    expect(cols, '兩欄要在同一句 INSERT 裡').toContain('listing_set_by');
   });
 });

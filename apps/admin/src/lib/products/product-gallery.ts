@@ -61,6 +61,9 @@ export function fitWithin(width: number, height: number, max: number = UPLOAD_MA
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
+export const MANUAL_SKU_REJECTED =
+  '這件商品的料號不符合圖庫規則（只能有英數字、.、_、-，至少一個英數字，最多 64 字，不能有連續兩個點），無法整理照片。請聯絡系統管理員。';
+
 /** 呼叫端丟這個錯 ⇒ 畫面直接顯示它的訊息(已經是給員工看的話)。 */
 export class GalleryUserError extends Error {}
 
@@ -70,8 +73,10 @@ export type GalleryAction = 'reorder' | 'remove' | 'hide' | 'unhide' | 'upload';
  * 報價單 API 的錯誤 ⇒ 給員工看的一句話。
  * 🔴 刪除、上傳在「結果不明」(連不上、500)時不叫人直接重按:可能已經做了。排序、隱藏重做一次結果相同,可以重試。
  */
-export function galleryErrorMessage(action: GalleryAction, status: number, code: string): string {
-  if (action === 'reorder' && status === 409) return '供應商剛更新了照片，請重新整理再排。';
+export function galleryErrorMessage(action: GalleryAction, status: number, code: string, supplierSlug?: string): string {
+  if (action === 'reorder' && status === 409) {
+    return supplierSlug === 'pcm' ? '照片清單剛被變更，請重新整理再排。' : '供應商剛更新了照片，請重新整理再排。';
+  }
   if (action === 'remove' && code === 'GALLERY_WRONG_SOURCE') return '供應商照片不能刪除，可以隱藏。';
   if (status === 400) {
     // 報價單上傳 400 的原因是中文句子(報價單 lib/gallery/service.ts):「只收…」「檔案…」是照片本身的問題,
@@ -80,6 +85,8 @@ export function galleryErrorMessage(action: GalleryAction, status: number, code:
     if (action === 'upload' && /^(只收|檔案)/.test(code)) return '照片沒有上傳：格式或大小不符（只收 JPG、PNG、WebP，4MB 以內）。';
     return '圖庫連線設定有誤，請聯絡系統管理員。';
   }
+  // 商品頁乙 P7:手動商品(pcm)報價單不查商品表,只看料號格式(報價單 ea64cb66)⇒ 找不到 = 料號格式不對
+  if (code === 'GALLERY_PRODUCT_NOT_FOUND' && supplierSlug === 'pcm') return MANUAL_SKU_REJECTED;
   if (code === 'GALLERY_PRODUCT_NOT_FOUND') return '報價單找不到這件商品，暫時無法整理照片。';
   if (code === 'GALLERY_NOT_IN_PRODUCT') return '這張照片已經不在這件商品的圖庫裡，請重新整理頁面。';
   if (status === 409) return '照片剛被別人改過，請重新整理頁面後再試。';

@@ -201,9 +201,28 @@ const LEAK_TOKENS = ['price_store', 'price_by_tier', 'cost'] as const;
  *   由員工按下載取得,不進顧客站、也不進後台頁面的 client bundle(`/products/export` 是 route handler)。
  *   🔴 到期條件:Sean 收回 F3 或商品清單不再匯出店家價 ⇒ 刪掉這一筆。
  */
+/*
+ * 🔴 **第四筆(2026-09-28, 商品頁乙價格段 P4, Sean 2026-09-28 Q1 乙「價格放進商品頁乙計畫」)**:
+ *   `audit-field-label.ts` 的 `price_store: '經銷價'` 只是欄位名稱的中文標籤。主管改手動商品經銷價時,
+ *   `admin_set_variant_prices`(20260928220000)的稽核列用 `price_store` 當欄位名;變更紀錄頁本來就照原樣顯示
+ *   稽核列的新舊值,這個標籤只把欄位名 `price_store` 換成「經銷價」,不讀價格、也不讓任何值多流到哪裡。
+ *   變更紀錄只在後台。拿掉標籤的話,員工會在變更紀錄看到英文欄位名。
+ *   🔴 到期條件:改價稽核不再記經銷價 ⇒ 刪掉這一筆。
+ */
+/*
+ * 🔴 **第五筆(2026-09-28, 商品頁乙價格段 P5, 同上 Q1 乙)**:新增手動商品是【寫入】經銷價,不是讀:
+ *   員工在表單填的經銷價,由 `manual-product-actions.ts` 組成 RPC 要的 `p_variants`(鍵名 `price_store`,
+ *   20260928210000 `admin_create_manual_product` 規定),再由 `manual-product-repository.ts` 送出。
+ *   兩支都只在 server 端;RPC 只回 product_id,不讀任何價格回來。表單那一側用的是 `priceStore`,不含這個字。
+ *   這支呼叫原本放在 product-repository.ts(讀取層),已搬出來,讀取層照樣零經銷價欄位(驗收 4)。
+ *   🔴 到期條件:手動商品不再能填經銷價 ⇒ 刪掉這兩行。
+ */
 const LEAK_ALLOWLIST = [
+  'apps/admin/src/lib/audit/audit-field-label.ts:price_store×1',
   'apps/admin/src/lib/customers/brand-discount-repository.ts:price_store×6',
   'apps/admin/src/lib/orders/manual-order-catalog.ts:price_store×2',
+  'apps/admin/src/lib/products/manual-product-actions.ts:price_store×1',
+  'apps/admin/src/lib/products/manual-product-repository.ts:price_store×1',
   'apps/admin/src/lib/products/product-export.ts:price_store×3',
 ] as const;
 

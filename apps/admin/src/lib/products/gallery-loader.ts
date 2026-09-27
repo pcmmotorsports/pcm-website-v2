@@ -33,6 +33,6 @@ export async function loadProductGallery(product: {
   console.error('[admin/products/[id]] 圖庫讀取失敗', { status: r.status, code: r.code });
   return {
     state: 'failed',
-    message: r.code === 'GALLERY_PRODUCT_NOT_FOUND' ? galleryErrorMessage('reorder', 404, r.code) : LOAD_FAILED,
+    message: r.code === 'GALLERY_PRODUCT_NOT_FOUND' ? galleryErrorMessage('reorder', 404, r.code, product.supplier_slug) : LOAD_FAILED,
   };
 }

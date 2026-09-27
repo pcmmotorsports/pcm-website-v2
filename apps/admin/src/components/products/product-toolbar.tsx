@@ -35,6 +35,10 @@ export function ProductToolbar({
           </div>
         </details>
       )}
+      {/* 商品頁乙 P6:新增手動商品(報價單沒有、網站自己賣的) */}
+      <a href='/products/new' className='inline-flex h-8 items-center rounded-md border px-3 text-sm' data-product-new>
+        新增商品
+      </a>
       <span className='pcm-sp' />
       {!loadFailed && <ProductSortSelect filter={filter} size={size} />}
       {!loadFailed && <span className='pcm-count'>共 {total.toLocaleString('zh-TW')} 件</span>}

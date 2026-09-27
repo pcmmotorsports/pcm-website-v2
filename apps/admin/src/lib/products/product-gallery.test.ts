@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   fitWithin,
   galleryErrorMessage,
+  MANUAL_SKU_REJECTED,
   GALLERY_ACCEPT,
   galleryOrderChanged,
   moveGalleryPhoto,
@@ -121,5 +122,12 @@ describe('galleryErrorMessage(Fable R1 建議 3、4)', () => {
   });
   it('刪除供應商照片(409 WRONG_SOURCE)⇒ 說不能刪、可以隱藏', () => {
     expect(galleryErrorMessage('remove', 409, 'GALLERY_WRONG_SOURCE')).toBe('供應商照片不能刪除，可以隱藏。');
+  });
+});
+
+describe('商品頁乙 P7:手動商品(pcm)找不到 = 料號格式不對', () => {
+  it('pcm ⇒ 說料號不符合規則,不說報價單找不到;其他供應商照舊', () => {
+    expect(galleryErrorMessage('upload', 404, 'GALLERY_PRODUCT_NOT_FOUND', 'pcm')).toBe(MANUAL_SKU_REJECTED);
+    expect(galleryErrorMessage('upload', 404, 'GALLERY_PRODUCT_NOT_FOUND', 'rpm')).toBe('報價單找不到這件商品，暫時無法整理照片。');
   });
 });

@@ -19,14 +19,20 @@ import { GalleryUserError, splitGallery, type GalleryPhoto } from '../../lib/pro
 /** 尚未整理時的說明(G2 6f44e9ff:報價單回目前網站顯示的供應商照片;第一次動手時報價單會先照原順序寫進圖庫)。 */
 export const UNCURATED_NOTICE = '尚未整理，這是目前網站顯示的供應商照片。調整順序、隱藏或上傳之後，網站和報價單會改用這裡整理好的版本。';
 
+/** 商品頁乙 P7:網站新增的手動商品(pcm)沒有供應商照片,只有我們上傳的。 */
+export const MANUAL_EMPTY_NOTICE = '還沒有照片。上傳之後可以在這裡刪除和調整順序。';
+export const MANUAL_FOOTNOTE = '這件是網站新增的商品，沒有供應商照片。照片可以上傳、刪除和調整順序，每次變更都會記進變更紀錄。';
+
 export function ProductGalleryPanel({
   productId,
   initialPhotos,
   initialCurated,
+  manual = false,
 }: {
   productId: string;
   initialPhotos: readonly GalleryPhoto[];
   initialCurated: boolean;
+  manual?: boolean;
 }) {
   const [photos, setPhotos] = useState<readonly GalleryPhoto[]>(initialPhotos);
   const [curated, setCurated] = useState(initialCurated);
@@ -40,7 +46,8 @@ export function ProductGalleryPanel({
   return (
     <ProductGalleryEditor
       photos={photos}
-      notice={curated ? undefined : UNCURATED_NOTICE}
+      notice={curated ? undefined : manual ? MANUAL_EMPTY_NOTICE : UNCURATED_NOTICE}
+      footnote={manual ? MANUAL_FOOTNOTE : undefined}
       // 報價單的排序要「全部照片(含已隱藏)」的新順序 ⇒ 已隱藏的照原本順序接在後面
       onSaveOrder={async (urls) =>
         apply(await reorderGalleryAction(productId, [...urls, ...splitGallery(photos).hidden.map((p) => p.url)]))
