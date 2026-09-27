@@ -636,6 +636,28 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     // 🔴 首灌的 --expect-groups 比的是【來源全部群數】(09-26 乾跑 976),不是要上的 759 群 —— 以乾跑印出的「來源 N 群」為準。
     writeAllowed: true,
   },
+  // Ilmberger。2026-09-27 登記(Sean D1 甲「Ilmberger 先上」、D3 甲「上架前圖先轉存」)⇒ **停在乾跑**。
+  //   🛑 `writeAllowed: false` 要等兩件事都做完才翻:① 報價單把圖轉存到 R2(今天 2,114 列還連 ilmberger-carbon.com,
+  //     Rizoma / WRS / Akrapovic 都被原廠擋過伺服器抓圖)② 首灌那一發(帶 --expect-groups 與經銷價 checksum)。
+  //     翻的那一顆 commit 要同時補 rpm-sync.yml matrix(supplier-config.test.ts 對帳那格會叫)。
+  //   ⚠️ 09-17 那句「先 ohlins, arrow / ilmberger 這一輪不做」已被 Sean 2026-09-27 D1 甲取代(Ilmberger 先上)。
+  //   本窗 2026-09-27 對報價單 `storefront_catalog_v` 實查(快照, 乾跑時重量):
+  //     2,265 列 / 1,860 群;內容補齊 2,258 列 / 1,854 群, 排除 7 列(缺描述, 同時是已停產列)。
+  //     價缺 0 · 明文 http 0 · 分類缺 0 · 中文名缺 0 · 1 大類 / 13 子類 · pdf 0 · 影片 162 列
+  //     多變體 405 群, 其中 403 群每變體各有自己的圖 · 151 列是 PCM 自己的 no-photo 卡(不擋上架, 同 rizoma / wrs 判例)。
+  ilmberger: {
+    supplierSlug: 'ilmberger',
+    brandSlug: 'ilmberger', // Sean 09-15 定的 slug;品牌頁已做(BrandShowcase.tsx case 'ilmberger'), brands 列由 20260927030000 建
+    handlePrefix: 'ilmberger', // 既有慣例 = supplierSlug 同名
+    syncDescription: true,
+    syncInstallResources: true, // 今天 0 列有 pdf ⇒ 無作用;來源日後有 pdf 時照常帶進來
+    appendManualFilename: false, // 今天無作用(0 份 pdf);出現多份時要回來重判
+    categoryStrategy: { kind: 'per-group' }, // 1 大類 / 13 子類 ⇒ 子類逐群不同
+    variantImages: 'per-variant', // 403 / 405 個多變體群每變體各有自己的圖
+    requireListingContent: true, // Sean D1 甲:缺說明的 7 件先擋, 補好下次同步自動上架(同 Arrow)
+    // 🛑 一個位元組也不寫 —— 翻這一格的兩個條件見上方。
+    writeAllowed: false,
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。

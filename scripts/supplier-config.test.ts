@@ -205,9 +205,10 @@ describe('getSupplierConfig', () => {
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
       'akrapovic', 'arrow', 'bonamici', 'cncracing', 'dbk', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
-      'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget',
+      'front3d', 'gbracing', 'gilles', 'ilmberger', 'kspeed', 'lightech', 'materya', 'motogadget',
       'ohlins', 'rizoma', 'rpm', 'samco', 'wrs',
     ]);
+    // 2026-09-27 補 `ilmberger`(Sean D1 甲「Ilmberger 先上」);登記但 writeAllowed: false, 等圖轉存 R2(D3 甲)與首灌那一發。
   });
 });
 
@@ -286,9 +287,12 @@ describe('requireListingContent / hasListingContent', () => {
     product_name_zh: '尾段排氣管',
   } as SourceProductRow;
 
-  it('Arrow 開啟、其他家都沒開', () => {
+  // 2026-09-27 Ilmberger 比照 Arrow(Sean D1 甲:缺說明的 7 件先擋, 補好下次同步自動上架)。
+  it('Arrow 與 Ilmberger 開啟、其他家都沒開', () => {
     expect(getSupplierConfig('arrow').requireListingContent).toBe(true);
-    const others = Object.values(SUPPLIER_CONFIGS).filter((c) => c.requireListingContent && c.supplierSlug !== 'arrow');
+    expect(getSupplierConfig('ilmberger').requireListingContent).toBe(true);
+    const others = Object.values(SUPPLIER_CONFIGS)
+      .filter((c) => c.requireListingContent && !['arrow', 'ilmberger'].includes(c.supplierSlug));
     expect(others).toEqual([]);
   });
 
