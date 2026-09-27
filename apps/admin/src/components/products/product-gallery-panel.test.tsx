@@ -141,3 +141,19 @@ describe('尚未整理(G2 6f44e9ff)', () => {
     expect(m.reorder).toHaveBeenCalledWith(PID, [PHOTOS[1]!.url, PHOTOS[0]!.url, 'https://img/h.jpg']);
   });
 });
+
+describe('商品頁乙 P7:網站新增的手動商品(pcm)', () => {
+  it('還沒有照片 ⇒ 說「還沒有照片」,不說供應商照片;底下說明也沒有供應商那段', () => {
+    const { container } = render(<ProductGalleryPanel productId={PID} initialPhotos={[]} initialCurated={false} manual />);
+    const text = container.textContent ?? '';
+    expect(text).toContain('還沒有照片。上傳之後可以在這裡刪除和調整順序。');
+    expect(text).toContain('這件是網站新增的商品，沒有供應商照片。');
+    expect(text).not.toContain('供應商的照片是每天同步');
+    expect(text).not.toContain('尚未整理，這是目前網站顯示的供應商照片');
+  });
+
+  it('同步商品照舊:尚未整理時說供應商照片', () => {
+    const { container } = render(<ProductGalleryPanel productId={PID} initialPhotos={PHOTOS} initialCurated={false} />);
+    expect(container.textContent).toContain('尚未整理，這是目前網站顯示的供應商照片');
+  });
+});

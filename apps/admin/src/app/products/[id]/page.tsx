@@ -257,7 +257,12 @@ export default async function ProductDetailPage({
           <div className='grid gap-4 lg:grid-cols-2'>
             <div data-col='photos' className='min-w-0 space-y-4'>
               {gallery?.state === 'ok' ? (
-                <ProductGalleryPanel productId={product.id} initialPhotos={gallery.photos} initialCurated={gallery.curated} />
+                <ProductGalleryPanel
+                  productId={product.id}
+                  initialPhotos={gallery.photos}
+                  initialCurated={gallery.curated}
+                  manual={product.supplier_slug === 'pcm'}
+                />
               ) : gallery ? (
                 <section data-od-pe='card' data-gallery-unavailable className='rounded-lg border p-4'>
                   <h3 className='mb-2 text-sm font-medium'>照片</h3>

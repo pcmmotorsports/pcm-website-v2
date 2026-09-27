@@ -60,7 +60,7 @@ async function runOp(productId: string, action: GalleryAction, op: GalleryOp): P
   const r = await prepare(productId);
   if (!r.ok) return r;
   const res = await r.api.op(r.key, r.actor, op);
-  if (!res.ok) return { ok: false, message: galleryErrorMessage(action, res.status, res.code) };
+  if (!res.ok) return { ok: false, message: galleryErrorMessage(action, res.status, res.code, r.key.supplierSlug) };
   // 寫入成功 ⇒ 報價單已把這件商品寫進圖庫(第一次寫入時先補供應商照片)⇒ 已整理
   return res.photos ? { ok: true, curated: true, photos: res.photos } : reload(r);
 }
@@ -97,6 +97,6 @@ export async function uploadGalleryPhotoAction(form: FormData): Promise<GalleryA
     return { ok: false, message: `「${file.name}」沒有上傳：縮小後仍超過 4MB，請換一張較小的照片。` };
   }
   const res = await r.api.upload(r.key, r.actor, file);
-  if (!res.ok) return { ok: false, message: galleryErrorMessage('upload', res.status, res.code) };
+  if (!res.ok) return { ok: false, message: galleryErrorMessage('upload', res.status, res.code, r.key.supplierSlug) };
   return reload(r);
 }

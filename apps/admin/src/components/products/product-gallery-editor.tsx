@@ -30,6 +30,8 @@ export interface ProductGalleryEditorProps {
   readonly onUpload: (files: File[]) => Promise<void>;
   /** 照片區上方的說明(例如尚未整理)。 */
   readonly notice?: string;
+  /** 照片區底下的說明;沒給 ⇒ 同步商品的說明(我們上傳 / 供應商)。 */
+  readonly footnote?: string;
 }
 
 type Status = { kind: 'idle' | 'busy' | 'ok' | 'error'; message: string };
@@ -37,7 +39,7 @@ const IDLE: Status = { kind: 'idle', message: '' };
 
 const BTN = 'min-h-9 rounded-md border px-2 text-xs disabled:cursor-not-allowed disabled:opacity-40';
 
-export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, onUnhide, onUpload, notice }: ProductGalleryEditorProps) {
+export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, onUnhide, onUpload, notice, footnote }: ProductGalleryEditorProps) {
   const { shown, hidden } = splitGallery(photos);
   const byUrl = new Map(photos.map((p) => [p.url, p]));
   const initial = shown.map((p) => p.url);
@@ -335,7 +337,8 @@ export function ProductGalleryEditor({ photos, onSaveOrder, onDelete, onHide, on
       )}
 
       <p className='text-muted-foreground mt-3 text-xs'>
-        「我們上傳」的照片可以刪除。「供應商」的照片是每天同步帶進來的，不能刪除，只能隱藏；供應商之後新增的照片會自動排在最後面。每次上傳、刪除、隱藏、調整順序都會記進變更紀錄。
+        {footnote ??
+          '「我們上傳」的照片可以刪除。「供應商」的照片是每天同步帶進來的，不能刪除，只能隱藏；供應商之後新增的照片會自動排在最後面。每次上傳、刪除、隱藏、調整順序都會記進變更紀錄。'}
       </p>
     </section>
   );
