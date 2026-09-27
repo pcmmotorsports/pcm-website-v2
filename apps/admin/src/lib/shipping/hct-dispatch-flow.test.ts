@@ -168,3 +168,18 @@ describe('⟦ship-DISPATCHORDER⟧ 那顆鈕:按下去【之前】就看得出�
     expect(b.show && !b.enabled && b.why).toContain('draft');
   });
 });
+
+// 2026-09-27 出貨流程乙(Codex R1 必修 3):已出貨的箱不能再叫車 —— 畫面這一道補上, 資料庫那一道另有 migration。
+describe('dispatchButton:已出貨', () => {
+  it('🔴 已標出貨的箱 ⇒ 不給按, 寫明已出貨', () => {
+    const b = dispatchButton(
+      {
+        carrierCode: 'hct', hctStatus: 'submitted', hctRequestId: '8947081999', hctDispatchAttemptedAt: null,
+        hctDispatchedAt: null, shippedAt: '2026-09-27T02:00:00Z', voidedAt: null, createdAt: new Date().toISOString(), shipmentReference: '9X2ZD7',
+      },
+      new Date(),
+    );
+    expect(b).toEqual({ show: true, enabled: false, why: '這一箱已經出貨，不需要叫車。' });
+  });
+});
+

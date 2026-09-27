@@ -74,6 +74,9 @@ function readEmark(): string {
   return (process.env.HCT_DISPATCH_EMARK ?? '').trim();
 }
 
+/** 佔位到送出 HTTP 之間最多等多久(計畫第二節第 8 項)。 */
+const DISPATCH_SEND_DEADLINE_MS = 30_000;
+
 export async function dispatchShipmentAction(args: {
   shipmentId: string;
 }): Promise<DispatchActionResult> {
@@ -115,7 +118,23 @@ export async function dispatchShipmentAction(args: {
     const edelno = row.hctRequestId ?? '';
 
     // ── ① 佔位。丟例外 = 這一箱不准送 ⇒ 不往下打。
+    //    2026-09-27 出貨流程乙:佔位前記下這台伺服器的時間, 送 HTTP 前再看一次(見 ①b)。
+    const claimStartedAt = Date.now();
     await claimHctDispatch({ shipmentReference: row.shipmentReference, edelno });
+
+    // ── ①b 佔位之後超過 30 秒就不送(計畫第二節第 8 項:一個佔位後卡住的舊請求醒來不能再叫車;
+    //    「重新叫車」要等 10 分鐘, 靠的就是這一道加上頁面 60 秒的執行上限)。只用同一個時鐘, 不跟資料庫比。
+    if (Date.now() - claimStartedAt > DISPATCH_SEND_DEADLINE_MS) {
+      auditLog('shipment.hct_dispatch', auth, 'fail', { shipment_id: args.shipmentId });
+      return {
+        ok: false,
+        kind: 'needs_human',
+        // 這一種我們確定【沒有】送出(不是結果不明), 但佔位已寫 ⇒ 這一箱會顯示「叫車結果未確認」。
+        message:
+          '這一箱沒有叫到車：系統在送出叫車前等太久，這次沒有送出。' +
+          '這一箱會暫時顯示為「叫車結果未確認」，請聯絡系統管理員處理。（send_deadline）',
+      };
+    }
 
     // ── ② 叫車。
     const out = await dispatchOrder(deps, [{ epino: row.shipmentReference, edelno }], emark);

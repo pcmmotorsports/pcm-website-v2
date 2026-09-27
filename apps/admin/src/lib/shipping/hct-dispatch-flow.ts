@@ -162,6 +162,10 @@ export function dispatchButton(
   // 🔵 不是新竹的箱, 這顆鈕**整個不出現** —— 一顆永遠按不下去的鈕只會讓人一直問它。
   if (row.carrierCode !== 'hct') return { show: false };
   if (row.voidedAt !== null && row.voidedAt !== '') return { show: false };
+  // 2026-09-27 出貨流程乙(Codex R1 必修 3):已出貨的箱不再叫車(資料庫的佔位函式另補同一個條件)。
+  if (row.shippedAt !== null && row.shippedAt !== '') {
+    return { show: true, enabled: false, why: '這一箱已經出貨，不需要叫車。' };
+  }
 
   // 🔴 **已經叫過(或叫到一半)⇒ 顯示而不給按**, 並且說得出是哪一種。
   //    📌 這兩種在 DB 上是不同的兩欄, 而在畫面上是**兩句不同的話** ——

@@ -27,6 +27,9 @@ vi.mock('./shipment-void-button', () => ({
   ShipmentVoidButton: ({ shipmentReference }: { shipmentReference: string }) => <button type='button'>作廢 {shipmentReference}</button>,
 }));
 vi.mock('./shipment-hct-unknown-notice', () => ({ ShipmentHctUnknownNotice: () => null }));
+vi.mock('./shipment-hct-dispatch-button', () => ({
+  ShipmentHctDispatchButton: ({ shipmentReference }: { shipmentReference: string }) => <button type='button'>叫車鈕 {shipmentReference}</button>,
+}));
 
 import { ShipmentMoreRows } from './shipment-more-rows';
 
@@ -191,6 +194,27 @@ describe('箱子彈窗跟著叫車結果走', () => {
     loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted' }]);
     const { container } = await renderRows();
     expect(container.textContent).toContain('送新竹');
+  });
+});
+
+// ── 2026-09-27 出貨流程乙第 1 項:拿到託運單號的箱, 在箱子彈窗直接叫車 ──
+describe('箱子彈窗直接叫車', () => {
+  it('🔴 已取得託運單號、還沒叫過、還沒出貨 ⇒ 有叫車鈕;要號那一列的指引改成「按下面的叫車」', async () => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), hctStatus: 'submitted' }]);
+    const { getByText } = await renderRows();
+    expect(getByText(/叫車鈕 BCDFGH/)).toBeTruthy();
+  });
+
+  it.each([
+    ['還沒要到號碼', { hctStatus: 'draft' }],
+    ['叫過車了', { hctStatus: 'submitted', hctDispatchAttempted: true }],
+    ['已出貨', { hctStatus: 'submitted', shipment: { ...box().shipment, shippedAt: '2026-09-27T02:00:00Z' } }],
+    ['作廢', { hctStatus: 'submitted', shipment: { ...box().shipment, voidedAt: '2026-09-27T02:00:00Z' } }],
+    ['不是新竹', { hctStatus: 'submitted', shipment: { ...box().shipment, carrierCode: 'sf' } }],
+  ])('%s ⇒ 沒有叫車鈕', async (_n, over) => {
+    loadOrderShipments.mockResolvedValue([{ ...box(), ...over }]);
+    const { container } = await renderRows();
+    expect(container.textContent).not.toContain('叫車鈕');
   });
 });
 

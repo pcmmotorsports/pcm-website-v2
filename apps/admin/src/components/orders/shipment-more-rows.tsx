@@ -10,6 +10,7 @@ import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentVoidButton } from './shipment-void-button';
 import { ShipmentHctUnknownNotice } from './shipment-hct-unknown-notice';
+import { ShipmentHctDispatchButton } from './shipment-hct-dispatch-button';
 
 // shipment-more-rows.tsx — 出貨彈窗「更多」裡,稿(v22 彈窗 9)那六列:一列一句 + 一顆鈕(B13-b,主視窗 2026-09-13)。
 //    ① 跟新竹物流叫車 ② 貨已經被收走了 ③ 列印 ④ 這張單的箱 ⑤ 單號打錯了 ⑥ 這箱不算了
@@ -164,10 +165,17 @@ export async function ShipmentMoreRows({
                       shipped={shipped}
                       // 🔵 2026-09-16:同 `shipment-section.tsx` —— 只決定要不要印「還沒叫車」那一句。
                       hctStatus={hctStatus}
+                      dispatchBelow
                     />
                   </Row>
                 )}
               </>
+            )}
+            {/* 2026-09-27 出貨流程乙第 1 項:拿到託運單號、還沒叫過、還沒出貨 ⇒ 在這裡直接叫車(不用換到出貨清單)。 */}
+            {isHct && !voided && !shipped && hctStatus === 'submitted' && !hctDispatchAttempted && (
+              <Row label='叫車'>
+                <ShipmentHctDispatchButton shipmentId={shipment.id} shipmentReference={shipment.shipmentReference} />
+              </Row>
             )}
             {!voided && !shipped && (
               <Row label='貨已經被收走了'>
