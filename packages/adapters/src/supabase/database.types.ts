@@ -30,6 +30,10 @@
 // 🟢 **2026-09-27 網站施工窗 86:同一條慣例 —— 手動建單地址存進客人地址簿(20260927120000,尚未貼正式庫)。**
 //    `admin_save_manual_order_address`(Args / Returns)。照 migration 手打、形狀照生成器規則、字母序。
 //    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
+// 🟢 **2026-09-28 網站施工窗 86:同一條慣例 —— 商品頁乙分類鎖(20260928040000、20260928050000,2026-09-28 已貼正式庫)。**
+//    `products.category_locked` / `category_locked_at` / `category_locked_by` × Row/Insert/Update,以及 `admin_set_product_category`。
+//    照 migration 手打、字母序。🔴 `p_category_id` 手動補 `| null`:DB 是 uuid 無 DEFAULT,而「改回由同步決定」時呼叫端送 null(同 `p_effective_from` 那條)。
+//    🔵 同上:**不進下面那個計數**。
 // 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
 //    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
 //    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
@@ -6284,6 +6288,9 @@ export type Database = {
           availability: string
           brand_id: string
           category_id: string
+          category_locked: boolean
+          category_locked_at: string | null
+          category_locked_by: string | null
           content_changed_at: string | null
           created_at: string
           delisted_at: string | null
@@ -6316,6 +6323,9 @@ export type Database = {
           availability?: string
           brand_id: string
           category_id: string
+          category_locked?: boolean
+          category_locked_at?: string | null
+          category_locked_by?: string | null
           content_changed_at?: string | null
           created_at?: string
           delisted_at?: string | null
@@ -6348,6 +6358,9 @@ export type Database = {
           availability?: string
           brand_id?: string
           category_id?: string
+          category_locked?: boolean
+          category_locked_at?: string | null
+          category_locked_by?: string | null
           content_changed_at?: string | null
           created_at?: string
           delisted_at?: string | null
@@ -6389,6 +6402,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_category_locked_by_fkey"
+            columns: ["category_locked_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
             referencedColumns: ["id"]
           },
           {
@@ -9004,6 +9024,19 @@ export type Database = {
           p_request_id: string
         }
         Returns: Json
+      }
+      admin_set_product_category: {
+        Args: {
+          p_actor: string
+          p_category_id: string | null
+          p_product_ids: string[]
+          p_request_id: string
+          p_unlock: boolean
+        }
+        Returns: {
+          outcome: string
+          product_id: string
+        }[]
       }
       admin_set_product_listing: {
         Args: {

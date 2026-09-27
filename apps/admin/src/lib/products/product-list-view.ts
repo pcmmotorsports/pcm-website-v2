@@ -70,6 +70,9 @@ export const CATEGORY_PARAM = 'category';
  *      而產生連結時一律只寫 `?category=<raw_path>` ⇒ **網址是正規化的、只有一種寫法**。
  */
 export const SUBCATEGORY_PARAM = 'subcategory';
+/** 商品頁乙 C3:改分類一次最多幾件。與 20260928050000 的上限同一個數;server action 與 RPC 兩邊都擋。 */
+export const MAX_CATEGORY_BATCH = 200;
+
 /** 商品頁乙 A2:「要處理」篩選(可複選,逗號串)。 */
 export const ATTENTION_PARAM = 'attn';
 

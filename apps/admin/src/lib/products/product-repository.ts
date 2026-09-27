@@ -714,3 +714,36 @@ export async function setProductOverride(args: {
   }
   throw new Error('admin_set_product_override RPC 回傳非預期碼');
 }
+
+// ─────────────── 商品頁乙 C3:改分類(一件或整批)───────────────
+
+export type ProductCategoryOutcome = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
+
+/**
+ * 呼叫 20260928050000 `admin_set_product_category`。整批在同一個交易裡:資料庫明確拒絕 = 整批沒寫;
+ * 連線中斷或回應讀不到時,資料庫可能已經寫好 ⇒ 呼叫端不能把丟錯一律當成「沒寫」。
+ * `categoryId = null` 且 `unlock = true` ⇒「改回由同步決定」。
+ */
+export async function setProductCategory(args: {
+  productIds: readonly string[];
+  categoryId: string | null;
+  unlock: boolean;
+  actor: string;
+  requestId: string;
+}): Promise<{ productId: string; outcome: ProductCategoryOutcome }[]> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_product_category', {
+    p_product_ids: [...args.productIds],
+    p_category_id: args.categoryId,
+    p_unlock: args.unlock,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as { product_id: string; outcome: string }[];
+  return rows.map((r) => {
+    if (r.outcome !== 'UPDATED' && r.outcome !== 'NO_CHANGE' && r.outcome !== 'NOT_FOUND') {
+      throw new Error('admin_set_product_category RPC 回傳非預期碼');
+    }
+    return { productId: r.product_id, outcome: r.outcome };
+  });
+}
