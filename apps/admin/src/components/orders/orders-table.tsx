@@ -24,6 +24,7 @@ import {
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
 import { orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
 import type { NextStepDo } from '../../lib/orders/order-return-to';
+import type { PendingBox } from '../../lib/shipping/box-progress';
 import type { OrderItemCostCell, OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
@@ -369,8 +370,11 @@ function OrderGroup({
   buildInvoiceHref,
   costCells,
   editCosts,
+  box,
 }: {
   order: AdminOrderSummary;
+  /** 2026-09-27 出貨流程甲:這張單還沒出貨的箱子走到哪(`order-box-progress-read.ts`);沒有箱 / 讀不到 = null。 */
+  box: PendingBox | null;
   buildOpenHref: (orderId: string) => string;
   /** 🆕 A1:老闆模式的成本格(`null` = 一般模式:畫來源 / 收款 / 狀態 / 下一步, 不畫六欄)。 */
   costCells: OrderItemCostCells | null;
@@ -924,7 +928,7 @@ function OrderGroup({
                      📌 「沒有下一步了」與「這張單不在流程裡了」是兩件事。 */}
             {boss ? null : first ? (
               (() => {
-                const next = orderNextStep(status);
+                const next = orderNextStep(status, box);
                 if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
                 if (next.kind === 'done') {
                   return (
@@ -948,10 +952,15 @@ function OrderGroup({
                         🔴 內距取稿的另一版 `padding:3px 8px`:`col-next` 內容盒 90(104 − 7×2),六字鈕 72+16+2 = 90 剛好;
                            9px 會多 2px ⇒ td 的 `text-overflow:ellipsis` 在鈕右邊畫出一顆「.」(1440 真瀏覽器撞到)。
                         字面照 `規格-下一步欄-v1.md` 不動;仍是 `<Link>`、零 client。 */}
+                    {/* 2026-09-27 出貨流程甲:「叫車」帶到出貨清單(goto);結果不確定的那兩種用橘色(tone warn)。 */}
                     <Link
-                      href={buildNextHref(order.id, next.do)}
-                      className='border-border bg-card relative z-10 inline-flex min-h-6 items-center rounded-lg border px-2 py-[3px] text-[12px] leading-[1.4] whitespace-nowrap text-(--fg-2)'
-                      data-next-do={next.do}
+                      href={next.kind === 'goto' ? next.href : buildNextHref(order.id, next.do)}
+                      className={`relative z-10 inline-flex min-h-6 items-center rounded-lg border px-2 py-[3px] text-[12px] leading-[1.4] whitespace-nowrap ${
+                        next.kind === 'action' && next.tone === 'warn'
+                          ? 'border-orange-400 bg-orange-50 font-medium text-orange-800'
+                          : 'border-border bg-card text-(--fg-2)'
+                      }`}
+                      data-next-do={next.kind === 'goto' ? 'goto' : next.do}
                     >
                       {next.label}
                     </Link>
@@ -1018,8 +1027,11 @@ export function OrdersTable({
   expanded = null,
   costCells = null,
   editCosts = false,
+  boxByOrderId = null,
 }: {
   orders: AdminOrderSummary[];
+  /** 2026-09-27 出貨流程甲:每張單還沒出貨的箱子走到哪;`null` = 沒讀(下一步照舊只看貨)。 */
+  boxByOrderId?: ReadonlyMap<string, PendingBox> | null;
   /**
    * 🆕 A2(2026-09-14):老闆模式下成本前四格可就地改(`item-costs-cells.tsx` island)。**要包在 `<CostEditProvider>` 裡**
    * (page.tsx 放),否則 island 會 throw。`costCells === 'unreadable'` 時就算 true 也不開編輯格(plan:readFailed 態不開)。
@@ -1217,6 +1229,7 @@ export function OrdersTable({
             buildInvoiceHref={buildInvoiceHref}
             costCells={costCells}
             editCosts={editCosts}
+            box={boxByOrderId?.get(order.id) ?? null}
           />
         ))}
       </table>

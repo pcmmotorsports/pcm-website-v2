@@ -2948,3 +2948,32 @@ describe('A1 — 老闆:成本模式(costCells 給了才切)', () => {
     expect(spans).toEqual([ths, ths]);
   });
 });
+
+// ── 2026-09-27 出貨流程甲:下一步那格跟著箱子走(報告 ~/pcm-mailbox/後台出貨流程審視-20260927.md 問題 1、2)──
+describe('下一步:現貨而且已建箱 ⇒ 畫出箱子那一步', () => {
+  const instockOrder = () => order({ lines: [lineAt('l1', 1, 'instock')] });
+  const nextLink = (c: HTMLElement) => c.querySelector('td.col-next a');
+
+  it('沒給箱子 ⇒ 照舊「出貨」', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[instockOrder()]} />);
+    expect(nextLink(container)?.textContent).toBe('出貨');
+  });
+
+  it('🔴 拿到託運單號 ⇒「叫車」, 連到出貨清單那一天並先勾好那一箱', () => {
+    const o = instockOrder();
+    const boxes = new Map([[o.id, { progress: 'ready_to_dispatch' as const, shipmentId: 'box-1', createdAt: '2026-09-27T05:00:00Z' }]]);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[o]} boxByOrderId={boxes} />);
+    expect(nextLink(container)?.textContent).toBe('叫車');
+    expect(nextLink(container)?.getAttribute('href')).toBe('/shipments?day=2026-09-27&pick=box-1');
+  });
+
+  it('🔴 叫車結果不確定 ⇒「確認叫車結果」, 橘色, 開出貨彈窗', () => {
+    const o = instockOrder();
+    const boxes = new Map([[o.id, { progress: 'dispatch_uncertain' as const, shipmentId: 'box-1', createdAt: '2026-09-27T05:00:00Z' }]]);
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[o]} boxByOrderId={boxes} />);
+    const a = nextLink(container)!;
+    expect(a.textContent).toBe('確認叫車結果');
+    expect(a.getAttribute('data-next-do')).toBe('ship');
+    expect(a.className).toContain('text-orange-800');
+  });
+});

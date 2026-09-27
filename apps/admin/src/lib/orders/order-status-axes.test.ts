@@ -23,6 +23,7 @@ import {
   type OrderStatusView,
 } from './order-status-axes';
 import { FULFILLMENT_STATUS_LABEL, GOODS_AXIS_LABEL } from './order-list-view';
+import type { PendingBox } from '../shipping/box-progress';
 
 // L1 驗收:狀態八值 = 收款軸 × 貨品軸(需求檔 §0-H;Sean 拍 Q22=A/Q23=A/Q24=A/Q27=B/Q28=A)。
 //
@@ -624,5 +625,41 @@ describe('orderNextStep — 貨品軸 → 下一步', () => {
     const paid = { ...viewOf('ordered'), payAxis: 'paid' as const };
     const unpaid = { ...viewOf('ordered'), payAxis: 'unpaid' as const };
     expect(orderNextStep(paid)).toEqual(orderNextStep(unpaid));
+  });
+});
+
+// ── 2026-09-27 出貨流程甲:有箱子時,下一步跟著箱子的進度走 ─────────────────────────────
+// 報告 ~/pcm-mailbox/後台出貨流程審視-20260927.md 問題 1、2:建箱、拿到單號、叫過車之後,這一格一直寫「出貨」。
+describe('orderNextStep — 現貨而且已經有箱子 ⇒ 看箱子走到哪', () => {
+  const instock: OrderStatusView = { label: 'x', capsuleClass: 'x', payAxis: 'unpaid', goodsAxis: 'instock', cancelled: false };
+  const boxAt = (progress: PendingBox['progress'], createdAt = '2026-09-27T05:00:00Z'): PendingBox => ({
+    progress,
+    shipmentId: 's1',
+    createdAt,
+  });
+
+  it('沒有箱子 ⇒ 照舊「出貨」', () => {
+    expect(orderNextStep(instock, null)).toEqual({ kind: 'action', label: '出貨', do: 'ship' });
+  });
+
+  it.each([
+    ['needs_tracking', { kind: 'action', label: '出貨', do: 'ship' }],
+    ['needs_number', { kind: 'action', label: '要託運單號', do: 'ship' }],
+    ['number_uncertain', { kind: 'action', label: '查詢託運單號', do: 'ship', tone: 'warn' }],
+    ['ready_to_dispatch', { kind: 'goto', label: '叫車', href: '/shipments?day=2026-09-27&pick=s1' }],
+    ['dispatch_uncertain', { kind: 'action', label: '確認叫車結果', do: 'ship', tone: 'warn' }],
+    ['dispatched', { kind: 'action', label: '標記出貨', do: 'ship' }],
+  ] as const)('%s ⇒ %o', (progress, want) => {
+    expect(orderNextStep(instock, boxAt(progress))).toEqual(want);
+  });
+
+  it('🔴 叫車連到的是【台灣時間】建箱那一天(UTC 前一天晚上 = 台灣當天)', () => {
+    const r = orderNextStep(instock, boxAt('ready_to_dispatch', '2026-09-26T17:30:00Z'));
+    expect(r.kind === 'goto' ? r.href : null).toBe('/shipments?day=2026-09-27&pick=s1');
+  });
+
+  it('🔴 貨還沒到(不是現貨)⇒ 不看箱子', () => {
+    const ordered = { ...instock, goodsAxis: 'ordered' as const };
+    expect(orderNextStep(ordered, boxAt('dispatch_uncertain'))).toEqual(orderNextStep(ordered, null));
   });
 });

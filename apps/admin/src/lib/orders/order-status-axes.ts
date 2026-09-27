@@ -7,6 +7,7 @@ import type {
 } from '@pcm/domain';
 import { STATUS_CAPSULE } from './order-list-view';
 import type { NextStepDo } from './order-return-to';
+import type { BoxProgress, PendingBox } from '../shipping/box-progress';
 
 // M-4b OD 訂單列表改版 **L1**(2026-08-13):狀態八值 = 收款軸 × 貨品軸。
 //
@@ -640,7 +641,10 @@ export const ORDER_NEXT_STEP_LABEL: Record<OrderGoodsAxis, string> = {
  *    ⇒ 📌 「沒有下一步」與「這張單不在流程裡了」是兩件事，不要合併成同一個顯示。
  */
 export type OrderNextStep =
-  | { kind: 'action'; label: string; do: NextStepDo }
+  /** `tone: 'warn'` = 結果不確定、要人去確認(2026-09-27 出貨流程甲)。 */
+  | { kind: 'action'; label: string; do: NextStepDo; tone?: 'warn' }
+  /** 要去另一頁做的那一步(今天只有「叫車」:帶到出貨清單, 那一箱先勾好)。 */
+  | { kind: 'goto'; label: string; href: string }
   | { kind: 'done'; label: string }
   | { kind: 'none' };
 
@@ -662,11 +666,33 @@ export const NEXT_STEP_DO: Record<Exclude<OrderGoodsAxis, 'shipped'>, NextStepDo
  *      『顯示正確的下一步字面 + 導到該去的地方』，**不要在這一片接寫入**。」
  *    📌 理由：**一顆在列表上就能按的寫入鈕，誤按的成本比在明細裡高。**
  */
-export function orderNextStep(view: OrderStatusView): OrderNextStep {
+/**
+ * 2026-09-27 出貨流程甲(報告 ~/pcm-mailbox/後台出貨流程審視-20260927.md 問題 1、2):
+ * 現貨而且已經建了箱 ⇒ 這一格跟著箱子走, 不再一直寫「出貨」。仍然一格只放一個動作。
+ * 🔵 `do: 'ship'` 那幾個開的是同一個出貨彈窗;箱子已存在時它會顯示箱子那一頁(要號、查詢、填單號並標記出貨都在那裡)。
+ */
+const BOX_NEXT_STEP: Record<Exclude<BoxProgress, 'voided' | 'shipped'>, (box: PendingBox) => OrderNextStep> = {
+  needs_tracking: () => ({ kind: 'action', label: ORDER_NEXT_STEP_LABEL.instock, do: 'ship' }),
+  needs_number: () => ({ kind: 'action', label: '要託運單號', do: 'ship' }),
+  number_uncertain: () => ({ kind: 'action', label: '查詢託運單號', do: 'ship', tone: 'warn' }),
+  ready_to_dispatch: (box) => ({
+    kind: 'goto',
+    label: '叫車',
+    // 出貨清單以【台灣時間】建箱那一天分頁(shipment-list-read.ts 用 created_at 篩)。
+    href: `/shipments?day=${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date(box.createdAt))}&pick=${box.shipmentId}`,
+  }),
+  dispatch_uncertain: () => ({ kind: 'action', label: '確認叫車結果', do: 'ship', tone: 'warn' }),
+  dispatched: () => ({ kind: 'action', label: '標記出貨', do: 'ship' }),
+};
+
+export function orderNextStep(view: OrderStatusView, box: PendingBox | null = null): OrderNextStep {
   // 🔴 已取消 / 已退款 ⇒ `goodsAxis` 是 `null`（它們不在 2×4 矩陣裡，走 `orderStatusView` 的早退分支）
   //    ⇒ 整格空白。**不要改成印「—」** —— 那一欄的其他格印的是動詞，一個破折號讀起來像「沒資料」。
   if (view.goodsAxis === null) return { kind: 'none' };
   const label = ORDER_NEXT_STEP_LABEL[view.goodsAxis];
   if (view.goodsAxis === 'shipped') return { kind: 'done', label };
+  if (view.goodsAxis === 'instock' && box !== null && box.progress !== 'voided' && box.progress !== 'shipped') {
+    return BOX_NEXT_STEP[box.progress](box);
+  }
   return { kind: 'action', label, do: NEXT_STEP_DO[view.goodsAxis] };
 }

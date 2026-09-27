@@ -66,6 +66,7 @@ import { CancelResultPanel, isCancelPanelResultCode } from '../../components/ord
 import { getSessionActor, getSessionActorIdWithSource } from '../../lib/session/actor';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrdersTable } from '../../components/orders/orders-table';
+import { loadPendingBoxes } from '../../lib/orders/order-box-progress-read';
 import { OrderBossToggle } from '../../components/orders/order-boss-toggle';
 import { CostEditProvider, CostUnsavedBar, CostsBulkDialog } from '../../components/orders/item-costs-cells';
 import { isActiveManager } from '../../lib/staff';
@@ -961,6 +962,8 @@ export default async function OrdersPage({
             {/* #350c:面板連結**帶著當下篩選與頁碼**一起走(同一支 builder)⇒ 點開一張單不會洗掉列表狀態。 */}
             <OrdersTable
               orders={orders}
+              /* 2026-09-27 出貨流程甲:下一步跟著箱子走(建箱後「要託運單號」→「叫車」→ 結果不確定「確認叫車結果」)。讀不到 ⇒ 空 Map, 照舊「出貨」。 */
+              boxByOrderId={await loadPendingBoxes(orders)}
               density={display.density}
               /* 🆕 A1:`null` = 一般模式;Map / 'unreadable' = 老闆模式(藏四欄、畫六欄)。 */
               costCells={costCells}
