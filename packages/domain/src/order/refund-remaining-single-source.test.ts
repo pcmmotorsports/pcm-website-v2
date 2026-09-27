@@ -59,6 +59,20 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-27 · 報價單窗 58 補(M-4b-01 補強, 四支碰錢 RPC 補操作人檢查;作者就是我)──────────
+  //    🔴 **登記, 不是放寬** —— 判準一個字沒動, count 照這道閘自己印的「(9 處)」。
+  //    ✅ 先答那一題:「這支裡的 refund_amount 是讀唯一來源, 還是自己又算了一次?」
+  //       ⇒ **兩者都不是新的**:9 處全在 `admin_initiate_order_refund` 的本體裡, 而那個本體是
+  //         【正式庫現行定義逐字重發】(pg_get_functiondef, md5 6ad55496…), 本片只在 actor 格式檢查之後
+  //         插入一段「操作人必須是在職員工」, 沒有新增、刪除或改寫任何一行已退／可退的算式。
+  '20260927020000_m4b_01b_actor_gates_money_rpcs.sql': {
+    count: 9,
+    why:
+      '逐字重發 admin_initiate_order_refund 的正式庫現行本體(前置閘釘 md5 6ad5549694cc49bc97b38958724e887a)' +
+      '+ 在 actor 格式檢查之後插入「操作人在職」檢查;9 處 refund_amount 全是原本體既有的, ' +
+      '未新增任何已退／可退算式。2026-09-27 Fable R1 逐行比對本體與正式庫一致。',
+  },
+
   // ── 2026-09-17 · 窗 B 補(退款上限改用「已收」;作者就是我)────────────────────
   //    🔴 **登記, 不是放寬** —— 判準一個字沒動, count 照這道閘自己印的「(3 處)」。
   '20260917150000_m4b_refund_cap_uses_paid_not_total.sql': {
