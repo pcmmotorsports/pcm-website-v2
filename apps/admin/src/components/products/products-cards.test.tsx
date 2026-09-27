@@ -14,7 +14,9 @@ const ROW: AdminProductListRow = {
 };
 
 const html = (rows: AdminProductListRow[], listHref = '/products?view=x') =>
-  renderToStaticMarkup(<ProductsCards rows={rows} listHref={listHref} emptyText='目前沒有商品。' />);
+  renderToStaticMarkup(
+    <ProductsCards rows={rows} listHref={listHref} emptyText='目前沒有商品。' editHref={(id) => `/products?edit=${id}`} />,
+  );
 
 describe('ProductsCards', () => {
   it('🔴 每件一張卡:大縮圖、客人看到的標題(連到明細頁, 帶回列表的網址)、料號、售價、狀態', () => {
@@ -52,5 +54,9 @@ describe('ProductsCards', () => {
 
   it('沒有商品 ⇒ 顯示空白說明', () => {
     expect(html([])).toContain('目前沒有商品。');
+  });
+
+  it('🔴 每張卡有「快速編輯」, 指向那一件的 ?edit=', () => {
+    expect(html([ROW])).toMatch(/href="\/products\?edit=11111111-2222-4333-8444-555555555555"[^>]*>快速編輯</);
   });
 });

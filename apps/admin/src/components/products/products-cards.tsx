@@ -14,11 +14,14 @@ export function ProductsCards({
   rows,
   listHref,
   emptyText,
+  editHref,
 }: {
   rows: readonly AdminProductListRow[];
   /** 目前列表的網址(帶篩選);點進明細頁時帶著, 返回時回到同一個列表。 */
   listHref: string;
   emptyText: string;
+  /** Sean 2026-09-28:「快速編輯」的網址(保留篩選與頁碼, 多帶 ?edit=)。 */
+  editHref?: (id: string) => string;
 }) {
   if (rows.length === 0) {
     return <p className='text-muted-foreground rounded-lg border p-6 text-center text-sm'>{emptyText}</p>;
@@ -57,8 +60,13 @@ export function ProductsCards({
                 </Link>
                 <span className='text-muted-foreground font-mono text-xs'>{row.external_id}</span>
                 <span className='text-sm'>{price === null ? '—' : `NT$ ${price.toLocaleString('zh-TW')}`}</span>
-                <div className='mt-auto pt-1 text-xs'>
+                <div className='mt-auto flex flex-wrap items-center justify-between gap-1 pt-1 text-xs'>
                   <ProductStatusCaps row={row} />
+                  {editHref && (
+                    <Link href={editHref(row.id)} scroll={false} className='text-primary whitespace-nowrap hover:underline'>
+                      快速編輯
+                    </Link>
+                  )}
                 </div>
               </div>
             </li>

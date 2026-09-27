@@ -18,9 +18,27 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../lib/products/product-repository', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../lib/products/product-repository')>();
-  return { ...actual, listProductsForAdmin: mocks.list, listProductFilterOptions: mocks.options, countProductAttention: async () => null };
+  return {
+    ...actual,
+    listProductsForAdmin: mocks.list,
+    listProductFilterOptions: mocks.options,
+    countProductAttention: async () => null,
+    getProductForAdmin: quick.product,
+  };
 });
 vi.mock('server-only', () => ({}));
+// Sean 2026-09-28 快速編輯側邊欄:讀那一件商品與它的照片;照片面板與文字編輯器換成印名字的替身(它們各自有測試)。
+const quick = vi.hoisted(() => ({
+  product: vi.fn(async (): Promise<unknown> => null),
+  gallery: vi.fn(async (): Promise<unknown> => ({ state: 'ok', photos: [], curated: true })),
+}));
+vi.mock('../../lib/products/gallery-loader', () => ({ loadProductGallery: quick.gallery }));
+vi.mock('../../components/products/product-gallery-panel', () => ({
+  ProductGalleryPanel: ({ productId }: { productId: string }) => <section data-testid='qe-gallery'>照片面板 {productId}</section>,
+}));
+vi.mock('../../components/products/product-overrides-editor', () => ({
+  ProductOverridesEditor: ({ productId }: { productId: string }) => <section data-testid='qe-text'>文字編輯 {productId}</section>,
+}));
 // 商品頁乙 E1:清單 / 卡片的選擇存在 cookie(換篩選、翻頁都不會跳回清單)。
 const cookieJar = vi.hoisted(() => ({ view: undefined as string | undefined }));
 vi.mock('next/headers', () => ({
@@ -545,6 +563,52 @@ describe('E1 清單 / 卡片切換', () => {
   it('cookie 是認不得的值 ⇒ 當成清單', async () => {
     cookieJar.view = 'grid-xl';
     const { container } = await renderPage();
+    expect(container.querySelector('table')).not.toBeNull();
+  });
+});
+
+// Sean 2026-09-28:「快速編輯」—— 點一下從右側滑出側邊欄調照片、改文字;原本點進整頁照舊。
+describe('快速編輯側邊欄', () => {
+  const PID = '11111111-2222-4333-8444-555555555555';
+  const PRODUCT = { ...ROW, id: PID, title: '碳纖維前土除', subtitle: null, highlights: [], staff_overrides: null, supplier_slug: 'rpm' };
+  beforeEach(() => {
+    mocks.list.mockResolvedValue({ items: [{ ...ROW, id: PID, thumb: null, image_missing: true, availability: 'in-stock', brands: null, categories: null, override_title: null }], total: 1 });
+    quick.product.mockResolvedValue(PRODUCT);
+  });
+
+  it('🔴 列表每一列有「快速編輯」, 連結保留目前的篩選, 只多帶 edit', async () => {
+    const { container } = await renderPage({ attn: 'out_of_stock' });
+    const a = [...container.querySelectorAll('a')].find((x) => x.textContent === '快速編輯')!;
+    expect(a.getAttribute('href')).toContain(`edit=${PID}`);
+    expect(a.getAttribute('href')).toContain('attn=out_of_stock');
+  });
+
+  it('🔴 ?edit=<id> ⇒ 側邊欄打開:重用照片面板與文字編輯器, 有「開整頁」;關掉的連結只拿掉 edit', async () => {
+    const { container } = await renderPage({ attn: 'out_of_stock', edit: PID });
+    const drawer = container.querySelector('[data-quick-edit]')!;
+    expect(drawer).not.toBeNull();
+    expect(drawer.querySelector('[data-testid="qe-gallery"]')?.textContent).toContain(PID);
+    expect(drawer.querySelector('[data-testid="qe-text"]')?.textContent).toContain(PID);
+    expect(quick.product).toHaveBeenCalledWith(PID);
+    const close = drawer.querySelector('[data-quick-edit-close]')!.getAttribute('href')!;
+    expect(close).toContain('attn=out_of_stock');
+    expect(close).not.toContain('edit=');
+    expect(drawer.querySelector(`a[href^="/products/${PID}"]`)?.textContent).toContain('開整頁');
+    // 列表還在後面(關掉後停在原本的位置與篩選)
+    expect(container.querySelector('table')).not.toBeNull();
+  });
+
+  it('沒有 ?edit ⇒ 不畫側邊欄、不讀那一件', async () => {
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-quick-edit]')).toBeNull();
+    expect(quick.product).not.toHaveBeenCalled();
+  });
+
+  it('🔴 讀不到那一件 ⇒ 側邊欄寫讀不到, 列表照常', async () => {
+    quick.product.mockRejectedValue(new Error('db down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { container } = await renderPage({ edit: PID });
+    expect(container.querySelector('[data-quick-edit]')?.textContent).toContain('這件商品載入失敗');
     expect(container.querySelector('table')).not.toBeNull();
   });
 });

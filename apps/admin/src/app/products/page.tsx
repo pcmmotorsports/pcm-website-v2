@@ -7,6 +7,8 @@ import { cookies } from 'next/headers';
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductsCards } from '../../components/products/products-cards';
 import { ProductViewToggle } from '../../components/products/product-view-toggle';
+import { ProductQuickEditDrawer } from '../../components/products/product-quick-edit-drawer';
+import { loadProductGallery, type ProductGalleryState } from '../../lib/products/gallery-loader';
 import { PRODUCTS_VIEW_COOKIE, parseProductsViewMode } from '../../lib/products/product-view-mode';
 import { ProductToolbar } from '../../components/products/product-toolbar';
 import { ProductAttentionChips, ProductCategoryLockedChip, ProductFilterChips } from '../../components/products/product-filter-chips';
@@ -20,6 +22,8 @@ import {
   listProductsForAdmin,
   type AdminProductPage,
   type ProductFilterOptions,
+  getProductForAdmin,
+  type AdminProductDetailRow,
 } from '../../lib/products/product-repository';
 import { resolveProductListQuery } from '../../lib/products/product-taxonomy-options';
 import {
@@ -35,6 +39,7 @@ import {
   CATEGORY_PARAM,
   buildProductListHref,
   buildProductListHrefResetPage,
+  productDetailHref,
   parseProductListParams,
 } from '../../lib/products/product-list-view';
 import { detectPageTruncation } from '../../lib/shared/list-params';
@@ -133,6 +138,23 @@ export default async function ProductsPage({
   //          保證不了那個決定是對的(對到錯的 param 名一樣過)—— 那半靠往返測試。
   const filterFields = filterHiddenFields(filter);
 
+  // Sean 2026-09-28「快速編輯」:?edit=<id> 才讀那一件與它的照片;讀不到只影響側邊欄, 列表照常。
+  let quickProduct: AdminProductDetailRow | null = null;
+  let quickFailed = false;
+  let quickGallery: ProductGalleryState | null = null;
+  if (view.edit !== undefined) {
+    try {
+      quickProduct = await getProductForAdmin(view.edit);
+      if (quickProduct) quickGallery = await loadProductGallery(quickProduct);
+    } catch (error) {
+      console.error('[admin/products] 快速編輯讀取商品失敗', error);
+      quickFailed = true;
+    }
+  }
+  // 列表網址(帶篩選與頁碼, 不帶展開與快速編輯)⇒ 點進整頁時帶著、關掉側邊欄時回到這裡。
+  const listHref = buildProductListHref(filter, { page: view.page, size: view.size });
+  const editHref = (id: string) => buildProductListHref(filter, { page: view.page, size: view.size, edit: id });
+
   const emptyText =
     filter.keyword !== undefined
       ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
@@ -219,12 +241,13 @@ export default async function ProductsPage({
               .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))}
           />
           {viewMode === 'cards' ? (
-            <ProductsCards rows={items} listHref={buildProductListHref(filter, { page: view.page, size: view.size })} emptyText={emptyText} />
+            <ProductsCards rows={items} listHref={listHref} emptyText={emptyText} editHref={editHref} />
           ) : (
             <ProductsTable
               rows={items}
               openId={view.open}
-              listHref={buildProductListHref(filter, { page: view.page, size: view.size })}
+              listHref={listHref}
+              editHref={editHref}
               openHref={(id) => `${buildProductListHref(filter, { page: view.page, size: view.size, open: id })}${id ? `#p-${id}` : ''}`}
               emptyText={emptyText}
             />
@@ -250,10 +273,19 @@ export default async function ProductsPage({
               defaultSize: DEFAULT_PAGE_SIZE,
             }}
           />
-        </>
+                </>
       )}
       </div>
       </div>
+      {view.edit !== undefined && (
+        <ProductQuickEditDrawer
+          product={quickProduct}
+          loadFailed={quickFailed}
+          gallery={quickGallery}
+          closeHref={listHref}
+          detailHref={productDetailHref(view.edit, listHref)}
+        />
+      )}
     </div>
   );
 }

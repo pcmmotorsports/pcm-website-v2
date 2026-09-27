@@ -48,6 +48,7 @@ function buildColumns(
   openId: string | undefined,
   openHref: (id: string | undefined) => string,
   listHref: string | undefined,
+  editHref: ((id: string) => string) | undefined,
 ): ReadonlyArray<AdminColumn<AdminProductListRow>> {
   return [
   {
@@ -82,11 +83,27 @@ function buildColumns(
         <Link href={productDetailHref(row.id, listHref)} className='text-foreground font-bold hover:underline'>
           {displayTitle(row)}
         </Link>
+
         {openId === row.id && <ProductRowSummary row={row} closeHref={openHref(undefined)} detailHref={productDetailHref(row.id, listHref)} />}
       </div>
     ),
     mobile: 'title',
   },
+  // Sean 2026-09-28:「快速編輯」從右側側邊欄調照片、改文字;點名稱照舊進整頁。
+  //   自己一欄, 不塞進名稱欄:名稱欄的文字只放商品名稱(測試與複製都讀它)。
+  ...(editHref
+    ? [
+        {
+          key: 'quick',
+          header: '',
+          cell: (row: AdminProductListRow) => (
+            <Link href={editHref(row.id)} scroll={false} className='text-primary text-xs whitespace-nowrap hover:underline'>
+              快速編輯
+            </Link>
+          ),
+        },
+      ]
+    : []),
   { key: 'external_id', header: '料號', cell: (row) => <span className='font-mono'>{row.external_id}</span>, mobile: 'sub' },
   {
     key: 'brand',
@@ -158,8 +175,11 @@ export function ProductsTable({
   openId,
   openHref = () => '/products',
   listHref,
+  editHref,
 }: {
   rows: readonly AdminProductListRow[];
+  /** Sean 2026-09-28:「快速編輯」的網址(保留篩選與頁碼, 多帶 ?edit=);沒給 = 不畫那個連結。 */
+  editHref?: (id: string) => string;
   /** 商品頁乙 A9:展開摘要的那一件;沒給 = 都收合。 */
   openId?: string;
   /** 商品頁乙 A9:展開 / 收合某一件的網址(保留目前的篩選與頁碼);`undefined` = 收合。 */
@@ -178,6 +198,6 @@ export function ProductsTable({
   emptyText?: string;
 }) {
   return (
-    <AdminDataTable rows={rows} columns={buildColumns(openId, openHref, listHref)} getRowKey={(row) => row.id} emptyText={emptyText} />
+    <AdminDataTable rows={rows} columns={buildColumns(openId, openHref, listHref, editHref)} getRowKey={(row) => row.id} emptyText={emptyText} />
   );
 }
