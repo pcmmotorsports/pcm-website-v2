@@ -55,18 +55,25 @@ export function ShipmentHctUncertainExits({
         ...(edelno === null ? {} : { trackingNumber: edelno }),
         hctPickedUpConfirmed: true,
       });
-      setMsg(r.ok ? { ok: true, text: '已標記出貨。' } : { ok: false, text: r.message });
-      if (r.ok) router.refresh();
+      // await 之後的狀態更新要再包一次 transition(React 19 規則):不包的話訊息先畫出來、按鈕下一次畫面才解除停用,
+      // 員工(與測試)在中間那一刻按下去會沒反應。包起來 ⇒ 訊息與按鈕解除停用在同一次畫面(2026-09-28 偶發測試紅的根因)。
+      start(() => {
+        setMsg(r.ok ? { ok: true, text: '已標記出貨。' } : { ok: false, text: r.message });
+        if (r.ok) router.refresh();
+      });
     });
 
   const redispatch = () =>
     start(async () => {
       setMsg(null);
       const r = await redispatchShipmentAction({ shipmentId, expectedAttemptNo: lastAttempt!.lastNo });
-      setConfirming(false);
-      setRedispatchLocked(true);
-      setMsg(r.ok ? { ok: true, text: `已叫到車（貨號 ${r.edelno}），系統已標記出貨。` } : { ok: false, text: r.message });
-      router.refresh();
+      // 同上:await 之後的更新包進 transition, 與按鈕狀態同一次畫面。
+      start(() => {
+        setConfirming(false);
+        setRedispatchLocked(true);
+        setMsg(r.ok ? { ok: true, text: `已叫到車（貨號 ${r.edelno}），系統已標記出貨。` } : { ok: false, text: r.message });
+        router.refresh();
+      });
     });
 
   return (
