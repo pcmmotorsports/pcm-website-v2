@@ -21,6 +21,11 @@ vi.mock('../../lib/products/product-repository', async (importOriginal) => {
   return { ...actual, listProductsForAdmin: mocks.list, listProductFilterOptions: mocks.options, countProductAttention: async () => null };
 });
 vi.mock('server-only', () => ({}));
+// 商品頁乙 E1:清單 / 卡片的選擇存在 cookie(換篩選、翻頁都不會跳回清單)。
+const cookieJar = vi.hoisted(() => ({ view: undefined as string | undefined }));
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ get: (n: string) => (n === 'pcm_products_view' && cookieJar.view ? { value: cookieJar.view } : undefined) }),
+}));
 // 商品頁乙 A8:批次按鈕列是 client 元件,用到 useRouter;測試環境沒有 app router,給一個空殼。
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }), useSearchParams: () => new URLSearchParams() }));
 
@@ -512,3 +517,35 @@ describe('/products 商品清單匯出(M-4a-24 第二片)', () => {
     expect(failed.container.querySelector('[data-product-export]')).toBeNull();
   });
 });
+
+// 商品頁乙 E1:清單 / 卡片切換(計畫第五節 E)。選擇存在 cookie ⇒ 換篩選、翻頁、返回列表都維持。
+describe('E1 清單 / 卡片切換', () => {
+  beforeEach(() => {
+    mocks.list.mockResolvedValue({ items: [{ ...ROW, thumb: null, image_missing: true, availability: 'in-stock', brands: null, categories: null, override_title: null }], total: 1 });
+  });
+  afterEach(() => {
+    cookieJar.view = undefined;
+  });
+
+  it('🔴 預設是清單(表格);切換鈕兩顆都在', async () => {
+    const { container } = await renderPage();
+    expect(container.querySelector('table')).not.toBeNull();
+    expect(container.querySelector('[data-products-cards]')).toBeNull();
+    expect(container.querySelector('[data-view-toggle]')?.textContent).toContain('清單');
+    expect(container.querySelector('[data-view-toggle]')?.textContent).toContain('卡片');
+  });
+
+  it('🔴 cookie 選了卡片 ⇒ 畫卡片格, 不畫表格', async () => {
+    cookieJar.view = 'cards';
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-products-cards]')).not.toBeNull();
+    expect(container.querySelector('table')).toBeNull();
+  });
+
+  it('cookie 是認不得的值 ⇒ 當成清單', async () => {
+    cookieJar.view = 'grid-xl';
+    const { container } = await renderPage();
+    expect(container.querySelector('table')).not.toBeNull();
+  });
+});
+

@@ -3,7 +3,11 @@ import Link from 'next/link';
 // ⇒ admin 檔案用 `@/` 在測試裡 resolve 不到、這頁就測不起來(先例逐字見
 // `app/settings/suppliers/page.tsx:14-19`、`app/customers/page.tsx:2-4`)。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
+import { cookies } from 'next/headers';
 import { ProductsTable } from '../../components/products/products-table';
+import { ProductsCards } from '../../components/products/products-cards';
+import { ProductViewToggle } from '../../components/products/product-view-toggle';
+import { PRODUCTS_VIEW_COOKIE, parseProductsViewMode } from '../../lib/products/product-view-mode';
 import { ProductToolbar } from '../../components/products/product-toolbar';
 import { ProductAttentionChips, ProductCategoryLockedChip, ProductFilterChips } from '../../components/products/product-filter-chips';
 import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
@@ -62,6 +66,8 @@ export default async function ProductsPage({
 }) {
   const raw = await searchParams;
   const { filter, view } = parseProductListParams(raw);
+  // 商品頁乙 E1:清單 / 卡片(存在 cookie, 理由見 product-view-toggle.tsx)。
+  const viewMode = parseProductsViewMode((await cookies()).get(PRODUCTS_VIEW_COOKIE)?.value);
   const offset = (view.page - 1) * view.size;
 
   // 🔴🔴 **下拉選項先撈,而且它【失敗不算列表失敗】** —— 兩個 try 是刻意分開的:
@@ -126,6 +132,13 @@ export default async function ProductsPage({
   //       ⚠️ 同 builder 那道的限定:它只保證「每個軸都被做過決定」,
   //          保證不了那個決定是對的(對到錯的 param 名一樣過)—— 那半靠往返測試。
   const filterFields = filterHiddenFields(filter);
+
+  const emptyText =
+    filter.keyword !== undefined
+      ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
+      : filter.attention !== undefined
+        ? `目前沒有「${filter.attention.map((k) => PRODUCT_ATTENTION_LABEL[k]).join('」或「')}」的商品。`
+        : '目前沒有商品。';
 
   return (
     <div className='pcm-plist pcm-sticky mx-auto space-y-3'>
@@ -197,24 +210,25 @@ export default async function ProductsPage({
           {/* 🔴 `#661`:有搜尋詞而零命中 ⇒ 換一句話。
               「目前沒有商品」與「找不到符合的商品」在畫面上是同一個空框,
               而前者讀起來像系統壞了或還沒進貨、後者讀起來像「再打一次」。 */}
+          <div className='flex justify-end'>
+            <ProductViewToggle mode={viewMode} />
+          </div>
           <ProductBatchBar
             categories={(options?.categories ?? [])
               .map((c) => ({ id: c.id, label: c.raw_path }))
               .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))}
           />
-          <ProductsTable
-            rows={items}
-            openId={view.open}
-            listHref={buildProductListHref(filter, { page: view.page, size: view.size })}
-            openHref={(id) => `${buildProductListHref(filter, { page: view.page, size: view.size, open: id })}${id ? `#p-${id}` : ''}`}
-            emptyText={
-              filter.keyword !== undefined
-                ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
-                : filter.attention !== undefined
-                  ? `目前沒有「${filter.attention.map((k) => PRODUCT_ATTENTION_LABEL[k]).join('」或「')}」的商品。`
-                  : '目前沒有商品。'
-            }
-          />
+          {viewMode === 'cards' ? (
+            <ProductsCards rows={items} listHref={buildProductListHref(filter, { page: view.page, size: view.size })} emptyText={emptyText} />
+          ) : (
+            <ProductsTable
+              rows={items}
+              openId={view.open}
+              listHref={buildProductListHref(filter, { page: view.page, size: view.size })}
+              openHref={(id) => `${buildProductListHref(filter, { page: view.page, size: view.size, open: id })}${id ? `#p-${id}` : ''}`}
+              emptyText={emptyText}
+            />
+          )}
           <p className='pcm-note2'>這裡列出所有商品，含已下架的。勾選後可以整批上架、下架或改分類；標題、副標、賣點和照片請點進商品明細頁修改，價格目前不能修改。</p>
           {/* 被截斷的字滑到看全文、可框選複製(同訂單列表那一支;只在真的被截時出現)。 */}
           <TruncationReveal root='table' />
