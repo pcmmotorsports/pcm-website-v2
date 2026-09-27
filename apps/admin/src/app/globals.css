@@ -102,7 +102,12 @@
         這些數字如果我抄錯,沒有任何一格會紅**(只要真值仍 ≥ 門檻)。
         **⇒ 要核這些數字,只能自己再算一次;把它們當「已被守門釘住」是錯的。**
         📎 這正是本檔一直在講的那件事的又一個實例:**「有守門」與「守的是這件事」是兩回事。** */
-  --background: #f8fafc;
+  /* 🔴 2026-09-28 Sean 用正式後台後回報:「底色都是藍色其實視覺上很不好辨識, 字體顏色也會很難看得懂, 還是改成白色」。
+     ⇒ 頁面底 #f8fafc → 白;幾顆偏藍的淡灰(區塊填色、框線、側欄選取)換成不帶色偏的中性灰, 區塊靠細框線分開。
+     舊值:--background #f8fafc、--secondary/--muted/--accent #f1f5f9、--border #e7ecf2、
+          --sidebar-accent #e9edf3、--sidebar-border #d3dae4。對比由 design-tokens.test.ts 實算。
+     --border-soft(表格列之間的極淡分隔線)維持設計稿值 #f1f5f9, 不動(design-tokens.test.ts 以稿值釘住)。 */
+  --background: #ffffff;
   --foreground: #1f2937;
   --card: #ffffff;
   --card-foreground: #1f2937;
@@ -110,9 +115,9 @@
   --popover-foreground: #1f2937;
   --primary: #1a5c96;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
+  --secondary: #f4f4f5;
   --secondary-foreground: #1f2937;
-  --muted: #f1f5f9;
+  --muted: #f4f4f5;
   /* 🔴 2026-09-13 晚 稿 v20 保真度:#4d596d → **#646d7c**(稿 `--mut` 是 #6b7280,**差 4~7 個色階、肉眼分不出**)。
      主視窗裁「改 token 本身一處,不逐片改」。
      🔴 為什麼不是稿的 #6b7280:`design-tokens.test.ts` 那格實算 —— #6b7280 在 `--muted`/`--secondary`/`--accent`(#f1f5f9)
@@ -121,7 +126,7 @@
         #646d7c:白底 5.22 / #f8fafc 4.99 / #f1f5f9 4.77 ⇒ 三個底都過且有餘裕。
         📌 拍過的優先於稿:AA 4.5 是整輪稿被接受的量尺,不為了 4 個色階把它放掉。 */
   --muted-foreground: #646d7c;
-  --accent: #f1f5f9;
+  --accent: #f4f4f5;
   --accent-foreground: #1f2937;
   --destructive: #b42318;
   --destructive-foreground: #ffffff;
@@ -160,7 +165,7 @@
      📎 對比由 `design-tokens.test.ts` 的膠囊那格**實算並斷言**,不是抄在這裡的數字。 */
   --warning: #a15c07;
   /* 🔴 2026-09-13 晚 稿 v20 保真度:#e3e9f0 → #e7ecf2(稿 `--line`)。同上,改 token 一處。 */
-  --border: #e7ecf2;
+  --border: #e4e4e7;
   /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
      **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
      檔頭那張表的 `--motion-*` 那一列逐字寫著「值存在但沒有任何元件吃它;寫『已套用』是假的」。
@@ -252,9 +257,9 @@
   --sidebar-foreground: #111827;
   --sidebar-primary: #1a5c96;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e9edf3;
+  --sidebar-accent: #ececee;
   --sidebar-accent-foreground: #111827;
-  --sidebar-border: #d3dae4;
+  --sidebar-border: #d9d9dc;
   /* 🆕 彈窗殼(`next-step-dialog.tsx`)的兩個值,逐字取自 OD v20/v22 `dialog{box-shadow:…}` / `dialog::backdrop{background:…}`。
      🔴 住在 token、殼只引用 —— 裸值寫進 className 會讓「稿改了投影」變成要 grep 四個彈窗;
         而 BMW M「投影式陰影零殘留」那條(08-16)被 Sean 09-13「依照新版本的風格」蓋過,**只在彈窗殼這一處**。
