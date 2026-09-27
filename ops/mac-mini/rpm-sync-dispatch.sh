@@ -4,8 +4,9 @@
 # 安裝方式見同目錄 README.md。本檔放在 repo 只是存檔, 不會自己跑。
 #
 # 做三件事:
-#   1. 今天(台灣時間)dev 上已經有一輪 daily【成功或正在跑】⇒ 不再觸發(launchd 睡醒補跑時不會重複)。
+#   1. 這個同步日(最近一個台灣 07:30 起)dev 上已經有一輪 daily【成功或正在跑】⇒ 不再觸發(launchd 睡醒補跑時不會重複)。
 #      取消或失敗的不算 ⇒ 會再觸發一次。
+#      🔴 2026-09-27 Sean Q4 甲:起點從「台灣當天 00:00」改成「台灣 07:30」—— 09-27 00:07 手動跑的一輪讓 07:45 被擋掉。
 #   2. 觸發 `gh workflow run rpm-sync.yml --ref dev -f daily=true`。
 #   3. 等 2 分鐘確認 GitHub 上出現【這次觸發之後】的那一輪, 而且不是取消或失敗;
 #      否則寄信到同步失敗那個信箱(Sean 2026-09-24 Q2 甲)。
@@ -48,10 +49,15 @@ alert() {
   esac
 }
 
-# 台灣今天 00:00 換成 UTC(macOS date)
-since=$(TZ=Asia/Taipei date -j -f '%Y-%m-%d %H:%M:%S' "$(TZ=Asia/Taipei date +%F) 00:00:00" +%s) || since=""
+# 最近一個台灣 07:30(台灣沒有夏令時間 ⇒ 台灣 07:30 = 前一天 UTC 23:30;現在不到 07:30 ⇒ 取昨天的 07:30)。
+# 與 .github/workflows/rpm-sync.yml 的 already-ran-today 逐字相同(scripts/rpm-sync-workflow.test.ts 釘住並實際執行)。
+sync_day_start_epoch() {
+  local now="$1"
+  echo $(( (now + 1800) / 86400 * 86400 - 1800 ))
+}
+since=$(sync_day_start_epoch "$(date +%s)") || since=""
 if [ -z "$since" ]; then
-  alert "算不出台灣今天 00:00,沒有觸發商品同步。"
+  alert "算不出這個同步日的起點(台灣 07:30),沒有觸發商品同步。"
   exit 1
 fi
 since_iso=$(date -u -r "$since" +%Y-%m-%dT%H:%M:%SZ)
@@ -73,7 +79,7 @@ if ! runs=$(daily_runs_since "$since_iso"); then
 fi
 live=$(printf '%s\n' "$runs" | count_live)
 if [ "${live:-0}" -gt 0 ]; then
-  log "✅ 今天 dev 上已經有 ${live} 輪 daily 成功或正在跑 ⇒ 不重複觸發"
+  log "✅ 台灣 07:30 之後 dev 上已經有 ${live} 輪 daily 成功或正在跑 ⇒ 不重複觸發"
   exit 0
 fi
 

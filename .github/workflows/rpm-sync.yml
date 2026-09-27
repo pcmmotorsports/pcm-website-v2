@@ -156,7 +156,10 @@ permissions:
 
 jobs:
   # ==========================================================================
-  # 備援排程用:今天(台灣時間)已經有一輪 Mac mini 的 daily 成功 ⇒ 輸出 skip=true, 後面整輪略過。
+  # 備援排程用:這個同步日(台灣 07:30 起)已經有一輪 Mac mini 的 daily 成功 ⇒ 輸出 skip=true, 後面整輪略過。
+  # 🔴 2026-09-27 Sean Q4 甲:起點從「台灣當天 00:00」改成「最近一個台灣 07:30」——
+  #    09-27 00:07 手動跑的一輪 daily 讓舊判準把 07:45 那輪當成已跑過而擋掉。
+  #    sync_day_start_epoch 與 ops/mac-mini/rpm-sync-dispatch.sh 逐字相同(scripts/rpm-sync-workflow.test.ts 釘住並實際執行)。
   # 🔴 查不到(API 失敗)⇒ 不略過, 照跑。寧可同一天跑兩次(每家同步可重複執行), 也不要一天都沒跑。
   # 🔴 只在排程觸發時跑;手動觸發時整個 job skip ⇒ outputs 是空的 ⇒ sync 照跑(人要補跑一定跑得起來)。
   # ⚠️ 略過時 Actions 那一輪顯示綠燈, 而 sync 的 21 個 job 是 skipped —— 看 job 狀態, 不要只看整輪。
@@ -176,9 +179,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          since=$(date -u -d "$(TZ=Asia/Taipei date +%F) 00:00 +0800" +%Y-%m-%dT%H:%M:%SZ) || since=""
+          # 最近一個台灣 07:30(台灣沒有夏令時間 ⇒ 台灣 07:30 = 前一天 UTC 23:30;現在不到 07:30 ⇒ 取昨天的 07:30)。
+          sync_day_start_epoch() {
+            local now="$1"
+            echo $(( (now + 1800) / 86400 * 86400 - 1800 ))
+          }
+          since=$(date -u -d "@$(sync_day_start_epoch "$(date +%s)")" +%Y-%m-%dT%H:%M:%SZ) || since=""
           if [ -z "$since" ]; then
-            echo "🔴 算不出台灣今天 00:00 ⇒ 不略過, 照跑。"; echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
+            echo "🔴 算不出這個同步日的起點(台灣 07:30)⇒ 不略過, 照跑。"; echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           # 只認 dev(排程與 Mac mini 都跑 dev;別的分支同名成功不算)。--paginate 讀完每一頁再數, 不截斷。
           if ! ids=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/rpm-sync.yml/runs?event=workflow_dispatch&branch=dev&status=success&created=%3E%3D${since}&per_page=100" \
@@ -187,9 +195,9 @@ jobs:
           fi
           n=$(printf '%s\n' "$ids" | grep -c '[0-9]' || true)
           if [ "${n:-0}" -gt 0 ]; then
-            echo "✅ 台灣時間 ${since} 之後已有 ${n} 輪 daily 成功 ⇒ 本輪備援略過。"; echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "✅ ${since}(UTC, 即台灣 07:30)之後已有 ${n} 輪 daily 成功 ⇒ 本輪備援略過。"; echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "⚠️ 今天沒有成功的 daily ⇒ 備援照跑全部供應商。"; echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ 今天台灣 07:30 之後沒有成功的 daily ⇒ 備援照跑全部供應商。"; echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
   sync:

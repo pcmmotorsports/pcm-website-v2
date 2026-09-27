@@ -94,3 +94,42 @@ describe('rpm-sync.yml Mac mini 日常觸發(daily)與備援略過(2026-09-24)',
     expect(g).toContain('if [ "$DAILY" = "true" ] && { [ -n "$SUPPLIER" ] || [ "$DRY_RUN" = "true" ] || [ -n "$CHECKSUM" ]; }; then');
   });
 });
+
+// ── Sean 2026-09-27 Q4 甲:「今天已跑過」改成「台灣 07:30 之後有沒有成功的 daily」────────────────
+// 起因:09-27 00:07 手動跑了一輪 daily ⇒ 舊判準(台灣當天 00:00 起算)把 07:45 那輪當成已跑過而擋掉。
+// 同步日從台灣 07:30 開始;07:30 之前查 ⇒ 看昨天 07:30 起(Mac mini 睡醒補跑時不會把前一天的份重跑)。
+// 兩邊同一個純算術函式(台灣沒有夏令時間 ⇒ 07:30 台灣 = 前一天 23:30 UTC);本格真的執行它。
+describe('rpm-sync 同步日起點 = 最近一個台灣 07:30(Sean 2026-09-27 Q4 甲)', () => {
+  const sh = readFileSync(join(__dirname, '..', 'ops', 'mac-mini', 'rpm-sync-dispatch.sh'), 'utf-8');
+  const fnOf = (src: string): string => {
+    const m = src.match(/sync_day_start_epoch\(\) \{\n[\s\S]*?\n\s*\}/);
+    expect(m, '找不到 sync_day_start_epoch 函式').not.toBeNull();
+    return m![0].replace(/^\s+/gm, '');
+  };
+  const run = (fn: string, epoch: number): number => {
+    const { execFileSync } = require('node:child_process') as typeof import('node:child_process');
+    return Number(execFileSync('bash', ['-c', `${fn}\nsync_day_start_epoch ${epoch}`], { encoding: 'utf-8' }).trim());
+  };
+  const iso = (s: string) => Date.parse(s) / 1000;
+
+  it('🔴 workflow 與 Mac mini 腳本是同一個函式(逐字)', () => {
+    expect(fnOf(jobBlock('already-ran-today'))).toBe(fnOf(sh));
+  });
+
+  it.each([
+    // [現在(UTC), 期望起點(UTC)]
+    ['2026-09-26T16:07:00Z', '2026-09-25T23:30:00Z'], // 台灣 09-27 00:07(那一輪手動)⇒ 屬於 09-26 那個同步日
+    ['2026-09-26T23:29:59Z', '2026-09-25T23:30:00Z'], // 台灣 07:29:59 ⇒ 仍是前一天
+    ['2026-09-26T23:30:00Z', '2026-09-26T23:30:00Z'], // 台灣 07:30 整 ⇒ 新的一天
+    ['2026-09-26T23:45:00Z', '2026-09-26T23:30:00Z'], // 台灣 07:45(Mac mini)⇒ 00:07 那輪不算
+    ['2026-09-27T03:17:00Z', '2026-09-26T23:30:00Z'], // 台灣 11:17(備援排程)
+    ['2026-09-27T15:59:00Z', '2026-09-26T23:30:00Z'], // 台灣 23:59
+  ])('現在 %s ⇒ 起點 %s', (now, want) => {
+    expect(run(fnOf(sh), iso(now))).toBe(iso(want));
+  });
+
+  it('🔴 兩邊都不再用「台灣當天 00:00」當起點', () => {
+    expect(jobBlock('already-ran-today')).not.toContain('00:00 +0800');
+    expect(sh).not.toContain('00:00:00" +%s');
+  });
+});
