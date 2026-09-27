@@ -655,8 +655,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     categoryStrategy: { kind: 'per-group' }, // 1 大類 / 13 子類 ⇒ 子類逐群不同
     variantImages: 'per-variant', // 403 / 405 個多變體群每變體各有自己的圖
     requireListingContent: true, // Sean D1 甲:缺說明的 7 件先擋, 補好下次同步自動上架(同 Arrow)
-    // 🛑 一個位元組也不寫 —— 翻這一格的兩個條件見上方。
-    writeAllowed: false,
+    // ✅ 2026-09-27 翻 true:① 圖已轉存 R2(報價單 main 359530e3:上傳 11,701、改寫 2,106 列, 13 張來源 404 保留原網址)
+    //   ② 首灌那一發由主視窗在 Sean 同意後帶 checksum dispatch。同一顆 commit 補 rpm-sync.yml matrix。
+    // ⛔ ~~`writeAllowed: false`~~(09-27 登記時, 等上面兩件)
+    writeAllowed: true,
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓

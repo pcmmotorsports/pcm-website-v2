@@ -184,7 +184,8 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
       notWriteAllowed,
       '這一群變了 ⇒ 要嘛有人登記了新供應商還沒開寫(那它歸本格管), ' +
         '要嘛守門靶被動過。兩種都要有人看一眼, 不要直接改期望值。',
-    ).toEqual(['__gated_canary__', 'ilmberger', 'ohlins']);
+    ).toEqual(['__gated_canary__', 'ohlins']);
+    // ⛔ ~~`['__gated_canary__', 'ilmberger', 'ohlins']`~~ ⇒ 2026-09-27 Ilmberger 圖轉存 R2 完成(報價單 359530e3), 準備首灌、翻 writeAllowed: true ⇒ 移出本格。
     // ⛔ ~~`['__gated_canary__', 'ohlins']`~~ ⇒ 2026-09-27 `ilmberger` 登記進 SUPPLIER_CONFIGS(writeAllowed: false,
     //   等圖轉存 R2 與首灌那一發;Sean D1 甲 / D3 甲)⇒ 它現在歸本格管。事實變了, 不是為了過關。
     // ⛔ ~~`['__gated_canary__', 'arrow', 'ohlins']`~~ ⇒ 2026-09-26 Sean Q15 甲批 arrow 首灌、翻 writeAllowed: true ⇒ 移出本格。
@@ -230,6 +231,7 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
     ['rizoma', 'rizoma'],
     ['wrs', 'wrs'],
     ['arrow', 'arrow'], // 2026-09-26 Sean Q15 甲批首灌
+    ['ilmberger', 'ilmberger'], // 2026-09-27 圖轉存 R2 後準備首灌(Sean D1 甲 / D3 甲)
   ])('🔴 %s 首灌後應為「已開寫 + case 在」', (supplierSlug, brandSlug) => {
     const cfg = SUPPLIER_CONFIGS[supplierSlug];
     expect(cfg, `${supplierSlug} 不在 SUPPLIER_CONFIGS 裡`).toBeDefined();
