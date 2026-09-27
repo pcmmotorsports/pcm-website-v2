@@ -30,6 +30,9 @@ vi.mock('../../../lib/products/product-repository', async (importOriginal) => {
     getProductTaxonomyNames: mocks.taxonomy,
     // 商品頁乙 C4:分類選項
     listCategoryChoices: async () => [{ id: 'cat-1', label: '外觀部品' }],
+    // 商品頁乙 A11:上一件 / 下一件
+    listProductFilterOptions: async () => null,
+    findProductNeighbors: async () => ({ prevId: 'aaaaaaaa-0000-4000-8000-000000000001', nextId: null }),
   };
 });
 vi.mock('server-only', () => ({}));
@@ -718,5 +721,25 @@ describe('B2 兩欄版面', () => {
     gallery.load.mockResolvedValueOnce({ state: 'ok', photos: [], curated: false });
     const { container } = await renderPage();
     expect(container.querySelector('[data-col="photos"] [data-gallery-panel]')).not.toBeNull();
+  });
+});
+
+describe('商品頁乙 A11:返回原列表、上一件 / 下一件', () => {
+  it('帶 ?from= 進來 ⇒ 返回連結回原列表;上一件連到那一件並繼續帶著 from;最後一件寫「這是最後一件」', async () => {
+    const { container } = await renderPage(ID, { from: '/products?attn=delisted&page=2' });
+    const back = container.querySelector<HTMLAnchorElement>('[data-product-nav] a')!;
+    expect(back.getAttribute('href')).toBe('/products?attn=delisted&page=2');
+    expect(back.textContent).toContain('返回原本的商品列表');
+    expect(container.querySelector('[data-product-prev]')?.getAttribute('href')).toBe(
+      '/products/aaaaaaaa-0000-4000-8000-000000000001?from=%2Fproducts%3Fattn%3Ddelisted%26page%3D2',
+    );
+    expect(container.textContent).toContain('這是最後一件');
+  });
+
+  it('沒帶 from(或帶了站外網址)⇒ 回 /products,沒有上一件 / 下一件', async () => {
+    const { container } = await renderPage(ID, { from: 'https://evil.example/' });
+    expect(container.querySelector('[data-product-nav] a')?.getAttribute('href')).toBe('/products');
+    expect(container.querySelector('[data-product-prev]')).toBeNull();
+    expect(container.textContent).not.toContain('這是最後一件');
   });
 });

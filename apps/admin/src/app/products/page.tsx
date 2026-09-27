@@ -205,6 +205,7 @@ export default async function ProductsPage({
           <ProductsTable
             rows={items}
             openId={view.open}
+            listHref={buildProductListHref(filter, { page: view.page, size: view.size })}
             openHref={(id) => `${buildProductListHref(filter, { page: view.page, size: view.size, open: id })}${id ? `#p-${id}` : ''}`}
             emptyText={
               filter.keyword !== undefined

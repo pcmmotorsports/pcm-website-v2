@@ -15,7 +15,11 @@ import { toProductMedia } from '../../../lib/products/product-media';
 import { findVariantSkuCollision } from '../../../lib/products/variant-sku-collision';
 import { ResultBanner } from '../../../components/orders/result-banner';
 import { resolveListingState, resolvePrice } from '../../../lib/products/product-repository';
+import { FROM_PARAM, parseProductListReturn, productDetailHref } from '../../../lib/products/product-list-view';
+import { resolveProductListQuery } from '../../../lib/products/product-taxonomy-options';
 import {
+  findProductNeighbors,
+  listProductFilterOptions,
   getProductForAdmin,
   getProductTaxonomyNames,
   listCategoryChoices,
@@ -116,14 +120,46 @@ export default async function ProductDetailPage({
       : await Promise.all([loadProductHistory(product.id, await categoryChoicesPromise), loadProductGallery(product)]);
   const categoryChoices = await categoryChoicesPromise;
 
+  // 商品頁乙 A11:從列表點進來時帶著 ?from=(原列表網址)⇒ 返回原列表、上一件 / 下一件照那份清單的順序。
+  //   讀不到就只少了上一件 / 下一件,返回連結照樣回原列表。
+  const back = parseProductListReturn(rawSearch[FROM_PARAM]);
+  let neighbors: { prevId: string | null; nextId: string | null } | null = null;
+  if (back && product) {
+    try {
+      const options = await listProductFilterOptions().catch(() => null);
+      const { query } = resolveProductListQuery(back.filter, options);
+      neighbors = await findProductNeighbors(product.id, query, back.view.page, back.view.size);
+    } catch (error) {
+      console.error('[admin/products/[id]] 上一件 / 下一件讀取失敗(不擋畫面)', error);
+    }
+  }
+  const selfHref = back ? productDetailHref(id, back.href) : `/products/${id}`;
+
   return (
     <div className='mx-auto max-w-6xl space-y-4'>
-      <Link
-        href='/products'
-        className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm'
-      >
-        ← 返回商品列表
-      </Link>
+      <div className='flex flex-wrap items-center gap-3 text-sm' data-product-nav>
+        <Link href={back?.href ?? '/products'} className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1'>
+          {back ? '← 返回原本的商品列表' : '← 返回商品列表'}
+        </Link>
+        {neighbors && (
+          <span className='ml-auto flex items-center gap-3'>
+            {neighbors.prevId ? (
+              <Link href={productDetailHref(neighbors.prevId, back?.href)} className='hover:underline' data-product-prev>
+                ‹ 上一件
+              </Link>
+            ) : (
+              <span className='text-muted-foreground'>這是第一件</span>
+            )}
+            {neighbors.nextId ? (
+              <Link href={productDetailHref(neighbors.nextId, back?.href)} className='hover:underline' data-product-next>
+                下一件 ›
+              </Link>
+            ) : (
+              <span className='text-muted-foreground'>這是最後一件</span>
+            )}
+          </span>
+        )}
+      </div>
 
       <ResultBanner code={resultCode} />
 
@@ -193,6 +229,7 @@ export default async function ProductDetailPage({
                     </span>
                   </div>
                   <ProductListingForm
+                    returnTo={selfHref}
                     productId={product.id}
                     listed={resolveListingState(product) === 'listed'}
                     variantSkuCollisionOwner={variantSkuCollisionOwner}

@@ -41,6 +41,7 @@ vi.mock('@pcm/adapters/server', () => {
 import {
   ATTENTION_CONDITION,
   countProductAttention,
+  findProductNeighbors,
   listProductFilterOptions,
   listProductsForAdmin,
   resolveListingState,
@@ -547,6 +548,28 @@ describe('商品頁乙 A5:排序', () => {
     await listProductsForAdmin(20, 0, { sort });
     const orders = q.calls.filter((c) => c[0] === 'order').map((c) => c.slice(1));
     expect(orders).toEqual([[...first], ['id', { ascending: true }]]);
+  });
+});
+
+describe('商品頁乙 A11:上一件 / 下一件', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+    q.rows = null;
+  });
+
+  it('第 2 頁(每頁 20)⇒ 從第 20 筆撈 22 筆,找出前後;同一組篩選照帶', async () => {
+    q.rows = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    const r = await findProductNeighbors('b', { setBy: 'staff' }, 2, 20);
+    expect(r).toEqual({ prevId: 'a', nextId: 'c' });
+    expect(q.calls).toContainEqual(['range', 19, 40]);
+    expect(q.calls).toContainEqual(['eq', 'listing_set_by', 'staff']);
+  });
+
+  it('第 1 頁的第一件沒有上一件;不在清單裡 ⇒ null', async () => {
+    q.rows = [{ id: 'a' }, { id: 'b' }];
+    expect(await findProductNeighbors('a', {}, 1, 20)).toEqual({ prevId: null, nextId: 'b' });
+    expect(q.calls).toContainEqual(['range', 0, 20]);
+    expect(await findProductNeighbors('zzz', {}, 1, 20)).toBeNull();
   });
 });
 

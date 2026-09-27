@@ -4,6 +4,8 @@ import {
   buildProductListHrefResetPage,
   parseProductKeyword,
   parseProductAttention,
+  parseProductListReturn,
+  productDetailHref,
   parseProductSort,
   parseProductListParams,
   parseProductPage,
@@ -477,5 +479,23 @@ describe('商品頁乙 A5:?sort= 排序', () => {
     expect(parseProductSort(['sku', 'updated'])).toBe('sku');
     expect(parseProductSort('drop table')).toBeUndefined();
     expect(parseProductSort(undefined)).toBeUndefined();
+  });
+});
+
+describe('商品頁乙 A11:從列表進商品頁、再回原列表', () => {
+  it('商品頁連結帶著列表網址;列表是預設的就不帶', () => {
+    expect(productDetailHref('p1', '/products?q=brembo&page=2')).toBe('/products/p1?from=%2Fproducts%3Fq%3Dbrembo%26page%3D2');
+    expect(productDetailHref('p1', '/products')).toBe('/products/p1');
+    expect(productDetailHref('p1', undefined)).toBe('/products/p1');
+  });
+
+  it('只收站內 /products 列表網址,並重組成標準寫法(展開的那一列不帶回去)', () => {
+    const back = parseProductListReturn('/products?attn=delisted&page=2&open=00000000-0000-4000-8000-000000000001');
+    expect(back?.href).toBe('/products?attn=delisted&page=2');
+    expect(back?.view.page).toBe(2);
+    for (const bad of ['https://evil.example/products', '//evil.example', '/products/../orders', '/orders?x=1', '/products?x=1#y']) {
+      expect(parseProductListReturn(bad)).toBeNull();
+    }
+    expect(parseProductListReturn(undefined)).toBeNull();
   });
 });

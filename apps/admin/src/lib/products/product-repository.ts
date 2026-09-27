@@ -787,3 +787,22 @@ export async function listCategoryChoices(): Promise<{ id: string; label: string
   if (error) throw error;
   return ((data ?? []) as { id: string; raw_path: string }[]).map((c) => ({ id: c.id, label: c.raw_path }));
 }
+
+/**
+ * 商品頁乙 A11:同一組篩選、排序下,這件商品的上一件與下一件。
+ * 從那一頁前一筆撈到後一筆(每頁 size 件 + 前後各 1)。這件已經不在那一頁(例如剛被改到別的篩選外)⇒ `null`。
+ */
+export async function findProductNeighbors(
+  productId: string,
+  query: AdminProductQuery,
+  page: number,
+  size: number,
+): Promise<{ prevId: string | null; nextId: string | null } | null> {
+  const start = (page - 1) * size;
+  const offset = Math.max(0, start - 1);
+  const limit = size + (start > 0 ? 2 : 1);
+  const { items } = await queryProductsForAdmin<{ id: string }>('id', limit, offset, query);
+  const i = items.findIndex((r) => r.id === productId);
+  if (i < 0) return null;
+  return { prevId: items[i - 1]?.id ?? null, nextId: items[i + 1]?.id ?? null };
+}

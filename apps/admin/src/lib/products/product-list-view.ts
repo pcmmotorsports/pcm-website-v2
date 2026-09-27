@@ -725,3 +725,35 @@ export function buildProductListHrefResetPage(
   //    員工把每頁調成 500 之後按一下「手動」,不該跳回 200。
   return buildProductListHref(filter, { page: 1, size });
 }
+
+// ─────────────── 商品頁乙 A11:從列表進商品頁,再回到原本的列表 ───────────────
+
+/** 商品頁網址上帶著「從哪個列表來」(`?from=` 列表網址)。 */
+export const FROM_PARAM = 'from';
+
+/** 列表 ⇒ 商品頁的連結,帶著目前列表的網址(翻頁、篩選、排序都在裡面)。 */
+export function productDetailHref(productId: string, listHref: string | undefined): string {
+  return listHref === undefined || listHref === '/products'
+    ? `/products/${productId}`
+    : `/products/${productId}?${new URLSearchParams({ [FROM_PARAM]: listHref })}`;
+}
+
+/**
+ * 商品頁的 `?from=` ⇒ 原本的列表(篩選、檢視、重組過的網址);不是站內 `/products` 列表網址 ⇒ `null`。
+ * 🔴 不直接拿 `from` 當連結:一律拆成篩選再用 buildProductListHref 組回來,只可能產生本站的列表網址。
+ */
+export function parseProductListReturn(
+  value: string | string[] | undefined,
+): { filter: AdminProductFilter; view: AdminProductView; href: string } | null {
+  const v = Array.isArray(value) ? value[0] : value;
+  if (v === undefined || !/^\/products(\?[^\s#]*)?$/.test(v)) return null;
+  const qs = v.includes('?') ? v.slice(v.indexOf('?') + 1) : '';
+  const raw: Record<string, string | string[]> = {};
+  for (const [k, val] of new URLSearchParams(qs)) {
+    const prev = raw[k];
+    raw[k] = prev === undefined ? val : Array.isArray(prev) ? [...prev, val] : [prev, val];
+  }
+  const { filter, view } = parseProductListParams(raw);
+  const back = { ...view, open: undefined };
+  return { filter, view: back, href: buildProductListHref(filter, back) };
+}

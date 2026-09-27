@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ProductSelectAllOnPage } from './product-batch-bar';
 import { ProductQuickListing } from './product-quick-listing';
+import { productDetailHref } from '../../lib/products/product-list-view';
 import {
   AdminDataTable,
   type AdminColumn,
@@ -53,7 +54,11 @@ function thumbCell(row: AdminProductListRow) {
   return <img src={row.thumb} alt='' loading='lazy' className='bg-muted h-9 w-9 rounded-md object-contain' />;
 }
 
-function buildColumns(openId: string | undefined, openHref: (id: string | undefined) => string): ReadonlyArray<AdminColumn<AdminProductListRow>> {
+function buildColumns(
+  openId: string | undefined,
+  openHref: (id: string | undefined) => string,
+  listHref: string | undefined,
+): ReadonlyArray<AdminColumn<AdminProductListRow>> {
   return [
   {
     key: 'select',
@@ -84,10 +89,10 @@ function buildColumns(openId: string | undefined, openHref: (id: string | undefi
             <path d='M6 3l5 5-5 5' fill='none' stroke='currentColor' strokeWidth='2' />
           </svg>
         </Link>
-        <Link href={`/products/${row.id}`} className='text-foreground font-bold hover:underline'>
+        <Link href={productDetailHref(row.id, listHref)} className='text-foreground font-bold hover:underline'>
           {displayTitle(row)}
         </Link>
-        {openId === row.id && <ProductRowSummary row={row} closeHref={openHref(undefined)} />}
+        {openId === row.id && <ProductRowSummary row={row} closeHref={openHref(undefined)} detailHref={productDetailHref(row.id, listHref)} />}
       </div>
     ),
     mobile: 'title',
@@ -152,7 +157,7 @@ function buildColumns(openId: string | undefined, openHref: (id: string | undefi
 
 
 /** 商品頁乙 A9:展開後的摘要。只顯示與做最常用的事;其他去完整頁。 */
-function ProductRowSummary({ row, closeHref }: { row: AdminProductListRow; closeHref: string }) {
+function ProductRowSummary({ row, closeHref, detailHref }: { row: AdminProductListRow; closeHref: string; detailHref: string }) {
   const listed = resolveListingState(row) === 'listed';
   const price = resolvePrice(row);
   return (
@@ -167,7 +172,7 @@ function ProductRowSummary({ row, closeHref }: { row: AdminProductListRow; close
       </div>
       <div className='flex flex-wrap items-center gap-2'>
         <ProductQuickListing productId={row.id} listed={listed} />
-        <Link href={`/products/${row.id}`} className='border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm'>
+        <Link href={detailHref} className='border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm'>
           打開完整頁
         </Link>
         <Link href={closeHref} scroll={false} className='text-muted-foreground text-sm underline'>
@@ -183,12 +188,15 @@ export function ProductsTable({
   emptyText = '目前沒有商品。',
   openId,
   openHref = () => '/products',
+  listHref,
 }: {
   rows: readonly AdminProductListRow[];
   /** 商品頁乙 A9:展開摘要的那一件;沒給 = 都收合。 */
   openId?: string;
   /** 商品頁乙 A9:展開 / 收合某一件的網址(保留目前的篩選與頁碼);`undefined` = 收合。 */
   openHref?: (id: string | undefined) => string;
+  /** 商品頁乙 A11:目前的列表網址;點進商品頁時帶著,才回得去。 */
+  listHref?: string;
   /**
    * 空狀態文案。**預設是「這一頁真的沒有東西」那一句。**
    *
@@ -201,6 +209,6 @@ export function ProductsTable({
   emptyText?: string;
 }) {
   return (
-    <AdminDataTable rows={rows} columns={buildColumns(openId, openHref)} getRowKey={(row) => row.id} emptyText={emptyText} />
+    <AdminDataTable rows={rows} columns={buildColumns(openId, openHref, listHref)} getRowKey={(row) => row.id} emptyText={emptyText} />
   );
 }

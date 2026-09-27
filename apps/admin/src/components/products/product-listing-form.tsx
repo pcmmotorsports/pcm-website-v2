@@ -32,6 +32,7 @@ export function ProductListingForm({
   productId,
   listed,
   variantSkuCollisionOwner,
+  returnTo,
 }: {
   productId: string;
   listed: boolean;
@@ -44,6 +45,8 @@ export function ProductListingForm({
    * 🛑 而它**只在【要上架】時有意義** —— 下架一支可疑商品永遠是安全的。
    */
   variantSkuCollisionOwner?: string | null;
+  /** 商品頁乙 A11:存完回到哪裡(帶著 ?from=,才回得去原本的列表);沒給 = 這件商品的頁面。 */
+  returnTo?: string;
 }) {
   // 🔴 `listed === true` 表示這顆鈕要做的是【下架】⇒ 那一側不問。
   const askConfirm = !listed && typeof variantSkuCollisionOwner === 'string' && variantSkuCollisionOwner !== '';
@@ -55,7 +58,7 @@ export function ProductListingForm({
         [LISTING_PRODUCT_ID_FIELD]: productId,
         // 🔴 送的是「要變成什麼」,不是「現在是什麼」:上架中 ⇒ 送 true(去下架)。
         [LISTING_DELISTED_FIELD]: String(listed),
-        [LISTING_RETURN_TO_FIELD]: `/products/${productId}`,
+        [LISTING_RETURN_TO_FIELD]: returnTo ?? `/products/${productId}`,
         // 🔴🔴 **這裡【只送 owner】, 不送 confirm** —— 那是 codex R1 #1 打掉的東西:
         //    ⛔ ~~原本 hidden 自動夾帶 `confirm='true'`~~ ⇒ 那是**畫面幫員工確定了**,
         //      而不是他確定。⇒ confirm 現在是下面那個【他要自己勾】的 checkbox。
