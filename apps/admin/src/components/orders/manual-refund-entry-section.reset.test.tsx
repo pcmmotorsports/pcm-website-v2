@@ -93,6 +93,29 @@ describe('走查 E:失敗回來不得把員工選的退款管道換掉', () => {
     await waitFor(() => expect(radio(container, 'cash').checked).toBe(true));
   });
 
+  it('[E7] 失敗訊息出現的【同一次畫面更新】裡, 表單上就已經是現金 —— 不能等下一輪 effect', async () => {
+    // 🔴 E2 在全套 pnpm test 偶發紅(送出了 bank_transfer)的成因:表單 reset 與失敗訊息在同一次 commit,
+    //    而把 radio 重掛回現金的是 useEffect ⇒ 下一次 commit 才發生。兩次之間表單上真的是「匯款」,
+    //    機器忙的時候 E2 的第二次送出剛好落在這個空檔。
+    //    本格在失敗訊息插進 DOM 的那一刻(MutationObserver, 早於 passive effect)讀表單 ⇒ 空檔存在就必紅。
+    const { container } = renderSection();
+    fillCash(container);
+    const form = container.querySelector('form')!;
+    const seen: string[] = [];
+    const done = new Promise<void>((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (!container.querySelector('[role="alert"]')) return;
+        seen.push(String(new FormData(form).get(MANUAL_REFUND_RAIL_FIELD)));
+        mo.disconnect();
+        resolve();
+      });
+      mo.observe(container, { childList: true, subtree: true });
+    });
+    fireEvent.submit(form);
+    await done;
+    expect(seen).toEqual(['cash']);
+  });
+
   it('[E3] 送出時畫面勾現金而 state 還是匯款(hydration 前先點、瀏覽器還原表單)⇒ 失敗回來畫面仍是現金', async () => {
     // adversarial-reviewer R1 C2:回填要對齊「送出當下畫面上勾的那個」,不能讓重掛把畫面打回 state 的舊值。
     const { container, findByRole } = renderSection();

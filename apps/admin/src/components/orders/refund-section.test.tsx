@@ -174,7 +174,7 @@ describe('RefundSection — RW2d', () => {
     expect(alert.textContent).toContain('確認碼與訂單號末 4 碼不符');
     // confirm_mismatch ∉ FRESH_TOKEN_CODES ⇒ refundFailure 原樣帶回;hidden 必須用 state 那把。
     expect(tokenInput(container).value).toBe('ffffffff-0000-4000-8000-000000000009');
-    // 輸入套回(A10b finding 2 同型:effect 套 state.input,不靠 useState 初值)
+    // 輸入套回(A10b finding 2 同型:render 期套 state.input(2026-09-27 前是 effect),不靠 useState 初值)
     await waitFor(() => expect(amountInput(container)?.value).toBe('3'));
     expect((getByLabelText('退款原因') as HTMLInputElement).value).toBe('部分缺貨');
     expect((getByLabelText('確認碼(訂單號末 4 碼)') as HTMLInputElement).value).toBe('0000');
@@ -342,6 +342,32 @@ describe('走查 D:失敗回來不得把員工選的退款種類改掉', () => {
     await waitFor(() => expect((getByLabelText('部分退款') as HTMLInputElement).checked).toBe(true));
     expect(amountInput(container)?.value).toBe('500');
     expect(queryByRole('button', { name: '全額退款' })).toBeNull();
+  });
+
+  it('[D6] 失敗訊息出現的【同一次畫面更新】裡, 表單上就已經是部分退款 —— 不能等下一輪 effect', async () => {
+    // 🔴 2026-09-27(同 manual-refund-entry-section.reset.test.tsx [E7]):表單 reset 與失敗訊息在同一次 commit,
+    //    把 radio 重掛回「部分」若是 useEffect ⇒ 下一次 commit 才發生, 兩次之間表單上真的是「全額」。
+    //    本格在失敗訊息插進 DOM 那一刻(MutationObserver, 早於 passive effect)讀表單 ⇒ 空檔存在就必紅。
+    actionMock.mockImplementation(echoFailure('not_captured'));
+    const { container, getByLabelText } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    fillPartial(container, getByLabelText);
+    const form = container.querySelector('form')!;
+    const seen: string[] = [];
+    const done = new Promise<void>((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (!container.querySelector('[role="alert"]')) return;
+        const fd = new FormData(form);
+        seen.push(`${String(fd.get('kind'))}/${String(fd.get('amount'))}`);
+        mo.disconnect();
+        resolve();
+      });
+      mo.observe(container, { childList: true, subtree: true });
+    });
+    fireEvent.submit(form);
+    await done;
+    expect(seen).toEqual(['partial/500']);
   });
 
   it('[D3] 回填不得自動翻成全額:state 帶回 kind=full 而員工選著部分 ⇒ 仍是部分', async () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { appendOrderNoteAction } from '../../lib/orders/note-actions';
 import {
@@ -180,14 +180,21 @@ export function NoteComposeForm({
   //    型別 radio 與告知勾選的 DOM 被打回初次渲染的勾選,而 state 沒變就不重畫
   //    ⇒ 畫面顯示的型別 ≠ hidden `note_type` 送出的 ⇒ 員工照畫面再按,告知義務的證據記錯。
   //    ⇒ 每次失敗回來那一組用 key 重掛(重掛同時重設 checked 與 defaultChecked),型別回填成送出當下畫面上的那個。
-  //    deps 帶 isPending:連兩次失敗回來的 state 內容可能一樣,靠 pending 翻回 false 保證每次都重掛。
+  //    看 isPending 也看 state:連兩次失敗回來的 state 內容可能一樣,靠 pending 翻回 false 保證每次都重掛。
+  // 🔴 2026-09-27:改在【render 當下】做(React「依上一次的值調整 state」寫法), 不再用 useEffect。
+  //    useEffect 版:失敗訊息與表單 reset 在同一次 commit, 重掛在【下一次】commit ⇒ 兩次之間畫面上是
+  //    「內部備註、沒勾」而 hidden note_type 是 customer_notified(note-compose-form.reset.test.tsx [R7], useEffect 版 3/3 紅)。
+  //    送出當下的型別改存 state(render 期不讀 ref);初值 null ⇒ 掛載時若已是失敗態也照原 effect 跑一次。
   const [resultSeq, setResultSeq] = useState(0);
-  const submittedTypeRef = useRef<NoteType | null>(null);
-  useEffect(() => {
-    if (isPending || state.status !== 'failed') return;
-    setResultSeq((n) => n + 1);
-    if (submittedTypeRef.current) setNoteType(submittedTypeRef.current);
-  }, [isPending, state]);
+  const [submittedType, setSubmittedType] = useState<NoteType | null>(null);
+  const [seen, setSeen] = useState<{ state: NoteActionState; pending: boolean } | null>(null);
+  if (seen === null || seen.state !== state || seen.pending !== isPending) {
+    setSeen({ state, pending: isPending });
+    if (!isPending && state.status === 'failed') {
+      setResultSeq((n) => n + 1);
+      if (submittedType) setNoteType(submittedType);
+    }
+  }
 
   const failed = state.status === 'failed';
   const requestToken = failed ? state.requestToken : (bfcacheToken ?? serverToken);
@@ -282,7 +289,7 @@ export function NoteComposeForm({
       <form
         action={formAction}
         onSubmit={(event) => {
-          submittedTypeRef.current = typeOnScreen(event.currentTarget);
+          setSubmittedType(typeOnScreen(event.currentTarget));
           // 債⑥:更正不可撤回 → 送出前 confirm(取消 = 不送);帶節錄不只 seq(N5:seq 會漂)
           if (
             correctTarget &&

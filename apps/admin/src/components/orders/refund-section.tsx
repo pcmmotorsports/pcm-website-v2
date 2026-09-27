@@ -40,7 +40,7 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 //    autofill/表單還原塞回舊值的路)。切回 partial 時 state 已清空、必須重新輸入。
 //
 // 🔴 失敗回來的值要真的進畫面(A10b 關卡2 finding 2 同型):useState 初值只在掛載時求值,
-//    用 effect 套 `state.input`。denied 例外 —— 授權閘在讀表單之前,input 是空殼,
+//    在 render 當下套 `state.input`(2026-09-27 起, 原本用 effect, 理由見元件內)。denied 例外 —— 授權閘在讀表單之前,input 是空殼,
 //    灌進畫面會清掉員工剛打的內容(refund-action-state.ts:169 明寫此例外)。
 //
 // ⚠️ 無 JS(hydration 前)送出路徑**未實測**(codex R1 nit;note-compose N3 同款誠實標注):
@@ -98,6 +98,27 @@ export function RefundSection({
   //       那會送出 kind=full 且沒有金額 = 合法全額退款(adversarial-reviewer R1 F1)。radio 直接送出時同一畫面是
   //       kind=partial 沒金額 ⇒ refund-form.ts 判無效、錢不動。
   const [resultSeq, setResultSeq] = useState(0);
+  // 🔴 2026-09-27:回填改在【render 當下】做(React「依上一次的值調整 state」寫法), 不再用 useEffect。
+  //    useEffect 版:失敗訊息與表單 reset 在同一次 commit, 重掛 radio 在【下一次】commit ⇒ 兩次之間表單上真的是「全額」
+  //    (refund-section.test.tsx [D6] 在那一刻讀表單, useEffect 版 3/3 讀到 full/500;後果是 kind=full 帶金額 ⇒ 判無效、錢不動)。
+  //    初值 null:掛載時若已是失敗態也回填一次, 與原本 effect 在掛載時也會跑的行為相同。
+  const [seenState, setSeenState] = useState<RefundActionState | null>(null);
+  if (state !== seenState) {
+    setSeenState(state);
+    if (state.status === 'failed') {
+      // 表單 reset 對每一種失敗都會發生(denied 也是)⇒ 先讓 radio 重掛,再決定要不要回填。
+      setResultSeq((n) => n + 1);
+      // denied 的 input 是空殼(見檔頭);其餘失敗碼的 input = 剛送出的那份,套回畫面。
+      if (state.code !== 'denied') {
+        // 🔴 回填只准往「部分」翻,**絕不自動翻成全額**:全額退款不用填金額,
+        //    翻過去再按一次就是把剩下的全退掉,而員工選的不是那個。
+        if (state.input.kind === 'partial') setKind('partial');
+        setAmount(state.input.amount);
+        setConfirmCode(state.input.confirmCode);
+        setReason(state.input.reason);
+      }
+    }
+  }
   const router = useRouter();
 
   useEffect(() => {
@@ -109,20 +130,6 @@ export function RefundSection({
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
   }, [router]);
-
-  useEffect(() => {
-    if (state.status !== 'failed') return;
-    // 表單 reset 對每一種失敗都會發生(denied 也是)⇒ 先讓 radio 重掛,再決定要不要回填。
-    setResultSeq((n) => n + 1);
-    // denied 的 input 是空殼(見檔頭);其餘失敗碼的 input = 剛送出的那份,套回畫面。
-    if (state.code === 'denied') return;
-    // 🔴 回填只准往「部分」翻,**絕不自動翻成全額**:全額退款不用填金額,
-    //    翻過去再按一次就是把剩下的全退掉,而員工選的不是那個。
-    if (state.input.kind === 'partial') setKind('partial');
-    setAmount(state.input.amount);
-    setConfirmCode(state.input.confirmCode);
-    setReason(state.input.reason);
-  }, [state]);
 
   const failed = state.status === 'failed';
   const requestToken = failed ? state.requestToken : serverToken;
