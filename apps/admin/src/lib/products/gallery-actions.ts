@@ -61,8 +61,8 @@ async function runOp(productId: string, action: GalleryAction, op: GalleryOp): P
   if (!r.ok) return r;
   const res = await r.api.op(r.key, r.actor, op);
   if (!res.ok) return { ok: false, message: galleryErrorMessage(action, res.status, res.code) };
-  // 寫入成功 ⇒ 報價單已把這件商品寫進圖庫(第一次寫入時先補供應商照片)⇒ 已整理
-  return res.photos ? { ok: true, curated: true, photos: res.photos } : reload(r);
+  // 成功後一律重讀清單:報價單的操作回應裡沒有照片清單(見 gallery-api.ts op 的註解;2026-09-28 照片變 0 張的根因)。
+  return reload(r);
 }
 
 /** urls = 這件商品全部照片(含已隱藏)的新順序。 */

@@ -94,14 +94,17 @@ export function createGalleryApi(config: GalleryApiConfig, fetchImpl: typeof fet
       return r.ok ? { ok: true, curated: r.body.curated === true, photos: toPhotos(r.body.photos) } : r;
     },
 
-    async op(key: GalleryKey, actor: string, op: GalleryOp): Promise<GalleryApiResult<{ photos?: GalleryPhoto[] }>> {
+    // 🔴 2026-09-28 Sean 正式後台實撞「儲存順序後照片變 0 張, 重新整理才回來」:
+    //    報價單排序回 { photos: [網址字串…] }、隱藏回 { photo }、刪除回 { removed } —— 沒有一種回的是照片清單。
+    //    以前這裡把 photos 當照片物件解析 ⇒ 字串全被濾掉 ⇒ 畫面換成空清單。
+    //    ⇒ 只回成功與否;成功後由呼叫端重讀清單(gallery-actions.ts 的 runOp)。
+    async op(key: GalleryKey, actor: string, op: GalleryOp): Promise<GalleryApiResult<object>> {
       const r = await call('/api/gallery', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...op, ...common(key, actor) }),
       });
-      if (!r.ok) return r;
-      return Array.isArray(r.body.photos) ? { ok: true, photos: toPhotos(r.body.photos) } : { ok: true };
+      return r.ok ? { ok: true } : r;
     },
 
     async upload(key: GalleryKey, actor: string, file: File): Promise<GalleryApiResult<object>> {

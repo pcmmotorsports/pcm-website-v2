@@ -90,6 +90,15 @@ describe('list', () => {
 });
 
 describe('op', () => {
+  // 🔴 2026-09-28 Sean 正式後台實撞:按「儲存順序」後照片變 0 張, 重新整理才回來。
+  //    報價單 /api/gallery 的排序回 { photos: [網址字串…] }(gallery_reorder 回 to_jsonb(text[]));
+  //    隱藏回 { photo }、刪除回 { removed }。op 以前把 photos 當照片物件解析 ⇒ 字串全被濾掉 ⇒ 空清單。
+  //    ⇒ op 不再解析 photos, 只回成功與否;呼叫端一律重讀清單(gallery-actions.ts)。
+  it('🔴 報價單排序回的是網址字串陣列 ⇒ op 只回成功, 不把它當成照片清單(以前會變成 0 張)', async () => {
+    const { fn } = fakeFetch(200, { photos: ['https://img.example.com/a.jpg', 'https://img.example.com/b.jpg'] });
+    expect(await createGalleryApi(CONFIG, fn).op(KEY, 'staff_1', { op: 'reorder', urls: ['https://img.example.com/b.jpg'] })).toEqual({ ok: true });
+  });
+
   it('POST JSON:op 與參數、四個共同欄位', async () => {
     const { fn, calls } = fakeFetch(200, { photos: [ROW] });
     await createGalleryApi(CONFIG, fn).op(KEY, 'staff_1', { op: 'reorder', urls: [ROW.url] });

@@ -55,7 +55,7 @@ describe('共同的檢查', () => {
   });
 
   it('🔴 報價單要的鍵由伺服器從商品讀(supplier_slug + external_id), 不信瀏覽器傳來的', async () => {
-    m.op.mockResolvedValueOnce({ ok: true, photos: [ROW] });
+    m.op.mockResolvedValueOnce({ ok: true });
     await reorderGalleryAction(PID, [URL1]);
     expect(m.product).toHaveBeenCalledWith(PID);
     expect(m.op).toHaveBeenCalledWith(KEY, 'staff_1', { op: 'reorder', urls: [URL1] });
@@ -69,8 +69,21 @@ describe('共同的檢查', () => {
 });
 
 describe('排序', () => {
-  it('成功 ⇒ 回報價單排好的照片', async () => {
-    m.op.mockResolvedValueOnce({ ok: true, photos: [ROW] });
+  // 🔴 2026-09-28 Sean 實撞「儲存順序後照片變 0 張」:報價單操作後不回照片物件(排序回網址字串、隱藏回 photo、刪除回 removed),
+  //    所以每一種操作成功後都重讀圖庫清單。
+  it('🔴 每一種操作成功後都重讀圖庫清單, 畫面拿到的是完整照片(不會變 0 張)', async () => {
+    const LISTED = [ROW, { ...ROW, id: '22222222-2222-4222-8222-222222222222', url: 'https://img.example.com/b.jpg', position: 1 }];
+    m.list.mockResolvedValue({ ok: true, curated: true, photos: LISTED });
+    // 舊的 op 對報價單真實回應(網址字串)解析出來的就是空清單;不能拿它當畫面上的照片。
+    m.op.mockResolvedValue({ ok: true, photos: [] });
+    expect(await reorderGalleryAction(PID, [URL1])).toEqual({ ok: true, curated: true, photos: LISTED });
+    expect(await removeGalleryPhotoAction(PID, PHOTO_ID)).toEqual({ ok: true, curated: true, photos: LISTED });
+    expect(await setGalleryHiddenAction(PID, URL1, true)).toEqual({ ok: true, curated: true, photos: LISTED });
+    expect(m.list).toHaveBeenCalledTimes(3);
+  });
+
+  it('成功 ⇒ 回重讀後排好的照片', async () => {
+    m.op.mockResolvedValueOnce({ ok: true });
     expect(await reorderGalleryAction(PID, [URL1])).toEqual({ ok: true, curated: true, photos: [ROW] });
   });
 
@@ -173,7 +186,7 @@ describe('G2 新介面:網址與尚未整理', () => {
   });
 
   it('排序成功 ⇒ 圖庫已整理(報價單第一次寫入時已把供應商照片寫進去)', async () => {
-    m.op.mockResolvedValueOnce({ ok: true, photos: [ROW] });
+    m.op.mockResolvedValueOnce({ ok: true });
     expect(await reorderGalleryAction(PID, [URL1])).toEqual({ ok: true, curated: true, photos: [ROW] });
   });
 
