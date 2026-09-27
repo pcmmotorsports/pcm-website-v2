@@ -24,7 +24,7 @@
 | 函式 | 代數 | 各代 (檔:行) | 🔴 repo 裡最後一支(**不是線上**) |
 |---|---|---|---|
 | `admin_add_shipment_items` | **5** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294<br>20260916190000_m4b_shipment_audit_actor.sql:285 | `20260916190000_m4b_shipment_audit_actor.sql:285` |
-| `admin_adjust_wallet` | **2** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159 | `20260906800000_m4b_wallet_adjust_idempotency.sql:159` |
+| `admin_adjust_wallet` | **3** | 20260716210000_m4a_admin_adjust_wallet_rpc.sql:37<br>20260906800000_m4b_wallet_adjust_idempotency.sql:159<br>20260927020000_m4b_01b_actor_gates_money_rpcs.sql:354 | `20260927020000_m4b_01b_actor_gates_money_rpcs.sql:354` |
 | `admin_backfill_tappay_console_refund` | **2** | 20260907100000_m4b_tappaydirect_c1_backfill_rpc.sql:68<br>20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153 | `20260907130000_m4b_tappaydirect_c1a_isolation_before_idempotent.sql:153` |
 | `admin_cancel_order` | **6** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90<br>20260914050000_m4b_partpaid_cancel_gate_v2.sql:295 | `20260914050000_m4b_partpaid_cancel_gate_v2.sql:295` |
 | `admin_claim_hct_dispatch` | **2** | 20260910130000_m4b_hct_dispatch_recorded.sql:148<br>20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:608 | `20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:608` |
@@ -34,13 +34,14 @@
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
 | `admin_create_shipment` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:96<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:599<br>20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83<br>20260916190000_m4b_shipment_audit_actor.sql:143 | `20260916190000_m4b_shipment_audit_actor.sql:143` |
 | `admin_dealer_application_decide` | **2** | 20260925010000_m4b_dealer_applications.sql:244<br>20260926100000_m4b_customer_disable_delete.sql:1005 | `20260926100000_m4b_customer_disable_delete.sql:1005` |
+| `admin_dealer_brand_discounts_save` | **2** | 20260925030000_m4b_dealer_brand_discounts.sql:70<br>20260927020000_m4b_01b_actor_gates_money_rpcs.sql:59 | `20260927020000_m4b_01b_actor_gates_money_rpcs.sql:59` |
 | `admin_delete_item_receipt` | **2** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:280<br>20260917120000_m4b_delete_item_receipt_reason.sql:82 | `20260917120000_m4b_delete_item_receipt_reason.sql:82` |
 | `admin_delete_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:509<br>20260828090000_m4b_b4views1a_request_id_gate.sql:371 | `20260828090000_m4b_b4views1a_request_id_gate.sql:371` |
 | `admin_finalize_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:612<br>20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245 | `20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245` |
 | `admin_home_banner_archive` | **2** | 20260916150000_m4b_home_banners_and_inbound_emails.sql:445<br>20260916180000_m4b_home_banners_sean_three_overturns.sql:280 | `20260916180000_m4b_home_banners_sean_three_overturns.sql:280` |
 | `admin_home_banner_publish` | **2** | 20260916150000_m4b_home_banners_and_inbound_emails.sql:320<br>20260916180000_m4b_home_banners_sean_three_overturns.sql:188 | `20260916180000_m4b_home_banners_sean_three_overturns.sql:188` |
 | `admin_home_banner_save_draft` | **2** | 20260916150000_m4b_home_banners_and_inbound_emails.sql:222<br>20260916180000_m4b_home_banners_sean_three_overturns.sql:86 | `20260916180000_m4b_home_banners_sean_three_overturns.sql:86` |
-| `admin_initiate_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:423<br>20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480 | `20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480` |
+| `admin_initiate_order_refund` | **3** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:423<br>20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480<br>20260927020000_m4b_01b_actor_gates_money_rpcs.sql:515 | `20260927020000_m4b_01b_actor_gates_money_rpcs.sql:515` |
 | `admin_list_pcm_incidents` | **2** | 20260916040000_m4b_admin_list_pcm_incidents.sql:55<br>20260916080000_m4b_incident_mark_resolved.sql:379 | `20260916080000_m4b_incident_mark_resolved.sql:379` |
 | `admin_list_saved_order_views` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:260<br>20260828090000_m4b_b4views1a_request_id_gate.sql:510 | `20260828090000_m4b_b4views1a_request_id_gate.sql:510` |
 | `admin_mark_order_cancelled` | **3** | 20260902140000_m4b_mark_order_cancelled.sql:206<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:604<br>20260916210000_m4b_mark_order_cancelled_non_card.sql:134 | `20260916210000_m4b_mark_order_cancelled_non_card.sql:134` |
@@ -55,7 +56,7 @@
 | `admin_review_order_item_amount` | **2** | 20260915050000_m4b_03_order_amount_requests.sql:215<br>20260915130000_m4b_03_review_conflict_auto_reject.sql:222 | `20260915130000_m4b_03_review_conflict_auto_reject.sql:222` |
 | `admin_search_customers` | **2** | 20260816010000_m4b_525_admin_search_customers.sql:42<br>20260926100000_m4b_customer_disable_delete.sql:138 | `20260926100000_m4b_customer_disable_delete.sql:138` |
 | `admin_search_orders` | **2** | 20260809180000_m4b_347_1_admin_search_orders.sql:158<br>20260810120000_m4b_347_3a_admin_search_orders_date_range.sql:65 | `20260810120000_m4b_347_3a_admin_search_orders_date_range.sql:65` |
-| `admin_set_customer_tier` | **2** | 20260717010000_m4a_admin_set_customer_tier_rpc.sql:42<br>20260914130000_m4b_954_admin_set_customer_tier_expected_before.sql:34 | `20260914130000_m4b_954_admin_set_customer_tier_expected_before.sql:34` |
+| `admin_set_customer_tier` | **3** | 20260717010000_m4a_admin_set_customer_tier_rpc.sql:42<br>20260914130000_m4b_954_admin_set_customer_tier_expected_before.sql:34<br>20260927020000_m4b_01b_actor_gates_money_rpcs.sql:224 | `20260927020000_m4b_01b_actor_gates_money_rpcs.sql:224` |
 | `admin_soft_delete_order_note` | **2** | 20260913020000_m4b_order_notes_soft_delete.sql:163<br>20260915040000_m4b_01_manager_redline_rpc_gate.sql:410 | `20260915040000_m4b_01_manager_redline_rpc_gate.sql:410` |
 | `admin_unvoid_shipment` | **6** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:182<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:715<br>20260807210000_m4b_e10_b2_w3c2_unvoid_shipment.sql:75<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:413<br>20260916000000_m4b_p01_ship_guards_block_cancelled_and_refunded.sql:708<br>20260916190000_m4b_shipment_audit_actor.sql:629 | `20260916190000_m4b_shipment_audit_actor.sql:629` |
 | `admin_update_order_item_amount` | **6** | 20260815040000_m4b_e10_13_slice1_admin_update_order_item_amount.sql:325<br>20260816040000_m4b_e10_13_518_p2c13_detail.sql:45<br>20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql:972<br>20260909080000_m4b_a1_audit_active_attempt_on_price_change.sql:122<br>20260915040000_m4b_01_manager_redline_rpc_gate.sql:60<br>20260915060000_m4b_953_p2_rpcs_call_pcm_order_total.sql:1632 | `20260915060000_m4b_953_p2_rpcs_call_pcm_order_total.sql:1632` |
@@ -576,6 +577,16 @@
 **允許集合(逐字)**
 
 `:247` OR v_order.cancelled_at IS NULL<br>`:256` IF v_order.cancelled_at IS NOT NULL THEN
+
+### `admin_initiate_order_refund`  ·  `20260927020000_m4b_01b_actor_gates_money_rpcs.sql`
+
+**改什麼狀態**
+
+`:684` INSERT INTO public.order_refunds
+
+**允許集合(逐字)**
+
+`:629` IF v_ps NOT IN ('paid', 'partiallyRefunded') THEN
 
 ---
 
