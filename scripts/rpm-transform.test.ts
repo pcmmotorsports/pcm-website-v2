@@ -1284,3 +1284,42 @@ describe('🔴 卡片標題去掉選項字樣(Ilmberger 合卡 2026-09-27:標題
     expect(p.title).toBe('碳纖維定風翼');
   });
 });
+
+describe('🔴 卡片說明與賣點(Ilmberger 合卡 2026-09-28 Q4 甲:原本取料號最前那一款 ⇒ 只講左側)', () => {
+  const ILM_CTX: GroupTransformContext = {
+    brandId: 'brand-ilm', categoryId: 'cat-carbon', handlePrefix: 'ilmberger', brandSlug: 'ilmberger',
+    subtitleTag: '碳纖維部品', syncDescription: true, syncInstallResources: false, appendManualFilename: false,
+  };
+  const mk = (sku: string, spec: Record<string, string>, description: string, highlights: string[]): SourceProductRow =>
+    ({ ...BASE, sku, supplier_slug: 'ilmberger', main_sku: 'ILM-AH.003.D696', price_retail: '100', spec, description, highlights_zh: highlights }) as SourceProductRow;
+  const run = (rows: SourceProductRow[]) => transformGroup('ILM-AH.003.D696', rows, null, ILM_CTX, NOW, NO_DEALER);
+  const LEFT = mk('AHL.003.D696G.K', { position: '左', finish: '亮面' }, '碳纖維排氣隔熱罩（左），亮面透明漆處理。', ['左側隔熱罩', '亮面透明漆']);
+  const RIGHT = mk('AHR.004.D696G.K', { position: '右', finish: '亮面' }, '碳纖維排氣隔熱罩（右），亮面透明漆處理。', ['右側隔熱罩']);
+
+  it('有「左右一對」那一款 ⇒ 說明、賣點用那一款的(料號排最後也一樣)', () => {
+    const pair = mk('ZZ-PAIR', { position: '左右一對', finish: '亮面' }, '左右一對，含左側與右側各一件。碳纖維排氣隔熱罩。', ['左右一對', '輕量']);
+    const p = run([LEFT, RIGHT, pair]);
+    expect(p.description).toBe('左右一對，含左側與右側各一件。碳纖維排氣隔熱罩。');
+    expect(p.highlights).toEqual(['左右一對', '輕量']);
+  });
+
+  it('沒有一對那款(或它沒寫說明)⇒ 取第一款, 拿掉有得選的左右', () => {
+    const emptyPair = mk('ZZ-PAIR', { position: '左右一對', finish: '亮面' }, '', []);
+    const p = run([LEFT, RIGHT, emptyPair]);
+    expect(p.description).toBe('碳纖維排氣隔熱罩，亮面透明漆處理。'); // 空掉的括號也拿掉
+    expect(p.highlights).toEqual(['隔熱罩', '亮面透明漆']);
+  });
+
+  it('卡片有兩種表面:只寫一種的拿掉, 同時寫兩種(在介紹有得選)的留著', () => {
+    const matte = mk('AHL.103.D696M.K', { position: '左右一對', finish: '霧面' }, '左右一對，含左側與右側各一件。表面為亮面透明漆。', ['提供亮面／霧面版本可選']);
+    const p = run([LEFT, RIGHT, matte]);
+    expect(p.description).toBe('左右一對，含左側與右側各一件。表面為透明漆。');
+    expect(p.highlights).toEqual(['提供亮面／霧面版本可選']);
+  });
+
+  it('🔴 只有一邊的卡 ⇒ 不動(「左」就是商品本身)', () => {
+    const p = run([LEFT]);
+    expect(p.description).toBe('碳纖維排氣隔熱罩（左），亮面透明漆處理。');
+    expect(p.highlights).toEqual(['左側隔熱罩', '亮面透明漆']);
+  });
+});

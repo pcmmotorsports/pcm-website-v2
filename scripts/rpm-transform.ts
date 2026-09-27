@@ -514,6 +514,57 @@ export function isFullyDelisted(variants: SourceProductRow[]): boolean {
 }
 
 /**
+ * 卡片說明與賣點(2026-09-28 Sean Q4 甲, Ilmberger 合卡後)。
+ * 左、右、左右一對合成一張卡後, 說明原本取料號最前那一款 ⇒ 常常是只講「左側」那一款的文字。
+ *   · 卡片可選左和右, 而且有「左右一對」那一款 ⇒ 說明、賣點改用那一款的(那份本來就寫成左右都適用)
+ *   · 其他情況(沒有一對那款, 或一對那款沒寫)⇒ 照舊取第一款, 再用 optionWordCleaner 拿掉有得選的左右、表面字樣
+ *   · 卡片有兩種以上表面時, 只寫到其中一種的字樣也拿掉(乾跑 42 張寫著「表面為霧面透明漆」而卡上也能選亮面)
+ */
+export function cardCopy(
+  variants: SourceProductRow[],
+  perVariant: boolean,
+): { description: string | null; highlights: string[] } {
+  const specs = variants.map((v) => v.spec ?? {});
+  const clean = optionWordCleaner(specs, true);
+  const hasBothSides = specs.some((s) => s.position === '左') && specs.some((s) => s.position === '右');
+  const pairs = hasBothSides ? variants.filter((v) => v.spec?.position === '左右一對') : [];
+  // 一對那款的文字本來就寫「左右一對，含左側與右側各一件」⇒ 只拿掉表面字樣, 左右不動(不給位置 = 不拿左右)
+  const finishOnly = optionWordCleaner(specs.map((s) => ({ finish: s.finish })), true) ?? ((t: string) => t);
+  const pairDescription = pairs.find((v) => (v.description ?? '').trim() !== '')?.description ?? null;
+  const pairHighlights = pairs.map((v) => normalizeHighlights(v.highlights_zh)).find((h) => h.length > 0) ?? null;
+  const firstDescription = groupDescription(variants, perVariant);
+  const firstHighlights = variants.map((v) => normalizeHighlights(v.highlights_zh)).find((h) => h.length > 0) ?? [];
+  const other = clean ? (t: string) => clean(t).replace(/[（(]\s*[）)]/g, '') : (t: string) => t; // 「（左）」拿掉左之後剩空括號
+  return {
+    description: pairDescription != null ? finishOnly(pairDescription) : firstDescription != null ? other(firstDescription) : null,
+    highlights: pairHighlights ? pairHighlights.map(finishOnly) : firstHighlights.map(other),
+  };
+}
+
+/**
+ * 卡片有得選的左右 / 表面字樣要怎麼拿掉;卡片沒有兩種以上可選 ⇒ null(規則見下面 cardTitleWithoutOptionWords)。
+ * keepListedFinishes(說明、賣點用):同一段文字同時寫到兩種以上表面 ⇒ 那是在介紹「有得選」, 表面字樣留著
+ *   (乾跑抓到:「提供亮面／霧面版本可選」照標題規則會變成「提供／版本可選」)。
+ */
+function optionWordCleaner(
+  specs: ReadonlyArray<Readonly<Record<string, string | undefined>>>,
+  keepListedFinishes = false,
+): ((text: string) => string) | null {
+  const positions = new Set(specs.map((s) => s.position).filter(Boolean));
+  const finishes = [...new Set(specs.map((s) => s.finish).filter((f): f is string => Boolean(f)))];
+  const stripSide = positions.has('左') && positions.has('右');
+  const stripFinish = finishes.length > 1;
+  if (!stripSide && !stripFinish) return null;
+  return (text: string): string => {
+    let t = text;
+    const listsFinishes = keepListedFinishes && finishes.filter((f) => t.includes(f)).length > 1;
+    if (stripFinish && !listsFinishes) for (const f of finishes) t = t.split(f).join('');
+    if (stripSide) t = t.replace(/[左右](?=側板)/g, '').replace(/[左右](?:側|邊)/g, '').replace(/[左右]/g, '');
+    return t;
+  };
+}
+
+/**
  * 卡片標題去掉「選項字樣」(2026-09-27 Ilmberger 合卡後, 主視窗派工)。
  * 卡片標題取 basis 那一款的名字(下面 transformGroup 的 `title`)⇒ 左右、亮霧合成一張卡之後,
  * 標題會寫著「（左）」「亮面」, 而卡片其實有「左／右」「亮面／霧面」可以選。
@@ -530,18 +581,8 @@ export function cardTitleWithoutOptionWords(
   title: string,
   specs: ReadonlyArray<Readonly<Record<string, string | undefined>>>,
 ): string {
-  const positions = new Set(specs.map((s) => s.position).filter(Boolean));
-  const finishes = [...new Set(specs.map((s) => s.finish).filter((f): f is string => Boolean(f)))];
-  const stripSide = positions.has('左') && positions.has('右');
-  const stripFinish = finishes.length > 1;
-  if (!stripSide && !stripFinish) return title;
-
-  const clean = (text: string): string => {
-    let t = text;
-    if (stripFinish) for (const f of finishes) t = t.split(f).join('');
-    if (stripSide) t = t.replace(/[左右](?=側板)/g, '').replace(/[左右](?:側|邊)/g, '').replace(/[左右]/g, '');
-    return t;
-  };
+  const clean = optionWordCleaner(specs);
+  if (!clean) return title;
 
   const withGroups = title.replace(/[（(]([^）)]*)[）)]/g, (m: string, inner: string) => {
     // 🔴 沒有要拿掉的字 ⇒ 整組原樣(半形括號、斜線都不改;乾跑抓到 RPM 76 張被改了格式)
@@ -603,9 +644,9 @@ export function transformGroup(
     PLACEHOLDER_IMAGE;
   // 描述:群內第一個非空來源描述(product-level、群內應一致;防呆取 first non-empty、含純空白視為空、F4)。
   //   descriptionPerVariant 開著的家(Arrow)各款說明不同時改成分款列出,見 groupDescription。
-  const description = groupDescription(variants, ctx.descriptionPerVariant === true);
   // 賣點:群內第一個非空賣點陣列(product-level、群內應一致;防呆 first non-empty、正規化為 string[])。
-  const highlights = variants.map((v) => normalizeHighlights(v.highlights_zh)).find((h) => h.length > 0) ?? [];
+  //   左右、亮霧合成一張卡時改讀「左右一對」那一款, 或拿掉有得選的字樣, 見 cardCopy。
+  const { description, highlights } = cardCopy(variants, ctx.descriptionPerVariant === true);
   // 安裝資源(#270):群級彙整跨全變體(codex 關卡1 must-fix、非單一 basis 列)→ UI 形狀。
   //
   // 🔴 兩欄擇一、**逐列**擇一(合約 v5 §7「兩欄擇一,絕對不要合併」;主視窗 E-174-A Q1=A 裁定):
