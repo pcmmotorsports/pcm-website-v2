@@ -3,6 +3,9 @@ import { notFound } from 'next/navigation';
 import { isUuid } from '../../../lib/orders/note-action-state';
 import { ProductDetail } from '../../../components/products/product-detail';
 import { ProductListingForm } from '../../../components/products/product-listing-form';
+import { ProductOverridesEditor } from '../../../components/products/product-overrides-editor';
+import { readProductOverrides } from '../../../lib/products/product-overrides-view';
+import { toProductMedia } from '../../../lib/products/product-media';
 import { findVariantSkuCollision } from '../../../lib/products/variant-sku-collision';
 import { ResultBanner } from '../../../components/orders/result-banner';
 import { resolveListingState, resolvePrice } from '../../../lib/products/product-repository';
@@ -201,7 +204,19 @@ export default async function ProductDetailPage({
           <h2 data-od-pe='grouph' className='text-muted-foreground pt-2 text-sm font-medium'>
             可以改的
           </h2>
-          {/* 🔴 M-4b `#20`:上下架是這一頁**唯一**的寫入動作。
+          {/* 商品編輯丙方案片 2(Sean 2026-09-27 C4 甲:所有員工都能改,留變更紀錄):
+              標題 / 副標 / 賣點的「我們的版本」。寫入走 admin_set_product_override RPC(20260927060000)。
+              說明不在這裡:說明走說明鎖(Sean 09-02 ⟦b4-QUOTEDESCLOCK⟧),後台入口是另一片。 */}
+          <ProductOverridesEditor
+            productId={product.id}
+            supplier={{
+              title: product.title,
+              subtitle: product.subtitle,
+              highlights: toProductMedia(product).highlights,
+            }}
+            overrides={readProductOverrides(product.staff_overrides)}
+          />
+          {/* 🔴 M-4b `#20`:上下架原本是這一頁唯一的寫入動作(丙方案片 2 之後多了上面那三張)。
               位置=詳情頁(plan §3 裁定);理由與「不放列表」的取捨寫在
               `components/products/product-listing-form.tsx` 檔頭。 */}
           <section data-od-pe='card' className='rounded-lg border p-4'>
@@ -378,8 +393,9 @@ export default async function ProductDetailPage({
           {/* 🔴 這一句原本是「這一頁只能查看,不能修改」—— **本片之後那是假的**。
               (同 `app/products/page.tsx:60-64` 的教訓:不要留一句已經不成立的自述。)
               🛑 而稿明寫**這一句要留著** —— 它是這一頁自己的誠實話。 */}
+          {/* 丙方案片 2 之後:能改的多了標題、副標、賣點 ⇒ 這句跟著改(改的是事實,不是期望值)。 */}
           <p className='text-muted-foreground text-sm'>
-            這一頁目前只能改上架狀態,其餘欄位仍不能修改。
+            這一頁目前能改標題、副標、賣點與上架狀態,其餘欄位仍不能修改。
           </p>
         </>
       )}

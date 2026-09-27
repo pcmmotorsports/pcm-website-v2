@@ -20,6 +20,10 @@
 //    四支新函式。🔴 **這次是照 migration 手打的, 不是從生成器切下來的**(貼正式庫之前生成器還產不出來);
 //    形狀照生成器規則(text/uuid ⇒ string、integer ⇒ number、jsonb ⇒ Json、字母序)。貼上之後重 gen 應逐字相同。
 //    🔵 同上:**不進下面那個計數**。
+// 🟢 **2026-09-27 網站施工窗 86:同一條慣例 —— 商品編輯丙方案。**
+//    `products.staff_overrides`(20260927040000,已貼正式庫)× Row/Insert/Update 三處(jsonb ⇒ Json;NOT NULL DEFAULT ⇒ Row 必填、Insert/Update 選填),
+//    以及 `admin_set_product_override`(20260927060000,尚未貼)。照 migration 手打、形狀照生成器規則、字母序。
+//    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
 // 🔴🔴 **而這一欄值得記一筆, 因為它是本檔落後的【具體代價】**:
 //    那一欄 **2026-09-05 就進正式庫**, 而 2026-09-13 才被發現「型別層等於不存在」——
 //    發現它的方式是有人要用它, 然後 typecheck 紅, **而紅的樣子長得像「這一欄不存在」。**
@@ -6253,6 +6257,7 @@ export type Database = {
           price_store: number | null
           sound_clips: Json
           source_missing_at: string | null
+          staff_overrides: Json
           subtitle: string | null
           supplier_slug: string
           title: string
@@ -6284,6 +6289,7 @@ export type Database = {
           price_store?: number | null
           sound_clips?: Json
           source_missing_at?: string | null
+          staff_overrides?: Json
           subtitle?: string | null
           supplier_slug?: string
           title: string
@@ -6315,6 +6321,7 @@ export type Database = {
           price_store?: number | null
           sound_clips?: Json
           source_missing_at?: string | null
+          staff_overrides?: Json
           subtitle?: string | null
           supplier_slug?: string
           title?: string
@@ -8948,6 +8955,16 @@ export type Database = {
           p_note: string | null
           p_product_id: string
           p_request_id: string
+        }
+        Returns: string
+      }
+      admin_set_product_override: {
+        Args: {
+          p_actor: string
+          p_field: string
+          p_product_id: string
+          p_request_id: string
+          p_value: Json
         }
         Returns: string
       }

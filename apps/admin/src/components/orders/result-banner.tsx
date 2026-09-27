@@ -379,6 +379,21 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //      而且**不知道商品其實沒上架** ⇒ 他會再按幾次, 然後找別的路。
   //    📌 而 CLAUDE.md 記過同一條:**守門紅了沒有出路會被整支刪掉, 存活率取決於有沒有給出路。**
   //    ⇒ 所以這兩則都**說得出下一步**, 而不是只說「失敗了」。
+  // 商品文字「我們的版本」(商品編輯丙方案片 2;lib/products/product-overrides-actions.ts)。
+  //   🔴 override_error 不寫「儲存失敗」:錯誤可能發生在寫入之後(例如回應在路上斷掉),結果沒辦法確認。
+  override_saved: { text: '已儲存。網站約 1 分鐘內會顯示新的內容。', tone: 'ok' },
+  override_restored: { text: '已還原成供應商的內容。網站約 1 分鐘內會更新。', tone: 'ok' },
+  override_noop: { text: '內容和目前相同，沒有變更。', tone: 'ok' },
+  override_not_found: { text: '找不到這件商品，可能已被刪除。本次未儲存，請回商品列表重新查詢。', tone: 'warn' },
+  override_invalid: {
+    text: '內容沒有儲存：字數超過上限，或含有不能使用的字元。請修改後再儲存。',
+    tone: 'warn',
+  },
+  override_denied: { text: '登入已過期，請重新登入後再儲存。', tone: 'error' },
+  override_error: {
+    text: '無法確認是否已儲存。請重新整理頁面查看目前內容；若沒有更新，再試一次，仍失敗請聯絡系統管理員。',
+    tone: 'error',
+  },
   variant_sku_collision: {
     text: '此商品可能屬於另一項商品的規格，尚未上架。請核對提示內容，勾選「我確認」後再送出；無法確認時，請先保留不上架。',
     tone: 'warn',

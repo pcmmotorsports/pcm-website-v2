@@ -290,6 +290,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   // ── 商品上下架 ────────────────────────────────────────────
   delisted_at: '下架時間',
   listing_set_by: '上下架是誰設定的',
+  // ── 商品文字「我們的版本」(20260927060000 admin_set_product_override)──
+  //    before / after 都是 { field, value };value = null 代表「用供應商的」。
+  field: '欄位',
+  value: '內容',
   // ── 員工設定(`StaffRow`)/ 供應商共用 ─────────────────────
   id: '代號',
   label: '名稱',
@@ -433,6 +437,8 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
   },
   // `20260819040000_m4b_20_admin_set_product_listing.sql:176` 只寫入 `'staff'` 一種
   listing_set_by: { staff: '員工手動設定' },
+  // `20260927060000_m4b_admin_set_product_override.sql` 只收這三個欄位(RPC 內白名單)
+  field: { title: '標題', subtitle: '副標', highlights: '賣點' },
   // 🔴 `20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:69` CHECK —— **封閉字集,我漏了**。
   //    ⚠️ 而它漏得特別安靜:欄名 `corrected_to` **有**中文,所以畫面**不會**出現「還沒對照」標記,
   //    只有值那一格是英文 ⇒ **看起來像「這個值本來就長這樣」。**

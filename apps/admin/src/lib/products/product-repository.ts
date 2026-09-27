@@ -379,6 +379,8 @@ export interface AdminProductDetailRow extends AdminProductRow, ProductMediaRow 
   readonly availability: string;
   readonly created_at: string;
   readonly updated_at: string;
+  /** 丙方案(20260927040000):員工自己的標題 / 副標 / 賣點。形狀由 `product-overrides-view.ts` 收斂,這裡不假設。 */
+  readonly staff_overrides?: unknown;
 }
 
 /**
@@ -389,7 +391,7 @@ export interface AdminProductDetailRow extends AdminProductRow, ProductMediaRow 
  * ⇒ wire 型別寬鬆、由 `toProductMedia()` 的 runtime guard 收斂,**不在這裡假設形狀**。
  */
 const PRODUCT_DETAIL_COLUMNS =
-  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, listing_set_by, source_missing_at, created_at, updated_at, description, highlights, fitments, images, video_url, manuals, sound_clips' as const;
+  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, listing_set_by, source_missing_at, created_at, updated_at, description, highlights, fitments, images, video_url, manuals, sound_clips, staff_overrides' as const;
 
 /**
  * 讀單筆商品(**含已下架** —— 後台要能把它撈回來)。查無回 `null`,不 throw。
@@ -596,4 +598,31 @@ export async function setProductListing(args: {
     return data;
   }
   throw new Error('admin_set_product_listing RPC 回傳非預期碼');
+}
+
+/**
+ * 商品文字「我們的版本」(丙方案片 2)—— 走 `admin_set_product_override` owner RPC(20260927060000)。
+ * `value = null` ⇒ RPC 刪掉那個鍵 = 還原成供應商的。稽核由 RPC 同交易寫(`product.override.change`)。
+ */
+export async function setProductOverride(args: {
+  productId: string;
+  field: 'title' | 'subtitle' | 'highlights';
+  value: string | readonly string[] | null;
+  actor: string;
+  requestId: string;
+}): Promise<AdminListingSetResult> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_product_override', {
+    p_product_id: args.productId,
+    p_field: args.field,
+    p_value: typeof args.value === 'string' || args.value === null ? args.value : [...args.value],
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) {
+    throw error;
+  }
+  if (data === 'UPDATED' || data === 'NO_CHANGE' || data === 'NOT_FOUND') {
+    return data;
+  }
+  throw new Error('admin_set_product_override RPC 回傳非預期碼');
 }

@@ -244,7 +244,9 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     //    本頁在那一片之前是純唯讀,那句「只能查看」是真的;
     //    上下架接上之後**它變成假的** —— 而留著假的自述,正是本格要防的那件事的反面。
     //    ⇒ 現行字面必須同時說出【能改什麼】與【不能改什麼】,兩半都釘住:
-    expect(text, '沒說出「現在能改上架狀態」= 本頁在說謊的另一半').toContain('只能改上架狀態');
+    //    🔁 丙方案片 2(2026-09-27)同理再改一次:能改的多了標題、副標、賣點 ⇒ 舊句「只能改上架狀態」變成假的。
+    expect(text, '沒說出「現在能改什麼」= 本頁在說謊的另一半').toContain('能改標題、副標、賣點與上架狀態');
+    expect({ 只能改上架狀態: text.includes('只能改上架狀態') }).toEqual({ 只能改上架狀態: false });
     expect(text, '沒說出「其餘不能改」= 員工會以為每一欄都能編').toContain('其餘欄位仍不能修改');
     // 🔴 而反向釘住:那句已經作廢的自述不得回來
     //    (它會在有人「順手把文案改簡潔」時悄悄回來,而那一刻它就是假的)。
@@ -486,10 +488,21 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
 
   it('🔴 那句誠實話留著 —— 稿明寫它是這一頁自己的話', async () => {
     const { container } = await renderPage();
-    expect(container.textContent).toContain('這一頁目前只能改上架狀態,其餘欄位仍不能修改。');
+    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點與上架狀態,其餘欄位仍不能修改。');
     // 🛑 而稿【刻意不寫】「之後可以再調整這筆訂單的特價」:
     //    訂單金額只在建單時寫一次, 事後補等於改一筆已經發生的收款紀錄。
     //    ⇒ 這一格就是稿說的「驗收有一發專門查這句話 0 命中」。
     expect(container.textContent).not.toContain('之後可以再調整這筆訂單的特價');
+  });
+
+  it('🔴 丙方案片 2:「可以改的」底下有標題 / 副標 / 賣點三張卡,讀的是 staff_overrides', async () => {
+    mocks.get.mockResolvedValue({ ...PRODUCT, staff_overrides: { title: '我們的標題' } });
+    const { container } = await renderPage();
+    const cards = [...container.querySelectorAll('[data-override-field]')].map((e) => e.getAttribute('data-override-field'));
+    expect(cards).toEqual(['title', 'subtitle', 'highlights']);
+    const title = container.querySelector('[data-override-field="title"]')!;
+    expect(title.textContent).toContain('網站顯示：我們的版本');
+    expect(title.textContent).toContain('碳纖維前土除'); // 供應商那一欄仍然顯示原值
+    expect(container.querySelector('[data-override-field="subtitle"]')!.textContent).toContain('網站顯示：供應商的');
   });
 });

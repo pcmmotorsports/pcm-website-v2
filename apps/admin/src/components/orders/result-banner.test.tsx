@@ -497,6 +497,16 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       //    ⚠️ 逐顆列出、不用前綴比對:前綴會讓「有人偷偷多加一顆 variant_sku_xxx」也自動歸類。
       'variant_sku_collision',
       'variant_sku_check_unavailable',
+      // 商品編輯丙方案片 2 七顆(lib/products/product-overrides-actions.ts)。
+      //   本格在我把它們加進 MESSAGES 的當下真的紅過(2026-09-27 實跑,`expected [ …(157) ] to deeply equal [ …(150) ]`)。
+      //   逐顆列出、不用前綴比對(同上理由)。
+      'override_saved',
+      'override_restored',
+      'override_noop',
+      'override_not_found',
+      'override_invalid',
+      'override_denied',
+      'override_error',
       // 🔴 M12-A3-b 手動建單線八顆(`#858`;沒送到 2 + 送到之後 6)。**本格在我把它們加進 MESSAGES 的當下真的紅過**
       //    (2026-08-24 實跑,`1 failed | 31 passed (32)`)—— 那是它有判別力的證據,不是推的。
       //    ⚠️ 逐顆列出、不用迴圈展開:迴圈會讓「有人偷偷多加一顆 manual_order_xxx」也自動歸類。
