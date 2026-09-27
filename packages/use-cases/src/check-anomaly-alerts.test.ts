@@ -4957,3 +4957,28 @@ describe('經銷商申請待審件數透傳(Sean 2026-09-25 Q2)', () => {
     expect(r2.dealerApplicationsPendingCount).toBeUndefined();
   });
 });
+
+describe('經銷會員累積滿 10 萬透傳(Sean 2026-09-27 E2 甲)', () => {
+  it('🔴 不進 shouldAlert:其他全零而有 1 位 ⇒ 不寄告警;result 帶得出數', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [n] }, { ...OPTS, dealerSpendMilestoneCount: 1 });
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    expect(res.dealerSpendMilestoneCount).toBe(1);
+  });
+  it('告警日 ⇒ LINE 短版同一行帶「有 1 位經銷會員累積滿 10 萬」', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [n] },
+      { ...OPTS, unarmedEmailLanesWithPending: ['CANCELLED_EMAIL_CUTOFF'], dealerSpendMilestoneCount: 1 },
+    );
+    const msg = n.notify.mock.calls[0]![0] as { lineText?: string };
+    expect(msg.lineText).toContain('有 1 位經銷會員累積滿 10 萬');
+  });
+  it('讀不到(null)照樣透傳成 null;沒接(缺)⇒ result 沒有這個數', async () => {
+    const r1 = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [okNotifier()] }, { ...OPTS, dealerSpendMilestoneCount: null });
+    expect(r1.dealerSpendMilestoneCount).toBeNull();
+    const r2 = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [okNotifier()] }, OPTS);
+    expect(r2.dealerSpendMilestoneCount).toBeUndefined();
+  });
+});

@@ -142,7 +142,8 @@ export type CheckAnomalyAlertsOptions = {
    * 經銷商申請待審核件數(B2B 計畫 §9.5, Sean 2026-09-25 Q2)。route 讀好注入, 只透傳給 LINE 摘要。
    * number = 讀到;`null` = 讀不到;缺 = 還沒接或表還沒建。🛑 不進 `shouldAlert`。
    */
-  dealerApplicationsPendingCount?: number | null;
+  dealerApplicationsPendingCount?: number | null;  /** 經銷會員累積滿 10 萬人數(Sean 2026-09-27 E2 甲)。route 讀好注入, 只透傳給 LINE 摘要;null = 讀不到。🛑 不進 `shouldAlert`。 */
+  dealerSpendMilestoneCount?: number | null;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -489,6 +490,8 @@ export type CheckAnomalyAlertsResult = {
   partialCancelReconciliationUnknown?: boolean;
   /** 經銷商申請待審核件數透傳(安靜日 route 用 result 組 LINE 摘要)。 */
   dealerApplicationsPendingCount?: number | null;
+  /** 經銷會員累積滿 10 萬人數透傳(安靜日 route 用 result 組 LINE 摘要)。 */
+  dealerSpendMilestoneCount?: number | null;
   emailOverdueCount: number | null;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
@@ -3353,6 +3356,7 @@ export async function checkAnomalyAlerts(
       partialCancelReconciliation: opts.partialCancelReconciliation,
       partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
       ...(opts.dealerApplicationsPendingCount !== undefined ? { dealerApplicationsPendingCount: opts.dealerApplicationsPendingCount } : {}),
+      ...(opts.dealerSpendMilestoneCount !== undefined ? { dealerSpendMilestoneCount: opts.dealerSpendMilestoneCount } : {}),
     });
     const results = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
     notifiersFailed = results.filter((r) => r.status === 'rejected').length;
@@ -3523,6 +3527,7 @@ export async function checkAnomalyAlerts(
     partialCancelReconciliation: opts.partialCancelReconciliation,
     partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
     ...(opts.dealerApplicationsPendingCount !== undefined ? { dealerApplicationsPendingCount: opts.dealerApplicationsPendingCount } : {}),
+      ...(opts.dealerSpendMilestoneCount !== undefined ? { dealerSpendMilestoneCount: opts.dealerSpendMilestoneCount } : {}),
     emailOverdueCount: summary.emailOverdueCount,
     emailDeadLetterCount: summary.emailDeadLetterCount,
     emailStuckSendingCount: summary.emailStuckSendingCount,

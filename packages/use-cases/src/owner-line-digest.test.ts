@@ -203,3 +203,19 @@ describe('經銷商申請待審件數(Sean 2026-09-25 Q2:有待審才印, 沒有
     expect(ownerLineUnreadable({ ...QUIET, dealerApplicationsPendingCount: 0 })).not.toContain('經銷商申請件數');
   });
 });
+
+describe('經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲:只通知 Sean)', () => {
+  it('🔴 有 2 位 ⇒ 刷卡那一行後面接「有 2 位經銷會員累積滿 10 萬」, 不另外加一行', () => {
+    const text = buildOwnerLineDigest(NOW, { ...QUIET, dealerSpendMilestoneCount: 2 });
+    expect(text).toContain(' / 有 2 位經銷會員累積滿 10 萬');
+    expect(text.split('\n')).toHaveLength(buildOwnerLineDigest(NOW, QUIET).split('\n').length);
+  });
+  it('0 位 / 沒接(undefined)⇒ 不顯示', () => {
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, dealerSpendMilestoneCount: 0 })).not.toContain('累積滿');
+    expect(buildOwnerLineDigest(NOW, QUIET)).not.toContain('累積滿');
+  });
+  it('🔴 讀不到(null)⇒ 列進「這一輪讀不到」, 不當成 0', () => {
+    expect(ownerLineUnreadable({ ...QUIET, dealerSpendMilestoneCount: null })).toContain('經銷會員累積金額');
+    expect(ownerLineUnreadable({ ...QUIET, dealerSpendMilestoneCount: 0 })).not.toContain('經銷會員累積金額');
+  });
+});

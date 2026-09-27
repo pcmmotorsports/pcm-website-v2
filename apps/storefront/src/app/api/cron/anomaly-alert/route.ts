@@ -145,6 +145,8 @@ import {
 import {
   getAnomalyAlertDeps,
   getDealerApplicationsPendingClient,
+  getDealerSpendMilestoneClient,
+  readDealerSpendMilestoneCount,
   getPartialCancelReconciliationClient,
 } from '@/lib/payment/composition';
 import {
@@ -436,6 +438,17 @@ export async function GET(request: Request): Promise<Response> {
         return null;
       });
 
+    // 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲:只通知 Sean)。讀失敗 ⇒ null(列進「讀不到」), 不 503、不擋別的告警。
+    const dealerSpendMilestoneCount = await Promise.resolve()
+      .then(() => readDealerSpendMilestoneCount(getDealerSpendMilestoneClient()))
+      .catch((err: unknown) => {
+        console.error('[anomaly-alert] 🔴 經銷會員累積金額讀取失敗(這一行本輪查不到)', {
+          reason: 'dealer_spend_milestone_read_failed',
+          error: safeErrorName(err),
+        });
+        return null;
+      });
+
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
       pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
@@ -499,6 +512,7 @@ export async function GET(request: Request): Promise<Response> {
       unarmedEmailLanesWithPending,
       partialCancelReconciliation,
       dealerApplicationsPendingCount,
+      dealerSpendMilestoneCount,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。

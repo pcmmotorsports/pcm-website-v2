@@ -42,6 +42,8 @@ vi.mock('@/lib/payment/composition', () => ({
   getAnomalyAlertDeps: getDepsSpy,
   getPartialCancelReconciliationClient: reconClientSpy,
   getDealerApplicationsPendingClient: daClientSpy,
+  getDealerSpendMilestoneClient: dmClientSpy,
+  readDealerSpendMilestoneCount: dmReadSpy,
 }));
 
 // 稽核 P2-3:三條寄信線的掃描面(route 只用 scanner)。
@@ -66,6 +68,9 @@ const { daReadSpy, daClientSpy } = vi.hoisted(() => ({ daReadSpy: vi.fn(), daCli
 vi.mock('@/lib/payment/dealer-applications-pending-read', () => ({
   readDealerApplicationsPendingCount: daReadSpy,
 }));
+// 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲)。
+const { dmReadSpy, dmClientSpy } = vi.hoisted(() => ({ dmReadSpy: vi.fn(), dmClientSpy: vi.fn() }));
+
 vi.mock('@/lib/payment/partial-cancel-reconciliation-read', () => ({
   readPartialCancelReconciliationCounts: reconReadSpy,
 }));
@@ -292,6 +297,8 @@ beforeEach(() => {
   reconReadSpy.mockReset().mockResolvedValue({ total: 0, missingRow: 0, railMismatch: 0 });
   daClientSpy.mockReset().mockReturnValue({});
   daReadSpy.mockReset().mockResolvedValue(0);
+  dmClientSpy.mockReset().mockReturnValue({});
+  dmReadSpy.mockReset().mockResolvedValue(0);
   resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
 });
 
@@ -519,6 +526,8 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 },
       // 經銷商申請待審件數:本檔預設讀到 0(被這道完整物件比對逼出來的)。
       dealerApplicationsPendingCount: 0,
+      // 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲):又一個被這道完整物件比對逼出來的格。
+      dealerSpendMilestoneCount: 0,
     });
   });
 
@@ -1789,6 +1798,21 @@ describe('GET anomaly-alert — 部分取消對帳表進每日告警', () => {
     expect(res.status).toBe(200);
     expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ partialCancelReconciliation: null }));
     expect(JSON.stringify(errSpy.mock.calls)).toContain('partial_cancel_reconciliation_read_failed');
+    errSpy.mockRestore();
+  });
+});
+
+describe('GET anomaly-alert — 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲)', () => {
+  it('讀到 ⇒ 透傳給 checkAnomalyAlerts;讀失敗 ⇒ null(列進讀不到), 不 503', async () => {
+    dmReadSpy.mockResolvedValue(2);
+    await GET(makeReq(bearer()));
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerSpendMilestoneCount: 2 }));
+    checkSpy.mockClear();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    dmReadSpy.mockRejectedValue(new Error('boom'));
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).not.toBe(503);
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerSpendMilestoneCount: null }));
     errSpy.mockRestore();
   });
 });
