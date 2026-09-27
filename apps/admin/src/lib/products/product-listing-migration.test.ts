@@ -64,7 +64,9 @@ describe('#20 上下架 migration:兩欄必須在同一個 UPDATE 裡一起寫',
       });
     // 商品頁乙 P3(2026-09-28):新增手動商品 20260928210000 是第二支。它只在 INSERT 新商品時寫【初始值】
     // (delisted_at = now()、listing_set_by = 'staff' 在同一句 INSERT 裡),不改既有商品 ⇒ 「兩欄原子一起寫」照樣成立。
-    // 下面那一格釘住它「只 INSERT、不 UPDATE」;哪天它開始改既有商品,那一格會紅,要回來重想這裡。
+    // ⚠️ 這個正則在那支檔命中的是【檔頭的 SQL 註解】那一行(`listing_set_by = 'staff'`),不是 INSERT:
+    //    INSERT 是欄位清單寫法(沒有 `=`),這個正則本來就抓不到。真正守 INSERT 的是下面那一格
+    //    (只有一句 INSERT、沒有 UPDATE products、兩欄在同一句);哪天它開始改既有商品,那一格會紅,要回來重想這裡。
     expect(writers, `listing_set_by 的寫入者多了:${writers.join(' / ')}`).toEqual([
       '20260819040000_m4b_20_admin_set_product_listing.sql',
       '20260928210000_m4b_admin_create_manual_product.sql',
