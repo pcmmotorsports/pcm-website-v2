@@ -113,7 +113,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    = 讓任何人對員工顯示任意一句「系統說的話」。
   // 手動建單成功之後的提醒(20260927120000):訂單已建立,只是地址沒存進客人地址簿 ⇒ 不叫他重送。
   [MANUAL_ORDER_ADDRESS_NOT_SAVED]: {
-    text: '訂單已建立，但收件地址沒有存進客人資料。下次幫這位客人建單時，需要再填一次地址。',
+    text: '訂單已建立，但無法確認收件地址是否已存進客人資料。下次幫這位客人建單時，請確認地址有沒有自動帶入。',
     tone: 'warn',
   },
   [manualOrderResultCode('denied')]: {

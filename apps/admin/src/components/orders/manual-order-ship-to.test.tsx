@@ -370,3 +370,86 @@ describe('選客人 ⇒ 從他的地址簿帶入收件資料(Sean 2026-09-27:再
     expect(shipLine().value).toBe('');
   });
 });
+
+describe('Codex R1 必修:換客人時不能把上一位的地址帶給下一位', () => {
+  const USER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const A_ADDR = { id: 'a1', name: '甲', phone: '0911000000', line: 'A 的地址' };
+  const B_ADDR = { id: 'b1', name: '乙', phone: '0922000000', line: 'B 的地址' };
+
+  async function searchBoth() {
+    mocks.search.mockResolvedValue({
+      ok: true,
+      candidates: [
+        { userId: USER_A, name: '甲', phone: '0911000000', isManual: true },
+        { userId: USER_B, name: '乙', phone: '0922000000', isManual: true },
+      ],
+      truncated: false,
+      shouldWarnDuplicates: false,
+    });
+    fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: '09' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '找客人' }));
+    });
+  }
+  const choose = async (id: string) => {
+    await act(async () => {
+      fireEvent.click(document.querySelector(`input[value="${id}"]`) as HTMLInputElement);
+    });
+  };
+
+  it('🔴 選 A(自動帶入)→ 改選 B ⇒ A 的三格清掉、換成 B 的', async () => {
+    mocks.addresses.mockImplementation(async (id: string) => ({ ok: true, addresses: id === USER_A ? [A_ADDR] : [B_ADDR] }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    expect(shipLine().value).toBe('A 的地址');
+    await choose(USER_B);
+    expect(shipLine().value).toBe('B 的地址');
+    expect(shipName().value).toBe('乙');
+  });
+
+  it('🔴 選 A(自動帶入)→ 改選沒有地址的 B ⇒ 三格清空(不留 A 的)', async () => {
+    mocks.addresses.mockImplementation(async (id: string) => ({ ok: true, addresses: id === USER_A ? [A_ADDR] : [] }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    await choose(USER_B);
+    expect(shipLine().value).toBe('');
+    expect(shipName().value).toBe('');
+  });
+
+  it('選 A 之後員工改過收件資料 → 改選 B ⇒ 保留他改的, 並提醒確認', async () => {
+    mocks.addresses.mockImplementation(async (id: string) => ({ ok: true, addresses: id === USER_A ? [A_ADDR] : [B_ADDR] }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    fireEvent.change(shipLine(), { target: { value: 'A 的地址 5 樓' } });
+    await choose(USER_B);
+    expect(shipLine().value).toBe('A 的地址 5 樓');
+    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toContain('請確認這是這位客人的收件資料');
+  });
+
+  it('🔴 A 的地址簿還沒回來就重新搜尋(清單重畫、不發 change)⇒ A 的回應晚到也不帶入', async () => {
+    let release: (v: unknown) => void = () => {};
+    mocks.addresses.mockImplementation(() => new Promise((res) => { release = res; }));
+    renderForm();
+    await searchBoth();
+    await choose(USER_A);
+    // 重新搜尋:清單換成只有 B、沒有人被勾(radio 整批重掛, 不發 change)
+    mocks.search.mockResolvedValue({
+      ok: true,
+      candidates: [{ userId: USER_B, name: '乙', phone: '0922000000', isManual: true }],
+      truncated: false,
+      shouldWarnDuplicates: false,
+    });
+    fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: '0922' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '找客人' }));
+    });
+    await act(async () => {
+      release({ ok: true, addresses: [A_ADDR] });
+    });
+    expect(shipLine().value).toBe('');
+    expect(screen.queryByLabelText('從地址簿選')).toBeNull();
+  });
+});

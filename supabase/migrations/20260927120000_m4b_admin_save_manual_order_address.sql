@@ -28,7 +28,9 @@
 --
 -- ══ 貼的時候 ══════════════════════════════════════════
 -- · 只建一支函式,不動表、不鎖表 ⇒ 任何時段都可以貼。
--- · 後台那顆碼可以先上也可以後上:碼先上時呼叫會 PGRST202 ⇒ 建單照樣成功,畫面多一句「地址沒有存進客人資料」。
+-- · 🔴 照 CLAUDE.md〈貼板與推的順序〉:本支【先貼】,後台那顆碼才合 dev(新 RPC ⇒ 部署時序閘會擋)。
+--   (萬一順序錯了:碼先上時呼叫會 PGRST202 ⇒ 建單照樣成功,畫面多一句「無法確認地址是否已存進客人資料」——
+--    那是保底,不是可以先上的理由。Codex R1 nit 1)
 -- · 回滾:supabase/rollbacks/20260927120000-rollback.sql(DROP FUNCTION)。已存進地址簿的地址留著(稽核可查)。
 -- ═══════════════════════════════════════════════════════
 
@@ -122,7 +124,7 @@ BEGIN
      AND pg_catalog.btrim(a.name) = v_name
      AND pg_catalog.btrim(COALESCE(a.phone, '')) = v_phone
      AND pg_catalog.btrim(a.line) = v_line
-   ORDER BY a.updated_at DESC
+   ORDER BY a.updated_at DESC, a.id
    LIMIT 1;
   IF FOUND THEN
     UPDATE public.customer_addresses SET updated_at = pg_catalog.now() WHERE id = v_existing;
@@ -130,10 +132,22 @@ BEGIN
   END IF;
 
   -- 1f. 新增;客人原本沒有任何地址 ⇒ 這筆當預設(Sean Q3 甲)
+  -- 🔴 顧客站寫地址不拿上面那把 advisory 鎖(Codex R1 建議 1):客人剛好同時在前台新增第一筆預設地址
+  --    ⇒ 撞 customer_addresses_one_default_per_customer ⇒ 改存成非預設,不讓整支失敗(預設由客人那筆當)
   v_default := NOT EXISTS (SELECT 1 FROM public.customer_addresses a WHERE a.customer_user_id = v_customer);
-  INSERT INTO public.customer_addresses (customer_user_id, is_default, name, phone, line)
-  VALUES (v_customer, v_default, v_name, v_phone, v_line)
-  RETURNING id INTO v_new_id;
+  BEGIN
+    INSERT INTO public.customer_addresses (customer_user_id, is_default, name, phone, line)
+    VALUES (v_customer, v_default, v_name, v_phone, v_line)
+    RETURNING id INTO v_new_id;
+  EXCEPTION WHEN unique_violation THEN
+    IF NOT v_default THEN
+      RAISE;
+    END IF;
+    v_default := false;
+    INSERT INTO public.customer_addresses (customer_user_id, is_default, name, phone, line)
+    VALUES (v_customer, false, v_name, v_phone, v_line)
+    RETURNING id INTO v_new_id;
+  END;
 
   -- 1g. 同交易寫稽核
   INSERT INTO public.admin_audit_log (actor, action, target, before, after, reason, request_id, source_app)
