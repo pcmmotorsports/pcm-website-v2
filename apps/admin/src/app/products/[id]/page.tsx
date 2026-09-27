@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '../../../lib/orders/note-action-state';
 import { ProductDetail } from '../../../components/products/product-detail';
+import { ProductSummaryBand } from '../../../components/products/product-summary-band';
 import { ProductListingForm } from '../../../components/products/product-listing-form';
 import { ProductOverridesEditor } from '../../../components/products/product-overrides-editor';
 import { ProductHistory } from '../../../components/products/product-history';
@@ -101,6 +102,7 @@ export default async function ProductDetailPage({
   // 商品編輯計畫片 9:「最近的變更」(Sean 09-27 C4 甲:全員可改、留變更紀錄)。讀不到只影響那一塊。
   // 共用圖庫 G5(Sean 09-27 C3):讀報價單 G2 API。env 沒設 ⇒ 'disabled',讀不到只影響「照片」那一塊。
   // 兩個一起讀;報價單那一讀最多等 5 秒(gallery-api LIST_TIMEOUT_MS),卡住時整頁最多慢 5 秒,其餘照常(Fable R1 建議 2)。
+  const overrides = readProductOverrides(product?.staff_overrides);
   const [history, gallery] =
     product === null ? [null, null] : await Promise.all([loadProductHistory(product.id), loadProductGallery(product)]);
 
@@ -140,73 +142,55 @@ export default async function ProductDetailPage({
                  ⇒ 做丙的人:請連這三張一起改, 不要只加欄位。
               ══════════════════════════════════════════════════════════════ */}
 
-          {/* 識別列:標題 + 料號/供應商/上架狀態 + 兩顆還做不了的按鈕 */}
-          <div data-od-pe='ident' className='rounded-lg border p-4'>
-            <h1 className='text-base font-medium'>{product.title}</h1>
-            {/* 🔴 **副標必須緊接在 h1 後面** —— `page.test.tsx:122-123` 逐字量的是
-                `container.querySelector('h1')?.nextElementSibling` 的 textContent。
-                我第一版把資訊列放在這裡 ⇒ 那條驗收抓到的是 `料號 RPM-001供應商 rpm…`
-                📌 **⇒ 我不是漏了副標, 我是把它擠出了那把尺的觀察點。**
-                ⚠️ **已知代價**:ProductDetail 內部也有一份 h1+副標(現在收在 `<details>` 裡)
-                   ⇒ DOM 上有兩個 `h1`。視覺上只看得到一個, 而**無障礙面是重複的**。
-                   收斂它要動 ProductDetail = 擴大本片 ⇒ 刻意不做, 寫在這裡讓下一個人接。 */}
-            {/* 🔴🔴 **副標是 null 時【整個節點不渲染】, 不是印 `—`** —— 而這是刻意的,
-                `page.test.tsx:376` 逐字:「h1 底下多一個空殼會像壞掉」。
-                📌 我連錯兩次才走到這裡:先直接印(null ⇒ 空殼)、再 `?? '—'`(違反那個刻意)。
-                ⇒ **那兩發紅各自在教我一條【別人已經想過】的決定**, 而不是在說我漏了什麼。
-                ⚠️ 本頁其他欄位的慣例確實是「沒值顯 —」—— **副標是那條慣例的明文例外**, 不要統一它。 */}
-            {/* 🔴 判空要含 `''` 不只 `null`(codex must-fix):
-                我第一版寫 `=== null` ⇒ **空字串照樣渲染一個空 `<p>`**,
-                而那正是上面那句「不留空殼」要防的東西。⇒ 判別式與宣稱一致。 */}
-            {product.subtitle === null || product.subtitle === '' ? null : (
-              <p className='text-muted-foreground text-sm'>{product.subtitle}</p>
-            )}
-            {/* 🔴🔴 **這一列刻意【不用】 `<dt>/<dd>`** —— 而理由是量到的:
-                `page.test.tsx` 的 `fieldValue()` 是「找 `textContent === label` 的 `<dt>`,
-                取它的 `nextElementSibling`」。我第一版用 `<dl><div><dt>料號</dt><dd>…</dd></div></dl>`
-                ⇒ **那條驗收當場紅了**, 而它報的錯是 `expected '料號RPM-001供應商rpm上架狀態上架中'
-                to be '亮面 3K'` —— 它抓到的是**我這一列**, 而不是它本來要量的那一格。
-                📌 **⇒ 我不是弄壞了那個功能, 我是弄壞了【量它的那把尺】。**
-                ⇒ 改成純 `<span>`:同樣的資訊, 而 ProductDetail 的 `<dt>/<dd>` 仍是那把尺的唯一分母。
-                🛑 **不要為了讓這一列語意「更好」而改回 `<dl>`** —— 那會再紅一次, 而下一個人會以為是測試壞了。
-                ⚠️ 用字必須與 `product-detail.tsx:113` 逐字相同(`上架中 / 已下架`):
-                   我第一版寫「已上架」⇒ 同一頁對同一個狀態兩個說法。 */}
-            <div className='text-muted-foreground mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm'>
-              <span>
-                料號 <span className='text-foreground'>{product.external_id}</span>
-              </span>
-              <span>
-                供應商 <span className='text-foreground'>{product.supplier_slug}</span>
-              </span>
-              <span>
-                上架狀態{' '}
-                <span className='text-foreground'>
-                  {resolveListingState(product) === 'listed' ? '上架中' : '已下架'}
-                </span>
-              </span>
-            </div>
-            {/* 🔴 這兩顆原本都是 disabled(稿指定)—— 而它們**不是佔位**:
-                它們讓員工知道「這件事存在, 只是還不能用」, 而不是以為系統沒有這個功能。
-                「查看變更紀錄」在商品編輯片 9 開通, 現在只剩「批次改特價」是 disabled。 */}
-            <div className='mt-3 flex flex-wrap gap-2'>
-              <button
-                type='button'
-                disabled
-                title='批次改特價尚未開放，目前無法儲存商品特價。'
-                className='text-muted-foreground rounded-md border px-3 py-1 text-sm disabled:opacity-50'
-              >
-                批次改特價
-              </button>
-              {/* 商品編輯片 9 之後變更紀錄已經有了 ⇒ 從 disabled 改成跳到下面「最近的變更」 */}
-              <a
-                href='#product-history'
-                data-history-jump
-                className='rounded-md border px-3 py-1 text-sm'
-              >
-                查看變更紀錄
-              </a>
-            </div>
-          </div>
+          {/* 商品頁改版乙 B1:頂端摘要帶(取代原識別列)。封面、客人看到的標題、重點欄位、上下架按鈕放在第一屏。
+              原識別列的註解重點(副標沒值不渲染節點、資訊列不用 <dt>/<dd>、用字「上架中 / 已下架」)搬進 product-summary-band.tsx。 */}
+          <ProductSummaryBand
+            product={product}
+            overrides={overrides}
+            brandName={taxonomy.brandName}
+            categoryName={taxonomy.categoryName}
+            taxonomyFailed={taxonomyFailed}
+            actions={
+              <>
+                <button
+                  type='button'
+                  disabled
+                  title='批次改特價尚未開放，目前無法儲存商品特價。'
+                  className='text-muted-foreground rounded-md border px-3 py-1 text-sm disabled:opacity-50'
+                >
+                  批次改特價
+                </button>
+                {/* 商品編輯片 9 之後變更紀錄已經有了 ⇒ 從 disabled 改成跳到下面「最近的變更」 */}
+                <a
+                  href='#product-history'
+                  data-history-jump
+                  className='rounded-md border px-3 py-1 text-sm'
+                >
+                  查看變更紀錄
+                </a>
+              </>
+            }
+            listing={
+              <>
+                {/* 🔴 M-4b `#20`:上下架原本是這一頁唯一的寫入動作(丙方案片 2 之後多了上面那三張)。
+                    位置=詳情頁(plan §3 裁定);理由與「不放列表」的取捨寫在
+                    `components/products/product-listing-form.tsx` 檔頭。 */}
+                <section data-od-pe='card' className='rounded-lg border p-4'>
+                  <div className='mb-3 flex items-center gap-2'>
+                    <h3 className='text-sm font-medium'>上架 / 下架</h3>
+                    <span data-od-pe='live' className='bg-muted rounded-md px-2 py-0.5 text-xs'>
+                      已經可以用
+                    </span>
+                  </div>
+                  <ProductListingForm
+                    productId={product.id}
+                    listed={resolveListingState(product) === 'listed'}
+                    variantSkuCollisionOwner={variantSkuCollisionOwner}
+                  />
+                </section>
+              </>
+            }
+          />
 
           {/* ── 可以改的 ───────────────────────────────────────────── */}
           {/* 🔴 用 `<h2>` 不用 `<p>`(codex must-fix):三堆是**分組**,
@@ -215,86 +199,59 @@ export default async function ProductDetailPage({
           <h2 data-od-pe='grouph' className='text-muted-foreground pt-2 text-sm font-medium'>
             可以改的
           </h2>
-          {/* 商品編輯丙方案片 2(Sean 2026-09-27 C4 甲:所有員工都能改,留變更紀錄):
-              標題 / 副標 / 賣點的「我們的版本」。寫入走 admin_set_product_override RPC(20260927060000)。
-              說明不在這裡:說明走說明鎖(Sean 09-02 ⟦b4-QUOTEDESCLOCK⟧),後台入口是另一片。 */}
-          <ProductOverridesEditor
-            productId={product.id}
-            supplier={{
-              title: product.title,
-              subtitle: product.subtitle,
-              highlights: toProductMedia(product).highlights,
-            }}
-            overrides={readProductOverrides(product.staff_overrides)}
-          />
-          {gallery?.state === 'ok' ? (
-            <ProductGalleryPanel productId={product.id} initialPhotos={gallery.photos} initialCurated={gallery.curated} />
-          ) : gallery ? (
-            <section data-od-pe='card' data-gallery-unavailable className='rounded-lg border p-4'>
-              <h3 className='mb-2 text-sm font-medium'>照片</h3>
-              <p className={gallery.state === 'failed' ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}>
-                {gallery.state === 'failed' ? gallery.message : '圖庫尚未啟用。'}
-              </p>
-            </section>
-          ) : null}
-          {/* 🔴 M-4b `#20`:上下架原本是這一頁唯一的寫入動作(丙方案片 2 之後多了上面那三張)。
-              位置=詳情頁(plan §3 裁定);理由與「不放列表」的取捨寫在
-              `components/products/product-listing-form.tsx` 檔頭。 */}
-          <section data-od-pe='card' className='rounded-lg border p-4'>
-            <div className='mb-3 flex items-center gap-2'>
-              <h3 className='text-sm font-medium'>上架 / 下架</h3>
-              <span data-od-pe='live' className='bg-muted rounded-md px-2 py-0.5 text-xs'>
-                已經可以用
-              </span>
+          {/* 商品頁改版乙 B2:兩欄, 照片在左、文字在右(計畫第五節)。
+              右欄文字下面預留給「分類」區(C4, 進度 86)與「價格」區(P9)。 */}
+          <div className='grid gap-4 lg:grid-cols-2'>
+            <div data-col='photos' className='min-w-0 space-y-4'>
+              {gallery?.state === 'ok' ? (
+                <ProductGalleryPanel productId={product.id} initialPhotos={gallery.photos} initialCurated={gallery.curated} />
+              ) : gallery ? (
+                <section data-od-pe='card' data-gallery-unavailable className='rounded-lg border p-4'>
+                  <h3 className='mb-2 text-sm font-medium'>照片</h3>
+                  <p className={gallery.state === 'failed' ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}>
+                    {gallery.state === 'failed' ? gallery.message : '圖庫尚未啟用。'}
+                  </p>
+                </section>
+              ) : null}
             </div>
-            <ProductListingForm
-              productId={product.id}
-              listed={resolveListingState(product) === 'listed'}
-              variantSkuCollisionOwner={variantSkuCollisionOwner}
-            />
-          </section>
+            <div data-col='text' className='min-w-0 space-y-4'>
+              {/* 商品編輯丙方案片 2(Sean 2026-09-27 C4 甲:所有員工都能改,留變更紀錄):
+                  標題 / 副標 / 賣點的「我們的版本」。寫入走 admin_set_product_override RPC(20260927060000)。
+                  說明不在這裡:說明走說明鎖(Sean 09-02 ⟦b4-QUOTEDESCLOCK⟧),後台入口是另一片。 */}
+              <ProductOverridesEditor
+                productId={product.id}
+                supplier={{
+                  title: product.title,
+                  subtitle: product.subtitle,
+                  highlights: toProductMedia(product).highlights,
+                }}
+                overrides={overrides}
+              />
+            </div>
+          </div>
           {history && <ProductHistory rows={history.rows} loadFailed={history.loadFailed} />}
 
           {/* ── 還不能用(要先做後端)────────────────────────────────
-              🔴 每張卡的腳註寫的是**缺什麼**, 不是「敬請期待」(稿指定)。
-                 那三句的來源是稿裡逐欄查過的結果, 不是我推的。 */}
-          {/* 🔴 用 `<h2>` 不用 `<p>`(codex must-fix):三堆是**分組**,
-              而 `<p>` 在螢幕閱讀器的 heading 導航裡**完全不存在**
-              ⇒ 看得見的人有三堆, 用聽的人只有一長串卡片。稿畫的是視覺, 語意要我們自己給。 */}
-          <h2 data-od-pe='grouph' className='text-muted-foreground pt-2 text-sm font-medium'>
-            還不能用(要先做後端)
-          </h2>
-
-          <section data-od-pe='card' className='rounded-lg border p-4'>
-            <div className='mb-2 flex items-center gap-2'>
-              <h3 className='text-sm font-medium'>特價</h3>
-              <span data-od-pe='todo' className='bg-muted rounded-md px-2 py-0.5 text-xs'>
-                還不能用
-              </span>
-            </div>
-            <input
-              type='text'
-              disabled
-              placeholder='—'
-              aria-label='特價(還不能用)'
-              className='w-40 rounded-md border px-2 py-1 text-sm disabled:opacity-50'
-            />
-            {/* 🔴 這一段是 **Sean 指定的字**(稿裡標「Sean 指定」)——
-                而稿同時**刻意不寫**「之後可以再調整這筆訂單的特價」:
-                訂單金額四欄只在建單時寫一次, `總額 = 小計 + 運費 − 折扣` 是 DB 層 CHECK 綁死的,
-                事後補等於改一筆**已經發生的收款紀錄**。⇒ 那句話不得出現在這一頁。 */}
-            <p className='text-muted-foreground mt-2 text-sm'>
-              {/* 🔴🔴 **原價走 `resolvePrice`, 不直讀欄位**(全 repo 守門 `product-repository.test.ts`
-                  驗收 5:期望 false 實得 true)。那道守門擔保的是**價格只從一個地方來**。
-                  📌 我當時寫 `product.price_general` 是因為**它在型別上就在那裡, 而 TS 不會紅** ——
-                     繞過取值落點與正確取值**在 diff 上長得一樣**, 三綠也不會紅。
-                  ⇒ 只有那道全 repo 掃描守得到, 而它**不 import 這支檔**
-                     ⇒ ⇒ `vitest related` 的分母裡結構上沒有它。 */}
-              原價維持 {resolvePrice(product) ?? '—'};差額會以「折扣」出現在訂單與單據上。
-              折扣在【建單當下】就記進那張訂單。訂單金額只在成立時寫一次,
-              之後不會再被商品這邊的特價動到 —— 已經成立的訂單不會因為今天改特價而變動。
-            </p>
-            <p className='text-muted-foreground mt-2 text-xs'>
+              商品頁改版乙 B2:原本三張停用的灰卡(特價 / 分類 / 各規格現貨數量)收成一行字(計畫第五節;審視 E1)。
+              每一項缺什麼的說明收在展開裡, 字不改。分類開通後(C4)從這一行拿掉「分類」。 */}
+          <details data-not-yet className='text-muted-foreground rounded-lg border px-4 py-2 text-sm'>
+            <summary className='cursor-pointer'>還不能用(要先做後端):特價、分類、各規格現貨數量</summary>
+            <div className='mt-2 space-y-2'>
+              {/* 🔴 這一段是 **Sean 指定的字**(稿裡標「Sean 指定」)——
+                  而稿同時**刻意不寫**「之後可以再調整這筆訂單的特價」:
+                  訂單金額四欄只在建單時寫一次, `總額 = 小計 + 運費 − 折扣` 是 DB 層 CHECK 綁死的,
+                  事後補等於改一筆**已經發生的收款紀錄**。⇒ 那句話不得出現在這一頁。 */}
+              <p className='text-muted-foreground mt-2 text-sm'>
+                {/* 🔴🔴 **原價走 `resolvePrice`, 不直讀欄位**(全 repo 守門 `product-repository.test.ts`
+                    驗收 5:期望 false 實得 true)。那道守門擔保的是**價格只從一個地方來**。
+                    📌 我當時寫 `product.price_general` 是因為**它在型別上就在那裡, 而 TS 不會紅** ——
+                       繞過取值落點與正確取值**在 diff 上長得一樣**, 三綠也不會紅。
+                    ⇒ 只有那道全 repo 掃描守得到, 而它**不 import 這支檔**
+                       ⇒ ⇒ `vitest related` 的分母裡結構上沒有它。 */}
+                原價維持 {resolvePrice(product) ?? '—'};差額會以「折扣」出現在訂單與單據上。
+                折扣在【建單當下】就記進那張訂單。訂單金額只在成立時寫一次,
+                之後不會再被商品這邊的特價動到 —— 已經成立的訂單不會因為今天改特價而變動。
+              </p>
               {/* 🔴 **三段腳註改了什麼 —— 逐段列, 不寫概括句**(codex R1 must-fix)。
                   ⛔ ~~我第一版的標題句寫「只拿掉 markdown, 欄位名一個都沒刪」~~ **那句是假的**,
                      而它自己下面三行就在講那個例外 ⇒ **一句宣稱與它的但書並排, 說相反的話。**
@@ -345,50 +302,13 @@ export default async function ProductDetailPage({
                      「**這份型別根本沒被搜到 / 尺完全不會命中**」;
                      它**排不掉**「搜的是過期的、不完整的、或錯的那一份來源」。
                   ⇒ ⇒ 📌 **寫出它排掉了【哪一扇門】, 不寫它證明了什麼, 也不寫得比它做到的寬。** */}
-              目前尚未支援儲存商品特價，因此無法在此設定。
-            </p>
-          </section>
-
-          <section data-od-pe='card' className='rounded-lg border p-4'>
-            <div className='mb-2 flex items-center gap-2'>
-              <h3 className='text-sm font-medium'>分類</h3>
-              <span data-od-pe='todo' className='bg-muted rounded-md px-2 py-0.5 text-xs'>
-                還不能用
-              </span>
+              <p className='text-xs'>目前尚未支援儲存商品特價，因此無法在此設定。</p>
+              <p className='text-xs'>目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。</p>
+              <p className='text-xs'>
+                目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。
+              </p>
             </div>
-            <select
-              disabled
-              aria-label='分類(還不能用)'
-              className='w-56 rounded-md border px-2 py-1 text-sm disabled:opacity-50'
-            >
-              <option>{taxonomy.categoryName ?? '—'}</option>
-            </select>
-            <p className='text-muted-foreground mt-2 text-xs'>
-              目前分類由供應商資料同步更新，尚未支援保留人工修改，因此無法在此調整。
-            </p>
-          </section>
-
-          <section data-od-pe='card' className='rounded-lg border p-4'>
-            <div className='mb-2 flex items-center gap-2'>
-              <h3 className='text-sm font-medium'>各規格現貨數量</h3>
-              <span data-od-pe='todo' className='bg-muted rounded-md px-2 py-0.5 text-xs'>
-                還不能用
-              </span>
-            </div>
-            {/* 🔴 這一格原本只有一個 `—`(codex must-fix):稿逐字要求三張都是「控制項 disabled」,
-                而只印一個破折號 ⇒ **它看起來像「這個商品沒有現貨資料」, 不是「這個功能還不能用」**。
-                📌 兩者在畫面上長得一樣, 而員工的下一步完全不同。 */}
-            <input
-              type='text'
-              disabled
-              placeholder='—'
-              aria-label='各規格現貨數量(還不能用)'
-              className='w-40 rounded-md border px-2 py-1 text-sm disabled:opacity-50'
-            />
-            <p className='text-muted-foreground mt-2 text-xs'>
-              目前尚未支援管理各規格的現貨數量。供應狀態及訂單到貨數量都不能作為商品庫存數量。
-            </p>
-          </section>
+          </details>
 
           {/* ── 只能看的 ───────────────────────────────────────────
               🔴 原本那六張 section **原封收進來**, 一張都沒少(稿指定)。

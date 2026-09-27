@@ -160,5 +160,31 @@ describe('NextStepBatchForm', () => {
     await waitFor(() => expect(markDone).toHaveBeenCalledWith(true));
     expect(submitBtn().disabled).toBe(true);
   });
+
+  // ── 2026-09-27 出貨流程乙第 3 項:到貨全部成功後, 彈窗裡直接「接著出貨」──
+  it('🔴 到貨全部成功 + 給了 continueHref ⇒ 出現「接著出貨」連結;失敗或沒給 ⇒ 不出現', async () => {
+    h.submit.mockResolvedValueOnce({ status: 'done', rows: { [A]: { ok: false, message: '超過' } }, okCount: 0, failCount: 1, halted: false });
+    const { container } = render(
+      <NextStepBatchForm kind='receipt' continueHref='/orders?next=o1&do=ship'>
+        <Row id={A} />
+      </NextStepBatchForm>,
+    );
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(screen.queryByRole('link', { name: '接著出貨' })).toBeNull();
+    h.submit.mockResolvedValueOnce({ status: 'done', rows: { [A]: { ok: true, text: '已登' } }, okCount: 1, failCount: 0, halted: false });
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(screen.getByRole('link', { name: '接著出貨' }).getAttribute('href')).toBe('/orders?next=o1&do=ship'));
+    cleanup();
+    h.submit.mockResolvedValueOnce({ status: 'done', rows: { [A]: { ok: true, text: '已登' } }, okCount: 1, failCount: 0, halted: false });
+    const again = render(
+      <NextStepBatchForm kind='receipt'>
+        <Row id={A} />
+      </NextStepBatchForm>,
+    );
+    fireEvent.submit(again.container.querySelector('form')!);
+    await waitFor(() => expect(screen.getByTestId('batch-summary')).toBeTruthy());
+    expect(screen.queryByRole('link', { name: '接著出貨' })).toBeNull();
+  });
 });
 

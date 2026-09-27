@@ -1,6 +1,7 @@
 'use client';
 
 import { startTransition, useActionState, useContext, useEffect, useRef, type ReactNode } from 'react';
+import Link from 'next/link';
 import { NextStepDoneContext } from './next-step-dialog';
 import { BatchRowContext, PROC_SUBMITTED_AT_ORIGINAL_FIELD, type BatchCtx } from './next-step-batch-context';
 import { submitNextStepBatchAction } from '../../lib/orders/next-step-batch-actions';
@@ -36,7 +37,16 @@ function composeRows(formData: FormData): FormData {
   return formData;
 }
 
-export function NextStepBatchForm({ kind, children }: { kind: BatchKind; children: ReactNode }) {
+export function NextStepBatchForm({
+  kind,
+  children,
+  continueHref,
+}: {
+  kind: BatchKind;
+  children: ReactNode;
+  /** 2026-09-27 出貨流程乙第 3 項:全部成功後出現「接著出貨」(只有單張單的到貨彈窗給)。 */
+  continueHref?: string;
+}) {
   const [state, formAction, pending] = useActionState<BatchActionState, FormData>(
     async (prev, formData) => submitNextStepBatchAction(prev, kind === 'order' ? composeRows(formData) : formData),
     { status: 'idle' },
@@ -97,6 +107,14 @@ export function NextStepBatchForm({ kind, children }: { kind: BatchKind; childre
               )}
               {state.halted && <span className='text-destructive'>;中途被拒(可能登入過期),後面的列沒送 —— 前面打勾的已經寫進去了</span>}
             </p>
+          )}
+          {allDone && continueHref !== undefined && (
+            <Link
+              href={continueHref}
+              className='border-border bg-card text-foreground inline-flex min-h-[30px] items-center rounded-lg border px-3 text-[13px] leading-[1.4]'
+            >
+              接著出貨
+            </Link>
           )}
           <button
             type='submit'

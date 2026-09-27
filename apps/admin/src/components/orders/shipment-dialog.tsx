@@ -116,7 +116,11 @@ export function ShipmentDialog({
    * 他關掉視窗卻看不到 = 字面與事實不符,而這正是 #351③ 當初刪掉地點的那個病。
    */
   onClose: (createdShipment: boolean) => void;
-  onDone: () => void;
+  /**
+   * 成功收尾。2026-09-27 出貨流程乙第 2 項:帶「這一窗做了什麼」, 讓呼叫端決定新竹只建箱之後
+   * 要不要直接接到箱子那一頁(要號 → 叫車)。
+   */
+  onDone: (info: { markShipped: boolean; carrierCode: string }) => void;
   /**
    * 登錄到貨成功後重取候選(驗收 23a)。回傳新的清單;呼叫端負責把它換進 state。
    *
@@ -346,7 +350,7 @@ export function ShipmentDialog({
         setResult(r);
         // 🔴 成功或半成品都算「建出過箱」;之後任何一次重試都不得把它抹回 false(見宣告處)。
         if (r.shipmentReference !== null) everCreatedRef.current = true;
-        if (r.ok) onDone();
+        if (r.ok) onDone({ markShipped, carrierCode: carrier });
       } catch (e) {
         // 🔴🔴 **這個 catch 是承重的。** `submitShipment` 是 server action:它**自己內部**的錯誤
         //    會被包成 `{ok:false}` 回來,但**傳輸層**失敗(斷網、部署換版、RSC 回應壞掉)是直接 throw。

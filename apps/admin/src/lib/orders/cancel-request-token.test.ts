@@ -130,6 +130,9 @@ const REGISTERED: Record<string, number> = {
   //    重試沿用同一把 ⇒ 連按兩次是同一個操作。每次送出各生一把 ⇒ 冪等就沒了。
   //    🔵 而它與那顆是**兩個動作**(標記出貨 vs 更正一個已經對外的事實)⇒ 各自一把鍵。
   'apps/admin/src/components/orders/shipment-edit-tracking-button.tsx': 1,
+  // 🔴 「叫車結果未確認」的「新竹說已收走:標記出貨」冪等鍵(2026-09-28 出貨流程乙第 8 項)。
+  //    同「填單號並標記出貨」:按下去時鑄一次、存進 state, 失敗重按沿用同一把(有測試釘住)。
+  'apps/admin/src/components/orders/shipment-hct-uncertain-exits.tsx': 1,
   'apps/admin/src/components/orders/receipt-record-form.tsx': 3,
   'apps/admin/src/components/ui/sidebar.tsx': 1,
   // 換商品的操作編號(2026-09-22, plan 2026-09-22-admin-order-item-swap-plan.md)。是 token:

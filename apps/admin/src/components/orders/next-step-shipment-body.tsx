@@ -50,13 +50,24 @@ export function NextStepShipmentBody({
   // 🔴 codex R3 must-fix ②:這個名字**一定要在本地宣告** —— 下面「回列表」那顆 `onClick={close}`,少了本地的
   //    `close` 會靜靜落到 `window.close`(typecheck 不會叫),按了什麼都不發生。
   const close = () => router.replace(closeHref);
+  // 2026-09-27 出貨流程乙第 2 項:新竹只建箱之後不關回列表, 直接再開一次 ⇒ 這一次會是箱子那一頁
+  // (東西都裝箱了 ⇒ 顯示「更多」那幾列:跟新竹要託運單號 → 新竹物流叫車)。
+  // launcher 在建箱後已經 router.refresh(), 所以箱子那幾列是新的。
+  const reopenRef = useRef<(() => Promise<void>) | null>(null);
   const { loading, error, openDialog, dialog } = useShipmentLauncher([orderId], undefined, {
-    onClose: (createdShipment) => router.replace(createdShipment ? doneHref : closeHref),
+    onClose: (createdShipment, info) => {
+      if (createdShipment && info?.continueToBox === true && reopenRef.current !== null) {
+        void reopenRef.current();
+        return;
+      }
+      router.replace(createdShipment ? doneHref : closeHref);
+    },
     moreRows,
     ...(onlyItemIds !== undefined ? { onlyItemIds } : {}),
   });
 
   // 網址說要開 ⇒ 掛上來就開一次。`useRef` 擋 StrictMode 的雙重 effect:開兩次 = 生兩把冪等鍵。
+  reopenRef.current = openDialog;
   const opened = useRef(false);
   useEffect(() => {
     if (opened.current) return;
