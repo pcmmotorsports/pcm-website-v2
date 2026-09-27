@@ -145,8 +145,8 @@ import {
 import {
   getAnomalyAlertDeps,
   getDealerApplicationsPendingClient,
-  getDealerSpendMilestoneClient,
-  readDealerSpendMilestoneCount,
+  getMemberSpendMilestoneClient,
+  readNewMilestoneMemberCount,
   getPartialCancelReconciliationClient,
 } from '@/lib/payment/composition';
 import {
@@ -438,12 +438,13 @@ export async function GET(request: Request): Promise<Response> {
         return null;
       });
 
-    // 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲:只通知 Sean)。讀失敗 ⇒ null(列進「讀不到」), 不 503、不擋別的告警。
-    const dealerSpendMilestoneCount = await Promise.resolve()
-      .then(() => readDealerSpendMilestoneCount(getDealerSpendMilestoneClient()))
+    // 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙:只讓 Sean 知道, 什麼都不改)。
+    // 讀失敗 ⇒ null(列進「讀不到」), 不 503、不擋別的告警。
+    const newMilestoneMemberCount = await Promise.resolve()
+      .then(() => readNewMilestoneMemberCount(getMemberSpendMilestoneClient(), new Date()))
       .catch((err: unknown) => {
-        console.error('[anomaly-alert] 🔴 經銷會員累積金額讀取失敗(這一行本輪查不到)', {
-          reason: 'dealer_spend_milestone_read_failed',
+        console.error('[anomaly-alert] 🔴 一般會員累積金額讀取失敗(這一行本輪查不到)', {
+          reason: 'member_spend_milestone_read_failed',
           error: safeErrorName(err),
         });
         return null;
@@ -512,7 +513,7 @@ export async function GET(request: Request): Promise<Response> {
       unarmedEmailLanesWithPending,
       partialCancelReconciliation,
       dealerApplicationsPendingCount,
-      dealerSpendMilestoneCount,
+      newMilestoneMemberCount,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。

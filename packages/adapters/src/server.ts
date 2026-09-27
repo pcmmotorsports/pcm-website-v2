@@ -38,13 +38,8 @@ export {
 // 對齊「會員驗證在 server」鐵則 + wallet adapter 前例;失敗映射 domain AuthError、不上洩 Supabase error)。
 export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';
 
-// 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲;每日 LINE 摘要一行)。為什麼住在 adapters 見該檔檔頭。
-export {
-  DEALER_SPEND_MILESTONE,
-  countDealersOverMilestone,
-  readDealerSpendMilestoneCount,
-  type SpendReadClient,
-} from './supabase/dealer-spend-milestone-read';
+// 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙;每日 LINE 摘要一行)。為什麼住在 adapters 見該檔檔頭。
+export { readNewMilestoneMemberCount, type SpendReadClient } from './supabase/member-spend-milestone-read';
 
 // M-3 階段②-②a:TapPayChargeAdapter 走 server-only subpath(持 Partner Key、x-api-key server-only secret、
 // 絕不進 client bundle;pay-by-prime sandbox/prod by env)。composition root 唯一受控注入點(eslint no-restricted-imports

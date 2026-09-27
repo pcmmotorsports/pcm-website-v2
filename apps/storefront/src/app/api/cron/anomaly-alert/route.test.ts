@@ -42,8 +42,8 @@ vi.mock('@/lib/payment/composition', () => ({
   getAnomalyAlertDeps: getDepsSpy,
   getPartialCancelReconciliationClient: reconClientSpy,
   getDealerApplicationsPendingClient: daClientSpy,
-  getDealerSpendMilestoneClient: dmClientSpy,
-  readDealerSpendMilestoneCount: dmReadSpy,
+  getMemberSpendMilestoneClient: dmClientSpy,
+  readNewMilestoneMemberCount: dmReadSpy,
 }));
 
 // 稽核 P2-3:三條寄信線的掃描面(route 只用 scanner)。
@@ -68,7 +68,7 @@ const { daReadSpy, daClientSpy } = vi.hoisted(() => ({ daReadSpy: vi.fn(), daCli
 vi.mock('@/lib/payment/dealer-applications-pending-read', () => ({
   readDealerApplicationsPendingCount: daReadSpy,
 }));
-// 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲)。
+// 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙)。
 const { dmReadSpy, dmClientSpy } = vi.hoisted(() => ({ dmReadSpy: vi.fn(), dmClientSpy: vi.fn() }));
 
 vi.mock('@/lib/payment/partial-cancel-reconciliation-read', () => ({
@@ -526,8 +526,8 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       partialCancelReconciliation: { total: 0, missingRow: 0, railMismatch: 0 },
       // 經銷商申請待審件數:本檔預設讀到 0(被這道完整物件比對逼出來的)。
       dealerApplicationsPendingCount: 0,
-      // 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲):又一個被這道完整物件比對逼出來的格。
-      dealerSpendMilestoneCount: 0,
+      // 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙):又一個被這道完整物件比對逼出來的格。
+      newMilestoneMemberCount: 0,
     });
   });
 
@@ -1802,17 +1802,19 @@ describe('GET anomaly-alert — 部分取消對帳表進每日告警', () => {
   });
 });
 
-describe('GET anomaly-alert — 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲)', () => {
+describe('GET anomaly-alert — 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙)', () => {
   it('讀到 ⇒ 透傳給 checkAnomalyAlerts;讀失敗 ⇒ null(列進讀不到), 不 503', async () => {
     dmReadSpy.mockResolvedValue(2);
     await GET(makeReq(bearer()));
-    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerSpendMilestoneCount: 2 }));
+    // 要帶「現在」進去, 才算得出這一班的時間範圍
+    expect(dmReadSpy).toHaveBeenCalledWith(expect.anything(), expect.any(Date));
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ newMilestoneMemberCount: 2 }));
     checkSpy.mockClear();
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     dmReadSpy.mockRejectedValue(new Error('boom'));
     const res = await GET(makeReq(bearer()));
     expect(res.status).not.toBe(503);
-    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerSpendMilestoneCount: null }));
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ newMilestoneMemberCount: null }));
     errSpy.mockRestore();
   });
 });

@@ -44,7 +44,7 @@ import {
   LineAlertNotifierAdapter,
   EmailAlertNotifierAdapter,
   createSupabaseServiceClient,
-  readDealerSpendMilestoneCount,
+  readNewMilestoneMemberCount,
   type SpendReadClient,
   tapPayUrlsFor,
 } from '@pcm/adapters/server';
@@ -326,18 +326,18 @@ export function getDealerApplicationsPendingClient(): PendingCountClient {
 }
 
 /**
- * 經銷會員累積滿 10 萬(每日 LINE 摘要, Sean 2026-09-27 E2 甲)的讀取 client。
- * 要讀 customers / orders / 兩本退款帳 ⇒ 走 service client;只讀, 只給 anomaly-alert 用。
+ * 一般會員這一班新滿 10 萬(每日 LINE 摘要, Sean 2026-09-27 更正 E 選丙)的讀取 client。
+ * 要讀 customers / orders / 兩本退款帳 / 出貨三張表 ⇒ 走 service client;只讀, 只給 anomaly-alert 用。
  */
-export function getDealerSpendMilestoneClient(): SpendReadClient {
+export function getMemberSpendMilestoneClient(): SpendReadClient {
   return createSupabaseServiceClient() as unknown as SpendReadClient;
 }
 /**
- * 本體住在 packages/adapters/src/supabase/dealer-spend-milestone-read.ts(主視窗 2026-09-27 裁 Q1 甲):
+ * 本體住在 packages/adapters/src/supabase/member-spend-milestone-read.ts(主視窗 2026-09-27 裁 Q1 甲):
  * 它要用退款兩本帳的作廢欄過濾, 而 storefront 原始碼不得出現那個欄名(scripts/storefront-projection-leak-guard.test.ts,
  * 防前台讀到採購作廢欄)。它讀的是退款表、只在排程伺服器端跑。storefront 只能經本檔碰 @pcm/adapters/server ⇒ 在這裡轉出。
  */
-export { readDealerSpendMilestoneCount };
+export { readNewMilestoneMemberCount };
 
 /**
  * 部分取消對帳表(`pcm_partial_cancel_refund_reconciliation_v`)的讀取 client —— 給 anomaly-alert 讀計數。

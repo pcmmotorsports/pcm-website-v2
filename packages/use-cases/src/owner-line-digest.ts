@@ -44,10 +44,11 @@ export type OwnerLineDigestInput = {
    */
   dealerApplicationsPendingCount?: number | null;
   /**
-   * 經銷會員(tier=store, 後台叫「車行」)累積滿 10 萬的人數(Sean 2026-09-27 E2 甲:只通知 Sean, 由他設品牌折扣)。
+   * 一般會員(tier=general)這一班新滿 10 萬的人數(Sean 2026-09-27 更正 E 選丙:只讓 Sean 知道有這位大客戶, 什麼都不改)。
+   * 只算這一班新跨過的人, 同一人不會每班重複。
    * number = 讀到;`null` = 讀不到(列進「這一輪讀不到」);缺 = 沒接。🛑 不進 `alerted`。
    */
-  dealerSpendMilestoneCount?: number | null;
+  newMilestoneMemberCount?: number | null;
   /** 逐 kind 未解決件數;只拿 `line_forward_failed` 印一行(那不是錢, 從「錢」那類扣掉)。 */
   pcmIncidentByKind?: Record<string, number>;
   stuckBankCount?: number;
@@ -158,7 +159,7 @@ export function ownerLineUnreadable(r: OwnerLineDigestInput): string[] {
   if (r.dailyChargeCountsUnknown) out.push('刷卡');
   if (r.manualCustomerSearchUnknown) out.push('客戶搜尋');
   if (r.dealerApplicationsPendingCount === null) out.push('經銷商申請件數');
-  if (r.dealerSpendMilestoneCount === null) out.push('經銷會員累積金額');
+  if (r.newMilestoneMemberCount === null) out.push('一般會員累積金額');
   return out;
 }
 
@@ -198,10 +199,10 @@ export function buildOwnerLineDigest(now: Date, r: OwnerLineDigestInput): string
   const pc = partialCancelActionable(r);
   // 經銷商申請待審:有才印, 掛在同一行(守「不超過 6 行」)。
   const da = r.dealerApplicationsPendingCount ?? 0;
-  // 經銷會員累積滿 10 萬(Sean 2026-09-27 E2 甲):有才印, 同一行。
-  const dm = r.dealerSpendMilestoneCount ?? 0;
+  // 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙):有才印, 同一行;只印人數不印姓名。
+  const dm = r.newMilestoneMemberCount ?? 0;
   lines.push(
-    `${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}${pc > 0 ? ` / 部分取消退款對不上 ${pc} 張` : ''}${da > 0 ? ` / 有 ${da} 件經銷商申請待審核` : ''}${dm > 0 ? ` / 有 ${dm} 位經銷會員累積滿 10 萬` : ''}`,
+    `${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}${pc > 0 ? ` / 部分取消退款對不上 ${pc} 張` : ''}${da > 0 ? ` / 有 ${da} 件經銷商申請待審核` : ''}${dm > 0 ? ` / 新滿 10 萬的一般會員：${dm} 位` : ''}`,
   );
 
   if (r.alerted) {
