@@ -1,4 +1,5 @@
 -- 退貨第 1 片(20260927010000):拋棄式 PG 行為測試(整份包在交易裡, 最後 ROLLBACK)
+-- ci-self-contained: no — 要先用 scripts/migrations-replay-from-zero.sh --keep-db 起一台套完全部 migration 的 PG, 本檔不自己 initdb。
 -- 🔴 只對拋棄式 PG 跑, 不要對正式庫跑(它會建假客人、假訂單, 雖然最後 ROLLBACK)。
 -- 跑法:bash scripts/migrations-replay-from-zero.sh --keep-db ⇒ 照它印的 psql -h /tmp -p <port> ... -f 本檔
 --   最後一行印 ALL-RETURNS-TESTS-PASSED 才算過;任何一格失敗會在那一格停下。
