@@ -103,13 +103,13 @@ export type OrderAllExportContext = { total: number; filterNote: string; dataAsO
 /** 整份 CSV:第一列 = 檔案自述(同單頁匯出的慣例), 第二列表頭, 之後每個品項一列。 */
 export function buildOrderAllCsv(orders: AdminOrderSummary[], ctx: OrderAllExportContext): string {
   const describe =
-    `本檔 = 後台訂單列表 全部篩選結果 共 ${ctx.total} 張單 · 篩選:${ctx.filterNote} · 資料截至 ${ctx.dataAsOf}` +
+    `本檔 = 後台訂單列表 篩選結果(不分頁) 共 ${ctx.total} 張單 · 篩選:${ctx.filterNote} · 資料截至 ${ctx.dataAsOf}` +
     ' · ⚠️ 「狀態」欄是給人看的文字,不是系統對出來的判斷;要判斷收款/退款狀態請回後台看。';
   return toCsv([describe], [[...ORDER_EXPORT_COLUMNS], ...buildOrderExportRows(orders)]);
 }
 
 export function orderAllExportFilename(now: Date): string {
-  return orderExportFilename(now).replace(/\.csv$/, '-全部.csv');
+  return orderExportFilename(now).replace(/\.csv$/, '-篩選結果.csv');
 }
 
 /** 列表網址(`buildOrderListHref` 產的 `/orders?…`)⇒ 同一組篩選參數的匯出網址。關鍵字不在網址裡(走 cookie)。 */
@@ -142,7 +142,7 @@ export function orderExportAllBlockedMessage(r: Exclude<CollectResult, { kind: '
     case 'keyword_truncated':
       return '關鍵字搜尋的結果超過 100 張,只載入了前 100 張,匯出會少東西。請改用日期或狀態篩選後再匯出。';
     case 'items_truncated':
-      return `有 ${r.displayIds.length} 張單的品項沒有全部載入(單號 ${r.displayIds.join('、')}),匯出會少東西。請先點進那幾張單查看,不要拿這份檔對帳。`;
+      return `有 ${r.displayIds.length} 張單的品項沒有載入完整(單號 ${r.displayIds.join('、')}),匯出會少東西。請先點進那幾張單查看,不要拿這份檔對帳。`;
     case 'changed_while_reading':
       return `讀取途中訂單有變動(讀到 ${r.got} 張,開始時為 ${r.total} 張),這份檔可能不完整所以沒有產生。請重新匯出。`;
   }

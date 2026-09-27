@@ -193,7 +193,7 @@ describe('buildOrderAllCsv / 檔名 / 篩選說明', () => {
     const csv = buildOrderAllCsv(orders(2), { total: 2, filterNote: '建立日期 2026-03-27 至 2026-09-27', dataAsOf: '2026-09-27 12:00' });
     expect(csv.startsWith(CSV_BOM)).toBe(true);
     const first = csv.slice(CSV_BOM.length).split('\r\n')[0]!;
-    expect(first).toContain('全部篩選結果');
+    expect(first).toContain('篩選結果(不分頁)');
     expect(first).toContain('共 2 張單');
     expect(first).toContain('建立日期 2026-03-27 至 2026-09-27');
     expect(first).toContain('資料截至 2026-09-27 12:00');
@@ -201,8 +201,8 @@ describe('buildOrderAllCsv / 檔名 / 篩選說明', () => {
     expect(csv).toContain('PCM-0002');
   });
 
-  it('檔名帶「全部」, 與單頁匯出分得開', () => {
-    expect(orderAllExportFilename(new Date('2026-09-27T04:00:00Z'))).toMatch(/全部\.csv$/);
+  it('檔名帶「篩選結果」, 與單頁匯出分得開', () => {
+    expect(orderAllExportFilename(new Date('2026-09-27T04:00:00Z'))).toMatch(/篩選結果\.csv$/);
   });
 
   it('篩選說明:寫日期區間;有關鍵字只說有, 不寫內容(關鍵字是個資)', () => {
