@@ -89,6 +89,29 @@ describe('送出失敗回來,畫面上的型別 / 告知勾選不得被打回初
     expect(sentType(container)).toBe('customer_notified');
   });
 
+  it('[R7] 失敗訊息出現的【同一次畫面更新】裡, 表單上就已經是 customer_notified —— 不能等下一輪 effect', async () => {
+    // 🔴 2026-09-27(同 manual-refund-entry-section.reset.test.tsx [E7]):表單 reset 與失敗訊息在同一次 commit,
+    //    重掛若靠 useEffect ⇒ 下一次 commit 才發生, 兩次之間表單上真的是初值(內部備註、沒勾)。
+    //    本格在失敗訊息插進 DOM 那一刻(MutationObserver, 早於 passive effect)讀表單 ⇒ 空檔存在就必紅。
+    const { container } = render(
+      <NoteComposeForm returnTo='/orders' orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+    );
+    fillContactNotified(container);
+    const seen: string[] = [];
+    const done = new Promise<void>((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (!container.querySelector('[role="alert"]')) return;
+        seen.push(`${String(sentType(container))}/${String(contactRadio(container).checked)}/${String(notifiedBox(container).checked)}`);
+        mo.disconnect();
+        resolve();
+      });
+      mo.observe(container, { childList: true, subtree: true });
+    });
+    fireEvent.submit(q(container, 'form'));
+    await done;
+    expect(seen).toEqual(['customer_notified/true/true']);
+  });
+
   it('[R2] 一個字不改連失敗兩次:第二次送出與畫面都還是 customer_notified', async () => {
     const { container, findByRole } = render(
       <NoteComposeForm returnTo='/orders' orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
