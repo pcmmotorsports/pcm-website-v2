@@ -101,6 +101,7 @@ import {
   transformVariant,
   variantSortKey,
   groupRowsToSync,
+  isNonProductListing,
   type ProductRow,
   type VariantRow,
   type GroupTransformContext,
@@ -643,6 +644,11 @@ async function main(): Promise<void> {
   const withheldExternalIds = new Set<string>(); // 整群都還沒補齊內容 ⇒ 這一輪不建;仍算「在來源裡」
   let withheldRows = 0;
   let heldOnSiteGroups = 0; // 已上架、在售規格全都缺內容 ⇒ 比照整群停產原樣保留
+  // Sean 2026-09-27 B3 乙:品名是聯絡方式 / 網址 / 請聯絡的列不是商品 ⇒ 不建、不更新(rpm-transform.ts isNonProductListing)。
+  //   🔴 它們的 sku 仍算「在來源裡」(併進 sourceVariantSkus):否則變體級對賬會把網站上已有的那一列當孤兒刪掉,
+  //      留下一件沒有規格的商品。⇒ 網站上已有的原樣不動、不下架;要下架另外處理。
+  const nonProductSkus = new Set<string>();
+  const nonProductWholeGroups: string[] = [];
   for (const [mainSku, variants] of entries) {
     // 🔴 liveVariants 必須在【最上面】算,群內所有衍生值(車款標籤、分類 pair、群層轉換、變體列)
     //    一律吃同一個集合。規則與理由見 rpm-transform.ts 的 liveVariantsOf。
@@ -650,7 +656,14 @@ async function main(): Promise<void> {
     //    最嚴重情境是停產變體的 major_category_v2_zh 與在售的不同 => majorsInGroup.size===2
     //    => 進 conflictGroups => WRITE 模式整批 abort,等於「停產品的殘留標籤凍結整家供應商同步」,
     //    正是本次改動要消滅的事故類型。
-    const pick = groupRowsToSync(variants, onSiteSkus);
+    const productVariants = variants.filter((v) => !isNonProductListing(v));
+    for (const v of variants) if (!productVariants.includes(v)) nonProductSkus.add(v.sku);
+    if (productVariants.length === 0) {
+      nonProductWholeGroups.push(mainSku);
+      withheldExternalIds.add(mainSku); // 仍在來源裡:不觸發「原廠已無此品」
+      continue;
+    }
+    const pick = groupRowsToSync(productVariants, onSiteSkus);
     withheldRows += pick.withheldRows;
     if (pick.kind === 'withhold') {
       withheldExternalIds.add(mainSku); // = transformGroup 的 external_id
@@ -804,7 +817,15 @@ async function main(): Promise<void> {
         `內容未補齊而先不上 ${withheldRows} 列(其中整群先不上 ${withheldExternalIds.size} 群);網站既有列 ${onSiteSkus.size} 列照常同步;已上架而在售規格全缺內容、原樣保留 ${heldOnSiteGroups} 群`,
     );
   }
-  const sourceVariantSkus = new Set(variantRows.map((v) => v.sku)); // V1 變體級對賬:本次 source 變體碼集合
+  // V1 變體級對賬:本次 source 變體碼集合(含非商品列 ⇒ 不被當孤兒刪, 見 nonProductSkus 宣告處)
+  const sourceVariantSkus = new Set([...variantRows.map((v) => v.sku), ...nonProductSkus]);
+  if (nonProductSkus.size > 0) {
+    console.log(
+      `[rpm-import] 非商品列(品名是聯絡方式／網址／請聯絡)跳過 ${nonProductSkus.size} 列,其中整群 ${nonProductWholeGroups.length} 群:` +
+        `${[...nonProductSkus].slice(0, 20).join(', ')}${nonProductSkus.size > 20 ? ` …(共 ${nonProductSkus.size})` : ''}` +
+        ';網站上已有的原樣不動、不下架。',
+    );
+  }
 
   // ── 🔴 2026-08-15 `#20` 片2b:鏡射路徑已整個拿掉,本段可觀測量隨之消失 ──
   //   舊版在這裡印「鏡射下架 N/M 群帶 delisted_at」,用途是讓無人值守的 cron 也能發現

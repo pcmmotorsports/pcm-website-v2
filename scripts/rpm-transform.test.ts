@@ -15,6 +15,7 @@ import {
   normalizeHandleSegment,
   resolveFitmentYears,
   liveVariantsOf,
+  isNonProductListing,
   type GroupTransformContext,
 } from './rpm-transform';
 import type { SourceFitmentEntry } from './rpm-fetch';
@@ -1196,5 +1197,31 @@ describe('混合卡說明分款列出(descriptionPerVariant)', () => {
     expect(runGroup('ARROW-71556-SILENCERS', blankFirst, null, { ...CTX, descriptionPerVariant: true }).product.description).toBe(
       `【GP2 Dark】黑鋼罐身搭配不鏽鋼尾蓋。\n\n【71556GPX】不鏽鋼版本。\n\n${TAIL}`,
     );
+  });
+});
+
+// 2026-09-27 Sean B3 乙:匯入時擋「品名是 email／網址／請聯絡」的非商品列(gbracing SPB 那一種)。
+describe('isNonProductListing:品名是聯絡方式的列不當商品', () => {
+  const row = (product_name: string, product_name_zh = ''): SourceProductRow => ({
+    ...BASE, supplier_slug: 'gbracing', main_sku: 'X', sku: 'X', product_name, product_name_zh,
+  });
+
+  it('擋:gbracing SPB 的英文與中文品名', () => {
+    expect(isNonProductListing(row('Please contact enquiries@gbracing.eu to discuss your purchase'))).toBe(true);
+    expect(isNonProductListing(row('Spare part', '訂購請聯絡 enquiries@gbracing.eu'))).toBe(true);
+  });
+
+  it('擋:品名是網址、或只寫請聯絡／價格另洽', () => {
+    expect(isNonProductListing(row('See https://example.com/shop'))).toBe(true);
+    expect(isNonProductListing(row('www.example.com'))).toBe(true);
+    expect(isNonProductListing(row('Price on request'))).toBe(true);
+    expect(isNonProductListing(row('Custom part', '請洽詢客服'))).toBe(true);
+  });
+
+  it('不擋:全站量到的正常品名(TT@CO 品牌、Contact Surface、reed contact)', () => {
+    expect(isNonProductListing(row('Tail light TT@CO TYPE 1', 'TT@CO TYPE 1尾燈'))).toBe(false);
+    expect(isNonProductListing(row('Special Nut35x 1,5 Ergal  (Contact Surface D=55)'))).toBe(false);
+    expect(isNonProductListing(row('Speedometer sensor M8 reed contact (reinforced)'))).toBe(false);
+    expect(isNonProductListing(row('M6 Counter Sink', 'M6 沉頭螺絲'))).toBe(false);
   });
 });
