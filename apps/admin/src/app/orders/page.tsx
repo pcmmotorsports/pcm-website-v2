@@ -583,7 +583,11 @@ export default async function OrdersPage({
     //    包進去 = 巢狀 form,瀏覽器會把內層拆掉(主視窗 2026-09-14 合體抓到)。
     return (
       <NextStepDialog title={title} closeHref={closeHref} wide>
-        <NextStepBatchForm kind={nextStep.do}>
+        <NextStepBatchForm
+          kind={nextStep.do}
+          /* 2026-09-27 出貨流程乙第 3 項:單張單的到貨登記全部成功後, 彈窗裡直接「接著出貨」。 */
+          {...(nextStep.do === 'receipt' && !multi ? { continueHref: buildNextHref(nextStep.orderId, 'ship') } : {})}
+        >
           {multi && nextStep.do === 'receipt' && <ReceiptTableHeader withOrderNo />}
           {parts.map((p, i) => (
             <div key={nextStep.orderIds[i]}>{p.rows}</div>
