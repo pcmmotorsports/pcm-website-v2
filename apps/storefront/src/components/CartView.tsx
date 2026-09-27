@@ -353,7 +353,14 @@ export function CartView({
                   <div className="cart-item-price">
                     {line.unitPrice === null ? (
                       // B2B 5d:經銷會員而這件取不到經銷價(cac121efb 同一句)
-                      <div className="cart-item-price-main">價格暫時無法取得</div>
+                      // 商品頁乙 P12b:一般會員而這件一般價是空的 ⇒「—」(Sean 2026-08-25 空價字樣)
+                      line.priceUntaxed === true ? (
+                        <div className="cart-item-price-main">價格暫時無法取得</div>
+                      ) : (
+                        <div className="cart-item-price-main" aria-label="價格未提供">
+                          —
+                        </div>
+                      )
                     ) : (
                       <>
                         <div className="cart-item-price-main">NT$ {lineTotal.toLocaleString()}</div>
@@ -387,7 +394,9 @@ export function CartView({
             {hasUnpricedLine && (
               // B2B 5d:有商品取不到經銷價 ⇒ 不能結帳,說明怎麼處理
               <div className="cart-row-hint" role="alert">
-                有商品暫時無法取得價格，請先移除才能結帳。若需要這件商品，請聯絡 PCM 業務。
+                {cart.pricesAreUntaxed
+                  ? '有商品暫時無法取得價格，請先移除才能結帳。若需要這件商品，請聯絡 PCM 業務。'
+                  : '有商品目前沒有售價，請先移除才能結帳。'}
               </div>
             )}
             <button className="cart-checkout" onClick={goCheckout} disabled={hasUnpricedLine}>

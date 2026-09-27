@@ -355,10 +355,17 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
 // 🔴 B2B 5d:購物車有取不到經銷價的列 ⇒ 結帳頁不給表單,請他回購物車移除(直接打 /checkout 也一樣)。
 describe('CheckoutView — 有取不到經銷價的商品(B2B 5d)', () => {
   it('顯示「有商品暫時無法取得價格」,不渲染付款表單;按鈕回購物車', () => {
-    cartStateRef.current = { ...cart('ready'), hasUnpricedLine: true };
+    cartStateRef.current = { ...cart('ready'), hasUnpricedLine: true, pricesAreUntaxed: true };
     renderCheckout();
     expect(screen.getByText('有商品暫時無法取得價格')).toBeDefined();
     screen.getByRole('button', { name: '回購物車' }).click();
     expect(pushMock).toHaveBeenCalledWith('/cart');
+  });
+
+  it('商品頁乙 P12b:一般會員而那件一般價是空的 ⇒「有商品目前沒有售價」,不渲染付款表單', () => {
+    cartStateRef.current = { ...cart('ready'), hasUnpricedLine: true, pricesAreUntaxed: false };
+    renderCheckout();
+    expect(screen.getByText('有商品目前沒有售價')).toBeDefined();
+    expect(screen.queryByText(/聯絡 PCM 業務/)).toBeNull();
   });
 });

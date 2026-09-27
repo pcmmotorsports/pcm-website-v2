@@ -211,12 +211,11 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
   //   - premiumStore:placeholder(domain Product.priceByTier 三 key 必填、Q2-clarify=A1
   //     拍板不 narrow domain);真實 premiumStore 顯示價由 storefront computeEffectivePrice
   //     依 brand.premium_extra_pct 動態算
-  if (row.price_general === null) {
-    throw new Error(
-      `Product ${row.id} missing price_general (M-1-05 雙寫過渡期、save 路徑應已雙寫、缺欄表示 seed 或既有 row 漏遷移)`,
-    );
-  }
-  const general: Money = toMoney({ amount: row.price_general, currency: 'TWD' });
+  // 商品頁乙 P12b(計畫 R6-1 / R7-1,Sean 2026-08-25 空價印「—」):一般價是空的 ⇒ 不丟錯(以前整頁 500),
+  //   帶 generalPriceMissing,priceByTier.general 放 0 佔位。🔴 0 是合法價(贈品),所以【只有 generalPriceMissing 說了算】:
+  //   storefront 唯一讀 domain 價格的地方(lib/products.ts toUIProduct)見到它就把價格變成 null(畫面印「—」、不能結帳)。
+  //   ponytail: 佔位 0 是為了不動 domain 的 Money 型別(動它要改 domain 全部呼叫端);哪天 domain 價格改成可空就拿掉。
+  const general: Money = toMoney({ amount: row.price_general ?? 0, currency: 'TWD' });
 
   // store dummy(amount 0 / TWD)。
   // TODO M-2-08:IPricingService 落地後、tier-aware 取價改走 server-side pricing
@@ -238,6 +237,7 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     category,
     fitments: row.fitments,
     priceByTier: { general, store, premiumStore },
+    ...(row.price_general === null ? { generalPriceMissing: true as const } : {}),
     ...saleOriginalOf(row.original_price, row.price_general),
     description: row.description ?? '',
     // A/#270 賣點條列:防禦性 guard(jsonb 來源 shape 不保證)→ 濾出 string、非陣列→[];恆 string[](never null、對齊 domain Product.highlights)。
@@ -316,14 +316,10 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
  *   (fail loud、防未來 import 錯 shape 悄悄進 client;migration CHECK 只保證 spec=object / images=array、
  *   不保證值型別)。
  *
- * @throws price_general 為 null / spec 含非 string 值 / images 含非 string 元素
+ * @throws spec 含非 string 值 / images 含非 string 元素(一般價 null 不丟錯,見 generalPriceMissing)
  */
 export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
-  if (row.price_general === null) {
-    throw new Error(
-      `Variant ${row.sku} missing price_general(16b 應已定價、缺欄表示 import 漏遷移)`,
-    );
-  }
+  // 商品頁乙 P12b:一般價空 ⇒ 不丟錯,帶 generalPriceMissing(規則見 mapSupabaseProductToDomain 那一段)
 
   // spec guard:值全 string(domain ProductVariant.spec: Record<string, string>)
   // #264:jsonb spec 可為 null(來源 spec=NULL、或 rpm-transform `?? {}` 未觸及的歷史列)→ 視為空 spec
@@ -350,7 +346,7 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
   });
   const images = dropImagesWithoutRealPhoto(rawImages);
 
-  const general: Money = toMoney({ amount: row.price_general, currency: 'TWD' });
+  const general: Money = toMoney({ amount: row.price_general ?? 0, currency: 'TWD' });
   // store / premiumStore dummy(view 排除 price_store、鏡像 mapSupabaseProductToDomain L139/L143);
   // 真經銷價待 M-2-08、本片變體無真經銷價、caller 顯示前取 general。
   const store: Money = { amount: toMoneyAmount(0), currency: 'TWD' };
@@ -361,6 +357,7 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
     sku: row.sku,
     spec,
     priceByTier: { general, store, premiumStore },
+    ...(row.price_general === null ? { generalPriceMissing: true as const } : {}),
     ...saleOriginalOf(row.original_price, row.price_general),
     availability: row.availability,
     images,
@@ -396,6 +393,10 @@ export function mapDomainProductToSupabase(
   domain: Product,
   ids: { brandId: string; categoryId: string },
 ): Omit<SupabaseProductRow, 'brands' | 'categories'> {
+  // 商品頁乙 P12b(Codex R1 必修):一般價空的商品 domain 裡是 0 佔位 ⇒ 照寫會把「沒有價格」存成「0 元」。拒絕,不猜。
+  if (domain.generalPriceMissing) {
+    throw new Error(`Product ${domain.id} 一般價是空的(generalPriceMissing),不能經這條路存檔 —— 會把空價寫成 0 元`);
+  }
   return {
     id: domain.id,
     // M-1-16c-4b:external_id ← domain.productCode(vendor 主碼 round-trip、取代原 domain.id placeholder)

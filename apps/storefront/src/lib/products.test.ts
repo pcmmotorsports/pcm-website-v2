@@ -387,3 +387,38 @@ describe('商品頁乙 P12:特價(view 起 general 已是特價,原價在 saleOr
     expect(ui.isSale).toBe(false);
   });
 });
+
+describe('商品頁乙 P12b:一般價空 ⇒ UI 價格是 null(畫面印「—」、不能買),不是 0 元', () => {
+  it('規格一般價空 ⇒ 那個規格 price null;商品代表價照其他規格', () => {
+    const ui = toUIProduct(
+      fakeProduct({
+        variants: [
+          fakeVariant({ generalPriceMissing: true, priceByTier: { ...fakeVariant().priceByTier, general: { amount: toMoneyAmount(0), currency: 'TWD' } } }),
+          fakeVariant({ id: 'v-002', sku: 'B', spec: { weave: 'Forged' } }),
+        ],
+        variantCount: 2,
+      }),
+      'general',
+    );
+    expect(ui.variants?.[0]?.price).toBeNull();
+    expect(ui.variants?.[1]?.price).toBe(VARIANT_GENERAL);
+  });
+
+  it('商品代表價空 ⇒ price null;經銷的劃線不拿佔位 0', () => {
+    const missing = fakeProduct({
+      generalPriceMissing: true,
+      variants: [fakeVariant({ generalPriceMissing: true })],
+    });
+    expect(toUIProduct(missing, 'general').price).toBeNull();
+    expect(toUIProduct(missing, 'store').originalPrice).toBeNull();
+  });
+
+  it('0 元贈品照樣是 0(沒有 generalPriceMissing)', () => {
+    const gift = fakeProduct({
+      priceByTier: { ...fakeProduct().priceByTier, general: { amount: toMoneyAmount(0), currency: 'TWD' } },
+      variants: [],
+      variantCount: 0,
+    });
+    expect(toUIProduct(gift, 'general').price).toBe(0);
+  });
+});

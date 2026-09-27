@@ -642,6 +642,22 @@ describe('⟦cart-JIANTWOMEANINGS⟧ 購物車標題的兩個數字', () => {
   });
 });
 
+// 商品頁乙 P12b:一般會員而那一列一般價是空的 ⇒ 那一列印「—」、說明「目前沒有售價」、不能結帳。
+describe('CartView — 一般價空的列(商品頁乙 P12b)', () => {
+  it('那一列印「—」、說明沒有售價、前往結帳按不了', async () => {
+    setCart([{ productId: 'ok-1', variantId: 'v1', qty: 1 }, { productId: 'noprice-1', variantId: 'v2', qty: 1 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'ok-1', variantId: 'v1', unitPrice: 700 }),
+      resolvedLine({ productId: 'noprice-1', variantId: 'v2', unitPrice: null, name: '空價商品' }),
+    ]);
+    render(<CartView />);
+    await screen.findByText('空價商品');
+    expect(screen.getByLabelText('價格未提供').textContent?.trim()).toBe('—');
+    expect(screen.getByRole('alert').textContent).toContain('有商品目前沒有售價，請先移除才能結帳');
+    expect((document.querySelector('.cart-checkout') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 // 🔴 B2B 5d:經銷會員而某一列取不到經銷價 ⇒ 那一列標出來、不算小計、不能結帳;其他列照常。
 describe('CartView — 取不到經銷價的列(B2B 5d)', () => {
   it('那一列印「價格暫時無法取得」、有說明、前往結帳按不了;小計只算有價的列', async () => {

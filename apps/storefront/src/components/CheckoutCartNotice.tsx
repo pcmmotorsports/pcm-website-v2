@@ -33,7 +33,8 @@ export type CheckoutCartNoticeProps =
    *    inert 背景才鎖得住那些連結)。少了它, 乙案會比甲案更糟:甲至少還有遮罩。 */
   | { variant: 'paying' }
   /** B2B 5d:購物車有商品是經銷會員而取不到經銷價 ⇒ 不能結帳,回購物車移除。 */
-  | { variant: 'unpriced'; onBackToCart: () => void };
+  | { variant: 'unpriced'; onBackToCart: () => void; dealer?: boolean };
+  //   🔵 商品頁乙 P12b:`dealer` = 經銷會員取不到經銷價(原本那句);沒帶 ⇒ 一般會員而一般價是空的(沒有售價)。
 
 export function CheckoutCartNotice(props: CheckoutCartNoticeProps) {
   return (
@@ -51,8 +52,12 @@ export function CheckoutCartNotice(props: CheckoutCartNoticeProps) {
         <div className="cart-loading">載入結帳資料…</div>
       ) : props.variant === 'unpriced' ? (
         <div className="cart-empty" role="alert">
-          <h2>有商品暫時無法取得價格</h2>
-          <p>請回購物車移除這件商品後再結帳。若需要這件商品，請聯絡 PCM 業務。</p>
+          <h2>{props.dealer ? '有商品暫時無法取得價格' : '有商品目前沒有售價'}</h2>
+          <p>
+            {props.dealer
+              ? '請回購物車移除這件商品後再結帳。若需要這件商品，請聯絡 PCM 業務。'
+              : '請回購物車移除這件商品後再結帳。'}
+          </p>
           <button className="btn-primary" onClick={props.onBackToCart}>回購物車</button>
         </div>
       ) : props.variant === 'error' ? (

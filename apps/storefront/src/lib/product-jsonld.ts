@@ -150,7 +150,8 @@ export function buildProductJsonLd(
     brand: { '@type': 'Brand', name: product.brand },
     // description:真 subtitle(空/空白 → fallback product.name、永遠非空字串)
     description: nonEmptySubtitle(product.subtitle) ?? product.name,
-    offers: buildOffers(product, opts?.now ?? new Date()),
+    // 商品頁乙 P12b:沒有任何買得到的價格 ⇒ 不帶 offers(不讓 Google 看到假的 0 元)
+    ...(hasAnyPrice(product) ? { offers: buildOffers(product, opts?.now ?? new Date()) } : {}),
   };
 
   // image:只放絕對 http(s) URL(相對路徑 / placeholder / bare-key 過濾;全不合格 → 省略)
@@ -258,8 +259,9 @@ function nonEmptySubtitle(subtitle: string | undefined): string | undefined {
  */
 function buildOffers(product: MockProduct, now: Date): Record<string, unknown> {
   // 🔴 三個共用欄位走**同一個運算式**餵三種形狀,不是各寫一份(各寫一份就會分岔)。
-  const variantPrices = (product.variants ?? []).map((v) => v.price);
-  const lowestPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : product.price;
+  // 商品頁乙 P12b:一般價空的規格不列進 offers(Google 看到的只有買得到的價);全部都空 ⇒ 呼叫端不帶 offers
+  const variantPrices = (product.variants ?? []).map((v) => v.price).filter((x): x is number => x !== null);
+  const lowestPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.price ?? 0);
   const common = {
     priceCurrency: PRICE_CURRENCY,
     availability: AVAILABILITY,
@@ -284,4 +286,10 @@ function buildOffers(product: MockProduct, now: Date): Record<string, unknown> {
   }
 
   return { '@type': 'Offer', ...common, price: product.price };
+}
+
+/** 商品頁乙 P12b:有沒有任何買得到的價格(沒有 ⇒ JSON-LD 不帶 offers,不讓 Google 看到假的 0 元)。 */
+function hasAnyPrice(product: MockProduct): boolean {
+  const vs = product.variants ?? [];
+  return vs.length > 0 ? vs.some((v) => v.price !== null) : product.price !== null;
 }

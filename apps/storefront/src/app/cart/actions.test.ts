@@ -119,6 +119,16 @@ describe('商品頁乙 P11:一般會員的規格單價讀現在的價格', () =>
     errorSpy.mockRestore();
   });
 
+  it('🔴 商品頁乙 P12b:一般價空的規格,經銷會員也不能買(不讓經銷價把空價變成可買)', async () => {
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    fetchMock.mockResolvedValue(
+      makeProduct({ variants: [{ id: 'v1', sku: 'DCC01-X', spec: {}, price: null as unknown as number, images: [] }] }),
+    );
+    pricesMock.mockResolvedValueOnce(new Map([['variant:v1', 800]]));
+    const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
+    expect(line.unitPrice).toBeNull();
+  });
+
   it('經銷會員不走這裡(那一半由 get_effective_prices 每發都算)', async () => {
     tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
     fetchMock.mockResolvedValue(makeProduct());

@@ -181,8 +181,9 @@ export function ProductPage({
   const dealer = usesDealerPrice
     ? (selectedVariant ? selectedVariant.dealerPrice : product.dealerPrice)
     : undefined;
+  // 商品頁乙 P12b:選了規格就只認那個規格的價;它的一般價空(null)⇒「—」,不能用 `??` 退回商品價(那是別的規格的價)
   const displayPrice =
-    typeof dealer === 'number' ? dealer : (selectedVariant?.price ?? product.price);
+    typeof dealer === 'number' ? dealer : (selectedVariant ? selectedVariant.price : product.price);
   // 🔴 2026-09-24 經銷價計畫 3.6:經銷會員而【沒取到】經銷價 ⇒ 不印金額(與 ProductInfo.tsx 同一個判準)。
   //   ⛔ ~~原本退回一般價~~:結帳收的是經銷價 ⇒ 畫面與收款對不上。按鈕照舊可按(#161)。
   const dealerPriceUnavailable = usesDealerPrice && typeof dealer !== 'number';
@@ -200,11 +201,12 @@ export function ProductPage({
     ? selectedVariant
       ? (selectedVariant.origPrice ?? selectedVariant.price)
       : (product.originalPrice ?? product.price)
-    : (selectedVariant?.price ?? product.price);
+    : (selectedVariant ? selectedVariant.price : product.price);
   // 🔴 **`hasDiscount` 要求 `origPrice > 一般價`**（`design-reference/components/ProductPage.jsx:294` 同形）。
   //   ⛔ ~~原本 ProductInfo 寫 `product.origPrice ?? product.price`~~（codex R2 must-fix ③）：
   //   `origPrice === 0` 會印出**「原價 NT$ 0」**，而比一般價**更低**的假原價也會被照畫。
-  const hasDiscount = saleOrigPrice != null && saleOrigPrice > generalPrice;
+  // 商品頁乙 P12b:一般價空(null)⇒ 沒有折扣可言
+  const hasDiscount = saleOrigPrice != null && generalPrice != null && saleOrigPrice > generalPrice;
   // 🔴🔴 **「有沒有經銷價」與「他是不是經銷商」是兩件事**（codex R3 must-fix ②）。
   //   ⛔ ~~原本標記與原價那一格掛在 `usesDealerPrice`~~ ⇒ **RPC 少回那一列時**，畫面會出現
   //     **`NT$ 8,400` + `原價 NT$ 8,400` + 「經銷價」** = 假標記 + **同一個數字印兩次**
@@ -212,7 +214,7 @@ export function ProductPage({
   const hasDealerPrice = typeof dealer === 'number';
   // 🔵 **只有【真的比較便宜】才劃掉原價** —— 無差價時 RPC coalesce 回 general，
   //   兩個數字相等 ⇒ 劃一條線在一模一樣的數字上，對客人是雜訊、對我們是假的折扣感。
-  const showDealerOrig = hasDealerPrice && (hasDiscount || dealer! < generalPrice);
+  const showDealerOrig = hasDealerPrice && generalPrice != null && (hasDiscount || dealer! < generalPrice);
 
   // 2026-08-21 F-81:手機數量滑出列。Sean 逐字「丙的樣子(橫的一條列)、乙的時機(按加入購物車
   // 才跳出來)」——平常不掛載(false),按下「加入購物車」之後才顯示;商品那一刻已經真的加進去了
@@ -438,7 +440,8 @@ export function ProductPage({
           </button>
           <div className="pd-mbb-price-col">
             <div className="pd-mbb-price">
-              {dealerPriceUnavailable ? '價格暫時無法取得' : `NT$ ${displayPrice.toLocaleString()}`}
+              {/* 商品頁乙 P12b:一般價空 ⇒「—」 */}
+              {dealerPriceUnavailable ? '價格暫時無法取得' : displayPrice === null ? '—' : `NT$ ${displayPrice.toLocaleString()}`}
             </div>
             {/* 🔴🔴 **條件從「tier 是不是經銷」改成「我們有沒有【替這個 tier 取過價】」**
                   (code-reviewer R1 must-fix 2):route 只在 `tier === 'store'` 時叫 RPC
@@ -451,7 +454,7 @@ export function ProductPage({
               {hasDealerPrice ? (
               <div className="pd-mbb-orig">
                 {showDealerOrig
-                  ? `原價 NT$ ${(hasDiscount ? saleOrigPrice! : generalPrice).toLocaleString()} · 經銷`
+                  ? `原價 NT$ ${(hasDiscount ? saleOrigPrice! : generalPrice!).toLocaleString()} · 經銷`
                   : '經銷'}
               </div>
             ) : hasDiscount && !dealerPriceUnavailable ? (

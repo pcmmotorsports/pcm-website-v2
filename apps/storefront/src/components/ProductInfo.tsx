@@ -189,8 +189,9 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   const dealer = usesDealerPrice
     ? (selectedVariant ? selectedVariant.dealerPrice : product.dealerPrice)
     : undefined;
+  // 商品頁乙 P12b:選了規格就只認那個規格的價;它的一般價空(null)⇒「—」,不能用 `??` 退回商品價(那是別的規格的價)
   const displayPrice =
-    typeof dealer === 'number' ? dealer : (selectedVariant?.price ?? product.price);
+    typeof dealer === 'number' ? dealer : (selectedVariant ? selectedVariant.price : product.price);
   // 🔴 2026-09-24 經銷價計畫 3.6(docs/plans/2026-09-24-dealer-price-fix-before-b2b-plan.md):
   //   經銷會員而【沒取到】經銷價 ⇒ 不印任何金額, 改寫「價格暫時無法取得」。
   //   ⛔ ~~原本退回一般價~~:結帳收的是經銷價(create_order 取 price_store), 畫面印一般價 = 兩個數字對不上。
@@ -210,11 +211,12 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     ? selectedVariant
       ? (selectedVariant.origPrice ?? selectedVariant.price)
       : (product.originalPrice ?? product.price)
-    : (selectedVariant?.price ?? product.price);
+    : (selectedVariant ? selectedVariant.price : product.price);
   // 🔴 **`hasDiscount` 要求 `origPrice > 一般價`**（`design-reference/components/ProductPage.jsx:294` 同形）。
   //   ⛔ ~~原本 ProductInfo 寫 `product.origPrice ?? product.price`~~（codex R2 must-fix ③）：
   //   `origPrice === 0` 會印出**「原價 NT$ 0」**，而比一般價**更低**的假原價也會被照畫。
-  const hasDiscount = saleOrigPrice != null && saleOrigPrice > generalPrice;
+  // 商品頁乙 P12b:一般價空(null)⇒ 沒有折扣可言
+  const hasDiscount = saleOrigPrice != null && generalPrice != null && saleOrigPrice > generalPrice;
   // 🔴🔴 **「有沒有經銷價」與「他是不是經銷商」是兩件事**（codex R3 must-fix ②）。
   //   ⛔ ~~原本標記與原價那一格掛在 `usesDealerPrice`~~ ⇒ **RPC 少回那一列時**，畫面會出現
   //     **`NT$ 8,400` + `原價 NT$ 8,400` + 「經銷價」** = 假標記 + **同一個數字印兩次**
@@ -222,7 +224,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   const hasDealerPrice = typeof dealer === 'number';
   // 🔵 **只有【真的比較便宜】才劃掉原價** —— 無差價時 RPC coalesce 回 general，
   //   兩個數字相等 ⇒ 劃一條線在一模一樣的數字上，對客人是雜訊、對我們是假的折扣感。
-  const showDealerOrig = hasDealerPrice && (hasDiscount || dealer! < generalPrice);
+  const showDealerOrig = hasDealerPrice && generalPrice != null && (hasDiscount || dealer! < generalPrice);
 
   // OD-7c:預覽卡的「紋路 · 表面」文字 — 反映實際選擇(含 12K/Kevlar 合併款、空維過濾)。
   //   W2:預覽卡限 RPM 形狀(非 RPM 不渲染、文字不需算)。
@@ -399,7 +401,8 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
       <div className="pd-price-block">
         <div className="pd-price-row">
           <span className="pd-price" aria-live="polite">
-            {dealerPriceUnavailable ? '價格暫時無法取得' : `NT$ ${displayPrice.toLocaleString()}`}
+            {/* 商品頁乙 P12b:一般價空 ⇒「—」(Sean 2026-08-25 空價字樣),購物車那端也不能結帳 */}
+            {dealerPriceUnavailable ? '價格暫時無法取得' : displayPrice === null ? '—' : `NT$ ${displayPrice.toLocaleString()}`}
           </span>
           {/* 🔴🔴 **條件從「tier 是不是經銷」改成「我們有沒有【替這個 tier 取過價】」**
                   (code-reviewer R1 must-fix 2):route 只在 `tier === 'store'` 時叫 RPC
@@ -418,12 +421,12 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
                   🔵 商品頁乙 P12 起經銷會員的 `saleOrigPrice` 恆 null(不吃特價)⇒ 這行取 `generalPrice` = 原本的一般價。 */}
               {showDealerOrig && (
                 <span className="pd-price-orig">
-                  NT$ {(hasDiscount ? saleOrigPrice! : generalPrice).toLocaleString()}
+                  NT$ {(hasDiscount ? saleOrigPrice! : generalPrice!).toLocaleString()}
                 </span>
               )}
               <span className="pd-price-tag-dealer">經銷價</span>
             </>
-          ) : !dealerPriceUnavailable && saleOrigPrice && saleOrigPrice > displayPrice ? (
+          ) : !dealerPriceUnavailable && displayPrice !== null && saleOrigPrice && saleOrigPrice > displayPrice ? (
             <>
               <span className="pd-price-orig">
                 NT$ {saleOrigPrice.toLocaleString()}

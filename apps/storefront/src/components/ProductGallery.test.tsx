@@ -72,7 +72,7 @@ describe('ProductGallery', () => {
     render(<ProductGallery product={saleSample} />);
     // hero badge 顯示 −XX%(對齊 design L261 字面 isSale ? `−{discountPct}%`)
     const expectedPct = Math.round(
-      (1 - saleSample.price / (saleSample.origPrice as number)) * 100,
+      (1 - saleSample.price! / (saleSample.origPrice as number)) * 100,
     );
     expect(screen.getByText(`−${expectedPct}%`)).toBeDefined();
   });
