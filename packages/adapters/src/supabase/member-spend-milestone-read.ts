@@ -3,7 +3,7 @@
 // 計畫:docs/plans/2026-09-27-member-spend-milestone.md。
 // 累積 = 已出貨且沒取消的訂單「小計 − 折扣」(不含運費、稅), 扣掉已確認且沒作廢的卡退款、沒作廢的人工退款;儲值不算。
 // 只提醒一次(無狀態):現在累積 ≥ 10 萬, 而扣掉「上一班到這一班才出貨」的訂單後 < 10 萬 ⇒ 算這一班新滿。
-// 只讀不寫。每張表分頁讀完(每頁 1000 列, PostgREST 單次上限), 不會因為列數多而少算。
+// 只讀不寫。每張表分頁讀到空頁為止, 不會因為列數多而少算。
 // 🔵 住在 adapters(主視窗 2026-09-27 裁 Q1 甲):它要用退款兩本帳的作廢欄過濾, 而
 //    scripts/storefront-projection-leak-guard.test.ts 禁止 storefront 原始碼出現那個欄名(防前台讀到採購作廢欄)。
 //    這支讀的是退款表、只在顧客站排程(伺服器端)跑, 與採購無關;照 SupabaseOrderAdapter 的層放在這裡,
@@ -70,14 +70,18 @@ export function countNewlyOverMilestone(args: {
   return [...total].filter(([user, v]) => v >= args.threshold && (before.get(user) ?? 0) < args.threshold).length;
 }
 
+/**
+ * 讀到空頁才停, 下一頁從「已讀到的列數」接著讀 ⇒ 伺服器的 max-rows 比 1000 小也不會提早停、少算
+ * (每張表多一次空的讀取)。
+ */
 async function readAll<T>(make: () => Query<T>, orderBy = 'id'): Promise<T[]> {
   const out: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await make().order(orderBy).range(from, from + PAGE - 1);
+  for (;;) {
+    const { data, error } = await make().order(orderBy).range(out.length, out.length + PAGE - 1);
     if (error) throw error;
     const page = data ?? [];
+    if (page.length === 0) return out;
     out.push(...page);
-    if (page.length < PAGE) return out;
   }
 }
 
@@ -92,13 +96,16 @@ export async function readNewMilestoneMemberCount(
   );
   const memberIds = new Set(members.map((m) => m.user_id));
   if (memberIds.size === 0) return 0;
+  // 「已全部出貨」讀 admin_order_list_v.goods_axis = 'shipped'(每個品項的出貨量 ≥ 數量 − 取消量;
+  // 出貨量只算沒作廢、已寄出的包裹)—— 與後台訂單列表同一個判定。
+  // 🔴 不用 orders.fulfillment_status:那一欄從來沒被推進過, 正式站全是 notOrdered(R1 必修 1)。
   // 訂單不用 in(會員名單) 過濾:名單長了網址會太長;全讀已出貨的再在這裡篩。
   const orders = (
     await readAll(() =>
       client
-        .from<OrderRow>('orders')
+        .from<OrderRow>('admin_order_list_v')
         .select('id, customer_user_id, subtotal, discount_total')
-        .eq('fulfillment_status', 'shipped')
+        .eq('goods_axis', 'shipped')
         .is('cancelled_at', null),
     )
   ).filter((o) => memberIds.has(o.customer_user_id));

@@ -53,21 +53,28 @@ describe('digestWindow', () => {
   });
 });
 
-function fakeClient(tables: Record<string, unknown[]>, calls: string[] = []): SpendReadClient {
+type Row = Record<string, unknown>;
+
+/**
+ * 假 PostgREST:真的套用 eq / is / in / gte / lt 與 range(maxRows 模擬伺服器每次最多回幾列)。
+ * 過濾不套的話, 「讀錯欄位」的寫法照樣會綠(R1 必修 1 就是這樣漏掉的)。
+ */
+function fakeClient(tables: Record<string, Row[]>, calls: string[] = [], maxRows = 1000): SpendReadClient {
   const chain = (table: string) => {
+    let rows = tables[table] ?? [];
     let from = 0;
     let to = Infinity;
     const q = {
       select: () => q,
-      eq: (c: string, v: unknown) => (calls.push(`${table}.eq.${c}=${String(v)}`), q),
-      is: (c: string, v: unknown) => (calls.push(`${table}.is.${c}=${String(v)}`), q),
-      in: (c: string) => (calls.push(`${table}.in.${c}`), q),
-      gte: (c: string, v: unknown) => (calls.push(`${table}.gte.${c}=${String(v)}`), q),
-      lt: (c: string, v: unknown) => (calls.push(`${table}.lt.${c}=${String(v)}`), q),
+      eq: (c: string, v: unknown) => (calls.push(`${table}.eq.${c}=${String(v)}`), (rows = rows.filter((r) => r[c] === v)), q),
+      is: (c: string, v: null) => (calls.push(`${table}.is.${c}=${String(v)}`), (rows = rows.filter((r) => (r[c] ?? null) === v)), q),
+      in: (c: string, vs: readonly string[]) => (calls.push(`${table}.in.${c}`), (rows = rows.filter((r) => vs.includes(r[c] as string))), q),
+      gte: (c: string, v: string) => (calls.push(`${table}.gte.${c}=${v}`), (rows = rows.filter((r) => String(r[c]) >= v)), q),
+      lt: (c: string, v: string) => (calls.push(`${table}.lt.${c}=${v}`), (rows = rows.filter((r) => String(r[c]) < v)), q),
       order: () => q,
       range: (f: number, t: number) => ((from = f), (to = t), q),
-      then: (res: (v: { data: unknown[]; error: null }) => unknown) =>
-        res({ data: (tables[table] ?? []).slice(from, to + 1), error: null }),
+      then: (res: (v: { data: Row[]; error: null }) => unknown) =>
+        res({ data: rows.slice(from, Math.min(to + 1, from + maxRows)), error: null }),
     };
     return q;
   };
@@ -75,23 +82,48 @@ function fakeClient(tables: Record<string, unknown[]>, calls: string[] = []): Sp
 }
 
 const NOW = new Date('2026-09-27T13:00:05Z');
+const IN_WINDOW = '2026-09-27T05:00:00.000Z';
+const BEFORE_WINDOW = '2026-09-26T05:00:00.000Z';
+
+const member = (user_id: string, extra: Row = {}): Row => ({ user_id, tier: 'general', disabled_at: null, ...extra });
+/** 🔴 fulfillment_status 恆為 notOrdered:正式站那一欄從來沒被推進過(SupabaseOrderAdapter.ts「正式站全是 notOrdered」)。 */
+const order = (id: string, user: string, subtotal: number, extra: Row = {}): Row => ({
+  id,
+  customer_user_id: user,
+  subtotal,
+  discount_total: 0,
+  cancelled_at: null,
+  fulfillment_status: 'notOrdered',
+  goods_axis: 'shipped',
+  ...extra,
+});
+/** 一張訂單一箱:包裹 s-<id> → 品項 i-<id> → 訂單 <id>。 */
+function shippedIn(orderId: string, user: string, at: string, extra: Row = {}) {
+  return {
+    shipments: [{ id: `s-${orderId}`, customer_user_id: user, deleted_at: null, shipped_at: at, ...extra }],
+    shipment_items: [{ id: `si-${orderId}`, shipment_id: `s-${orderId}`, order_item_id: `i-${orderId}` }],
+    order_items: [{ id: `i-${orderId}`, order_id: orderId }],
+  };
+}
+
+function db(parts: { customers: Row[]; orders: Row[]; ships?: ReturnType<typeof shippedIn>[]; cardRefunds?: Row[]; manualRefunds?: Row[] }) {
+  const ships = parts.ships ?? [];
+  return {
+    customers: parts.customers,
+    admin_order_list_v: parts.orders,
+    order_refunds: parts.cardRefunds ?? [],
+    order_manual_refunds: parts.manualRefunds ?? [],
+    shipments: ships.flatMap((s) => s.shipments),
+    shipment_items: ships.flatMap((s) => s.shipment_items),
+    order_items: ships.flatMap((s) => s.order_items),
+  };
+}
 
 describe('readNewMilestoneMemberCount', () => {
-  it('只查一般會員(tier=general)且沒停用、已出貨沒取消的訂單、已確認沒作廢的退款、這一班的出貨', async () => {
+  it('🔴 已出貨看 goods_axis(依品項出貨量), 不看從來沒被推進的 fulfillment_status', async () => {
     const calls: string[] = [];
     const n = await readNewMilestoneMemberCount(
-      fakeClient(
-        {
-          customers: [{ user_id: A }],
-          orders: [{ id: 'o1', customer_user_id: A, subtotal: 150_000, discount_total: 0 }],
-          order_refunds: [],
-          order_manual_refunds: [],
-          shipments: [{ id: 's1' }],
-          shipment_items: [{ order_item_id: 'i1' }],
-          order_items: [{ order_id: 'o1' }],
-        },
-        calls,
-      ),
+      fakeClient(db({ customers: [member(A)], orders: [order('o1', A, 150_000)], ships: [shippedIn('o1', A, IN_WINDOW)] }), calls),
       NOW,
     );
     expect(n).toBe(1);
@@ -99,8 +131,8 @@ describe('readNewMilestoneMemberCount', () => {
       expect.arrayContaining([
         'customers.eq.tier=general',
         'customers.is.disabled_at=null',
-        'orders.eq.fulfillment_status=shipped',
-        'orders.is.cancelled_at=null',
+        'admin_order_list_v.eq.goods_axis=shipped',
+        'admin_order_list_v.is.cancelled_at=null',
         'order_refunds.eq.status=confirmed',
         'order_refunds.is.voided_at=null',
         'order_manual_refunds.is.voided_at=null',
@@ -109,76 +141,74 @@ describe('readNewMilestoneMemberCount', () => {
         'shipments.lt.shipped_at=2026-09-27T13:00:00.000Z',
       ]),
     );
+    expect(calls.some((c) => c.includes('fulfillment_status'))).toBe(false);
   });
 
-  it('經銷會員(不在一般會員名單)的訂單不算', async () => {
-    const n = await readNewMilestoneMemberCount(
-      fakeClient({
-        customers: [{ user_id: A }],
-        orders: [{ id: 'o1', customer_user_id: B, subtotal: 150_000, discount_total: 0 }],
-        order_refunds: [],
-        order_manual_refunds: [],
-        shipments: [{ id: 's1' }],
-        shipment_items: [{ order_item_id: 'i1' }],
-        order_items: [{ order_id: 'o1' }],
-      }),
-      NOW,
-    );
-    expect(n).toBe(0);
-  });
-
-  it('早就滿 10 萬、這一班沒有新出貨 ⇒ 0(不重複提醒), 不查出貨明細', async () => {
-    const calls: string[] = [];
+  it('還沒全部出貨(goods_axis 不是 shipped)、已取消 ⇒ 不算', async () => {
     const n = await readNewMilestoneMemberCount(
       fakeClient(
-        {
-          customers: [{ user_id: A }],
-          orders: [{ id: 'o1', customer_user_id: A, subtotal: 150_000, discount_total: 0 }],
-          order_refunds: [],
-          order_manual_refunds: [],
-          shipments: [],
-        },
-        calls,
+        db({
+          customers: [member(A), member(B)],
+          orders: [order('o1', A, 150_000, { goods_axis: 'instock' }), order('o2', B, 150_000, { cancelled_at: IN_WINDOW })],
+          ships: [shippedIn('o1', A, IN_WINDOW), shippedIn('o2', B, IN_WINDOW)],
+        }),
       ),
       NOW,
     );
     expect(n).toBe(0);
-    expect(calls.some((c) => c.startsWith('shipment_items.'))).toBe(false);
+  });
+
+  it('經銷會員、已停用的會員 ⇒ 不算', async () => {
+    const n = await readNewMilestoneMemberCount(
+      fakeClient(
+        db({
+          customers: [member(A, { tier: 'store' }), member(B, { disabled_at: BEFORE_WINDOW })],
+          orders: [order('o1', A, 150_000), order('o2', B, 150_000)],
+          ships: [shippedIn('o1', A, IN_WINDOW), shippedIn('o2', B, IN_WINDOW)],
+        }),
+      ),
+      NOW,
+    );
+    expect(n).toBe(0);
+  });
+
+  it('早就滿 10 萬、這一班沒有新出貨 ⇒ 0(不重複提醒)', async () => {
+    const n = await readNewMilestoneMemberCount(
+      fakeClient(db({ customers: [member(A)], orders: [order('o1', A, 150_000)], ships: [shippedIn('o1', A, BEFORE_WINDOW)] })),
+      NOW,
+    );
+    expect(n).toBe(0);
+  });
+
+  it('🔴 這一班寄出的那一箱已作廢(deleted_at)⇒ 不算這一班出貨;與 goods_axis 同一個「作廢不算」', async () => {
+    const n = await readNewMilestoneMemberCount(
+      fakeClient(
+        db({
+          customers: [member(A)],
+          orders: [order('o1', A, 150_000)],
+          ships: [shippedIn('o1', A, IN_WINDOW, { deleted_at: IN_WINDOW })],
+        }),
+      ),
+      NOW,
+    );
+    expect(n).toBe(0);
   });
 
   it('沒有人滿 10 萬 ⇒ 0, 不查出貨', async () => {
     const calls: string[] = [];
     const n = await readNewMilestoneMemberCount(
-      fakeClient(
-        {
-          customers: [{ user_id: A }],
-          orders: [{ id: 'o1', customer_user_id: A, subtotal: 50_000, discount_total: 0 }],
-          order_refunds: [],
-          order_manual_refunds: [],
-        },
-        calls,
-      ),
+      fakeClient(db({ customers: [member(A)], orders: [order('o1', A, 50_000)], ships: [shippedIn('o1', A, IN_WINDOW)] }), calls),
       NOW,
     );
     expect(n).toBe(0);
     expect(calls.some((c) => c.startsWith('shipments.'))).toBe(false);
   });
 
-  it('🔴 超過 1000 列會分頁讀完, 不會漏算第 1001 筆之後的訂單', async () => {
-    const many = Array.from({ length: 2500 }, (_, i) => ({ id: `o${i}`, customer_user_id: A, subtotal: 40, discount_total: 0 }));
-    // 2500 × 40 = 100,000;只讀第一頁會得到 40,000 ⇒ 0 位
-    const n = await readNewMilestoneMemberCount(
-      fakeClient({
-        customers: [{ user_id: A }],
-        orders: many,
-        order_refunds: [],
-        order_manual_refunds: [],
-        shipments: [{ id: 's1' }],
-        shipment_items: [{ order_item_id: 'i1' }],
-        order_items: [{ order_id: 'o2499' }],
-      }),
-      NOW,
-    );
-    expect(n).toBe(1);
+  it('🔴 分頁讀完:超過 1000 列, 以及伺服器每次最多只回 300 列時, 都不漏算', async () => {
+    const many = Array.from({ length: 2500 }, (_, i) => order(`o${i}`, A, 40));
+    // 2500 × 40 = 100,000;少讀一頁就不滿 10 萬 ⇒ 0 位
+    const tables = db({ customers: [member(A)], orders: many, ships: [shippedIn('o2499', A, IN_WINDOW)] });
+    expect(await readNewMilestoneMemberCount(fakeClient(tables), NOW)).toBe(1);
+    expect(await readNewMilestoneMemberCount(fakeClient(tables, [], 300), NOW)).toBe(1);
   });
 });

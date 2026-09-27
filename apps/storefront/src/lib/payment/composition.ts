@@ -327,7 +327,7 @@ export function getDealerApplicationsPendingClient(): PendingCountClient {
 
 /**
  * 一般會員這一班新滿 10 萬(每日 LINE 摘要, Sean 2026-09-27 更正 E 選丙)的讀取 client。
- * 要讀 customers / orders / 兩本退款帳 / 出貨三張表 ⇒ 走 service client;只讀, 只給 anomaly-alert 用。
+ * 要讀 customers / admin_order_list_v(只 GRANT 給 service_role)/ 兩本退款帳 / 出貨三張表 ⇒ 走 service client;只讀, 只給 anomaly-alert 用。
  */
 export function getMemberSpendMilestoneClient(): SpendReadClient {
   return createSupabaseServiceClient() as unknown as SpendReadClient;

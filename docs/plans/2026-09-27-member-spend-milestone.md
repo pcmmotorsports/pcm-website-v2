@@ -30,12 +30,14 @@
 1. **算法**（`packages/adapters/src/supabase/member-spend-milestone-read.ts`，經 `@pcm/adapters/server` 匯出、顧客站只經 `lib/payment/composition.ts` 轉出使用）：
    - 為什麼放在 adapters（主視窗 09-27 裁 Q1 甲）：要用退款兩本帳的作廢欄過濾，而 `scripts/storefront-projection-leak-guard.test.ts` 禁止 storefront 原始碼出現那個欄名（防前台讀到採購作廢欄）。這支讀的是退款表、只在排程伺服器端跑；那道守門不動。
    - 對象：`customers.tier = 'general'` 而且沒有停用（`disabled_at IS NULL`）。
-   - 訂單：`orders` 裡 `fulfillment_status = 'shipped'` 而且 `cancelled_at IS NULL`，只留上面那些會員的；每筆金額 = `subtotal − discount_total`（整數元，不含運費 `shipping_fee`、稅 `tax_total`）。
+   - 訂單：讀 `admin_order_list_v`，`goods_axis = 'shipped'` 而且 `cancelled_at IS NULL`，只留上面那些會員的；每筆金額 = `subtotal − discount_total`（整數元，不含運費 `shipping_fee`、稅 `tax_total`）。
+     - `goods_axis = 'shipped'` = 每個品項的已出貨量 ≥ 數量 − 取消量；已出貨量只算沒作廢、已寄出的包裹（`order_item_quantity_summary`）。跟後台訂單列表用同一個判定。
+     - 🔴 **不用 `orders.fulfillment_status`**（R1 必修 1）：那一欄從來沒被推進過，正式站全是 `notOrdered`（`SupabaseOrderAdapter.ts`；`20260814140000` 註解 #488）。第一版用它 ⇒ 累積永遠是 0，這一行永遠不會印。
    - 扣退款：`order_refunds`（`status = 'confirmed'` 且 `voided_at IS NULL`）與 `order_manual_refunds`（`voided_at IS NULL`）的 `refund_amount`。
-   - 每張表都分頁讀完（每頁 1000 列），列數多也不會少算。只讀不寫。
+   - 每張表都分頁讀到空頁為止，下一頁從已讀到的列數接著讀 ⇒ 列數多、或伺服器每次最多回的列數（PostgREST max-rows）比 1000 小，都不會少算。只讀不寫。
 2. **只提醒一次（不存任何狀態）**：
    - 「這一班」= 上一班排程時間到這一班排程時間，對齊排程 `0 1,13 * * *`（UTC，= 台北 09:00／21:00）。例：台北 21:00 那班看 09:00–21:00。
-   - 「這一班才出貨的訂單」= 有包裹（`shipments`，沒刪除）的 `shipped_at` 落在這一班的訂單；包裹經 `shipment_items` → `order_items` 對回訂單。
+   - 「這一班才出貨的訂單」= 有包裹（`shipments`，沒作廢 `deleted_at IS NULL`）的 `shipped_at` 落在這一班的訂單；包裹經 `shipment_items` → `order_items` 對回訂單。作廢的包裹兩邊都不算（`goods_axis` 的出貨量也不算作廢箱）。
    - 算一位的條件：現在累積 ≥ 100,000，而且扣掉「這一班才出貨的訂單」（含那幾張單的退款）之後 < 100,000。
    - 早就滿 10 萬的人，只要這一班沒有讓他跨過去的新出貨，就不會再算。
 3. **通知**：每日兩班 LINE 摘要（顧客站 `/api/cron/anomaly-alert`）在刷卡那一行後面加「／新滿 10 萬的一般會員：N 位」；0 位不印；只印人數、不印姓名。讀不到時列進「這一輪讀不到：一般會員累積金額」，不當成 0。不進告警判斷（不是出事）。接法照 `60abc6ab3`（經銷商申請待審件數）。
@@ -44,15 +46,28 @@
 
 ## 已知限制
 
+提醒的時機：
 - 這一班手動再跑一次排程，同一班的人會再提醒一次（兩次都算「這一班」）。
+- **某一班排程沒跑**（R1 建議 2）：那一班新滿 10 萬的人不會被提醒，下一班也不會補（下一班只看自己的時間範圍）。
+- **最後一步是取消而不是寄出**：訂單剩下沒寄的品項被取消、因此變成「全部出貨」時，這一班沒有寄出任何包裹 ⇒ 如果就是這張單讓他跨過 10 萬，不會被提醒。
 - 同一位客人如果退款後掉回 10 萬以下，之後又買回 10 萬以上，會再提醒一次。
-- 「已出貨」用整張訂單的 `fulfillment_status = 'shipped'`；部分出貨的訂單在全部出貨前不算。
-- **部分取消會算多**（上一版審查提出）：部分取消只記在品項取消量（`order_item_cancellations` → `order_items.cancelled_quantity`），訂單的 `subtotal` 不會變小；有登記退款才會被扣掉。沒退款的部分取消（例如付款前取消部分品項）會把取消掉的金額也算進累積。
-- **更正過的刷卡退款沒扣**（上一版審查提出）：刷卡退款只扣 `status = 'confirmed'`。先記成失敗（`status = 'failed'`、`failed_reason = 'manual_failed'`）、之後由 `order_refund_effective_verdict` 更正成「錢已退」的那筆沒有扣掉 ⇒ 累積會算多。
-- 上面兩項都只會**算多、不會算少** ⇒ 可能讓某人提早被提醒；不會漏掉真的滿 10 萬的人。要修的話改讀有效退款（更正後的判定）與品項取消量，屆時再開一片。
 - 包裹剛好在排程整點到程式讀取之間（幾秒）寄出，會在下一班才提醒，不會漏掉。
+- 部分出貨的訂單在全部出貨前不算。
+
+累積金額的誤差（三項都是審查提出的，這一片不修）：
+- **部分取消會算多**：部分取消只記在品項取消量（`order_item_cancellations` → `order_items.cancelled_quantity`），訂單的 `subtotal` 不會變小；有登記退款才會被扣掉。沒退款的部分取消（例如付款前取消部分品項）會把取消掉的金額也算進累積。
+- **更正過的刷卡退款沒扣，會算多**：刷卡退款只扣 `status = 'confirmed'`。先記成失敗（`status = 'failed'`、`failed_reason = 'manual_failed'`）、之後由 `order_refund_effective_verdict` 更正成「錢已退」的那筆沒有扣掉。
+- **退款裡的運費差額，可能算多也可能算少**：累積用的是不含運費的小計，扣的卻是整筆 `refund_amount`。退款連運費一起退時會多扣（算少，每張單最多差一筆運費）；部分取消後失去免運、退款比商品金額少時會少扣（算多）。審查建議改扣商品金額 `items_amount`，但那一欄只在 `order_refund_jobs`（自動取消退款流程），後台登記的刷卡退款與人工退款都沒有商品／運費拆分；正式庫 09-27：`order_refunds` 2 筆（都已確認）、`order_refund_jobs` 0 筆 ⇒ 現在改也拆不出來。
+- 要修的話改讀有效退款（更正後的判定）、品項取消量與退款拆分，屆時再開一片。
+
+讀取：
 - 分頁讀取期間如果資料剛好在變動，可能多讀或少讀一列；影響只是某一班提醒早晚一班。
-- 正式庫 09-27：一般會員 16 位，已出貨訂單 0 筆 ⇒ 上線後暫時不會出現這一行。
+- 分頁不依賴伺服器每次最多回幾列（讀到空頁才停），每張表因此多一次空的讀取。
+
+正式庫 09-27（唯讀查）：
+- 一般會員 16 位（未停用）。
+- `orders.fulfillment_status` 全部是 `notOrdered`（那一欄沒被推進）；實際上依 `goods_axis` 已經有 1 張沒取消的訂單全部出貨（第一版計畫寫「已出貨訂單 0 筆」是錯的，那是讀錯欄位的結果）。
+- 那 1 張屬於經銷會員（tier=store，商品金額 13,800）⇒ 一般會員目前已出貨 0 張，上線後這一行暫時不會出現。
 
 ## 影響與退回
 
