@@ -10,7 +10,7 @@ import { formatOrderDateTime } from '../orders/order-detail-view';
 // 🔴 純函式、不 import server-only(同 `audit-list-view.ts` 的分層理由)⇒ 單測載得起來。
 
 /** 寫入 RPC 的 action 字面:20260819040000(上下架)、20260927060000(標題 / 副標 / 賣點)、20260928050000(分類)。 */
-export const PRODUCT_HISTORY_ACTIONS = ['product.override.change', 'product.listing.change', 'product.category.change'] as const;
+export const PRODUCT_HISTORY_ACTIONS = ['product.override.change', 'product.listing.change', 'product.category.change', 'product.price.change'] as const;
 /** 商品頁一次列幾筆(設計稿只列最近的;要看更舊的去「操作紀錄」)。 */
 export const PRODUCT_HISTORY_LIMIT = 20;
 
@@ -55,6 +55,17 @@ function category(v: Record<string, unknown>, names: ReadonlyMap<string, string>
   return v.locked ? `${name}(員工設定)` : `${name}(跟著同步)`;
 }
 
+/** 商品頁乙 P8:價格變更 { variant_id, price_general, price_store, sale_price_general } ⇒「一般價 NT$ 6,800 · 經銷價 未設定」。 */
+function prices(v: Record<string, unknown>): string | null {
+  if (!('price_general' in v) || !('price_store' in v)) return null;
+  const nt = (x: unknown) => (typeof x === 'number' ? `NT$ ${x.toLocaleString('zh-TW')}` : x === null ? '未設定' : null);
+  const general = nt(v.price_general);
+  const store = nt(v.price_store);
+  if (general === null || store === null) return null;
+  const sale = typeof v.sale_price_general === 'number' ? ` · 特價 ${nt(v.sale_price_general)}` : '';
+  return `一般價 ${general} · 經銷價 ${store}${sale}`;
+}
+
 function describe(row: AdminAuditLogRow, names: ReadonlyMap<string, string>): Pick<ProductHistoryRow, 'field' | 'from' | 'to'> {
   const before = obj(row.before);
   const after = obj(row.after);
@@ -73,6 +84,11 @@ function describe(row: AdminAuditLogRow, names: ReadonlyMap<string, string>): Pi
     const from = category(before, names);
     const to = category(after, names);
     if (from !== null && to !== null) return { field: '分類', from, to };
+  }
+  if (row.action === 'product.price.change' && before && after) {
+    const from = prices(before);
+    const to = prices(after);
+    if (from !== null && to !== null) return { field: '價格', from, to };
   }
   return { field: formatAuditAction(row.action), from: '—', to: UNKNOWN_SHAPE };
 }

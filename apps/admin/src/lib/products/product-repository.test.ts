@@ -230,13 +230,25 @@ const LEAK_TOKENS = ['price_store', 'price_by_tier', 'cost'] as const;
  *   這支呼叫原本放在 product-repository.ts(讀取層),已搬出來,讀取層照樣零經銷價欄位(驗收 4)。
  *   🔴 到期條件:手動商品不再能填經銷價 ⇒ 刪掉這兩行。
  */
+/*
+ * 🔴 **第六筆(2026-09-28, 商品頁乙價格段 P8/P9, 同上 Q1 乙;計畫第八節:手動商品改價只有主管)**:
+ *   手動商品的編輯頁「價格」區要讀、要改經銷價:
+ *   · `manual-product-repository.ts` 讀這件手動商品各規格的 price_store(給價格區顯示)、
+ *     把主管填的經銷價原樣送進 `admin_set_variant_prices`(20260928220000)的 p_changes(鍵名 price_store)。
+ *   · `manual-product-price-actions.ts` 組 p_changes(1 次)。
+ *   · `product-history.ts` 把改價稽核列(before / after 的 price_store 鍵)寫成「經銷價 NT$…」給商品頁「最近的變更」(2 次)。
+ *   兩支都只在 server 端;畫面在後台,員工本來就看得到經銷價(Sean 2026-08-31 拍甲);改只有在職主管(action 與 RPC 各查一次)。
+ *   🔴 到期條件:手動商品不再能改經銷價 ⇒ 刪掉這三行(repository 那一行回到 ×1)。
+ */
 const LEAK_ALLOWLIST = [
   'apps/admin/src/lib/audit/audit-field-label.ts:price_store×1',
   'apps/admin/src/lib/customers/brand-discount-repository.ts:price_store×6',
   'apps/admin/src/lib/orders/manual-order-catalog.ts:price_store×2',
   'apps/admin/src/lib/products/manual-product-actions.ts:price_store×1',
-  'apps/admin/src/lib/products/manual-product-repository.ts:price_store×1',
+  'apps/admin/src/lib/products/manual-product-price-actions.ts:price_store×1',
+  'apps/admin/src/lib/products/manual-product-repository.ts:price_store×4',
   'apps/admin/src/lib/products/product-export.ts:price_store×3',
+  'apps/admin/src/lib/products/product-history.ts:price_store×2',
 ] as const;
 
 /**

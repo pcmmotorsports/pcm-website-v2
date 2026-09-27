@@ -7,6 +7,10 @@ import { ProductListingForm } from '../../../components/products/product-listing
 import { ProductOverridesEditor } from '../../../components/products/product-overrides-editor';
 import { ProductHistory } from '../../../components/products/product-history';
 import { ProductCategoryEditor } from '../../../components/products/product-category-editor';
+import { ManualProductPriceEditor } from '../../../components/products/manual-product-price-editor';
+import { loadManualProductPrices } from '../../../lib/products/manual-product-repository';
+import { getSessionActor } from '../../../lib/session/actor';
+import { isActiveManager } from '../../../lib/staff';
 import { loadProductHistory } from '../../../lib/products/product-history-loader';
 import { ProductGalleryPanel } from '../../../components/products/product-gallery-panel';
 import { loadProductGallery } from '../../../lib/products/gallery-loader';
@@ -119,6 +123,17 @@ export default async function ProductDetailPage({
       ? [null, null]
       : await Promise.all([loadProductHistory(product.id, await categoryChoicesPromise), loadProductGallery(product)]);
   const categoryChoices = await categoryChoicesPromise;
+  // 商品頁乙 P9:網站新增的手動商品才有「價格」區(同步商品的價格只在報價單改)。讀不到 ⇒ 那一塊寫一句話,其他照常。
+  const manualPrices =
+    product?.supplier_slug === 'pcm'
+      ? await Promise.all([
+          loadManualProductPrices(product.id),
+          getSessionActor().then((a) => isActiveManager(a?.id)),
+        ]).catch((error: unknown) => {
+          console.error('[admin/products/[id]] 手動商品價格讀取失敗', error);
+          return null;
+        })
+      : undefined;
 
   // 商品頁乙 A11:從列表點進來時帶著 ?from=(原列表網址)⇒ 返回原列表、上一件 / 下一件照那份清單的順序。
   //   讀不到就只少了上一件 / 下一件,返回連結照樣回原列表。
@@ -300,6 +315,15 @@ export default async function ProductDetailPage({
                   <p className='text-destructive text-sm'>分類選項載入失敗，暫時不能修改分類，請重新整理頁面。</p>
                 </section>
               )}
+              {/* 商品頁乙 P9:價格區(只有手動商品)。 */}
+              {manualPrices === null ? (
+                <section data-od-pe='card' className='rounded-lg border p-4'>
+                  <h3 className='mb-2 text-sm font-medium'>價格</h3>
+                  <p className='text-destructive text-sm'>價格載入失敗，請重新整理頁面。</p>
+                </section>
+              ) : manualPrices !== undefined ? (
+                <ManualProductPriceEditor productId={product.id} rows={manualPrices[0]} canEdit={manualPrices[1]} />
+              ) : null}
             </div>
           </div>
           {history && <ProductHistory rows={history.rows} loadFailed={history.loadFailed} />}
