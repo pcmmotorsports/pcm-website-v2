@@ -1,5 +1,6 @@
 import {
   ATTENTION_PARAM,
+  CATEGORY_LOCKED_PARAM,
   SORT_PARAM,
   BRAND_PARAM,
   CATEGORY_PARAM,
@@ -70,6 +71,7 @@ export function ProductSkuFilter({
       {filter.sort !== undefined && (
         <input type='hidden' name={SORT_PARAM} value={filter.sort} />
       )}
+      {filter.categoryLocked && <input type='hidden' name={CATEGORY_LOCKED_PARAM} value='1' />}
 
       <label htmlFor='product-sku-filter' className='text-muted-foreground text-xs font-medium'>
         貼料號

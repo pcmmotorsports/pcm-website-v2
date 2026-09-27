@@ -5,8 +5,9 @@ import Link from 'next/link';
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductToolbar } from '../../components/products/product-toolbar';
-import { ProductAttentionChips, ProductFilterChips } from '../../components/products/product-filter-chips';
+import { ProductAttentionChips, ProductCategoryLockedChip, ProductFilterChips } from '../../components/products/product-filter-chips';
 import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
+import { ProductBatchBar } from '../../components/products/product-batch-bar';
 import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
 import { ListPagination } from '../../components/shared/list-pagination';
 import {
@@ -38,6 +39,8 @@ import { TruncationReveal } from '../../components/orders/truncation-reveal';
 // M-4b #20 片1a:後台商品列表(唯讀)。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 // force-dynamic:讀 searchParams + DB 查、不靜態預渲染(同 customers/orders 兩頁)。
 export const dynamic = 'force-dynamic';
+// 商品頁乙 A7:批次上下架的 server action 跑在這一頁(每段 50 件)。照訂單頁(orders/page.tsx:112)寫明,不吃平台預設值。
+export const maxDuration = 60;
 
 // 🔴 **`PRODUCTS_PAGE_SIZE = 20` 已移除**(2026-08-19 分頁片)——
 //    每頁筆數改由網址 `?size=` 決定,合法值與預設在 `lib/products/product-list-view.ts`
@@ -147,6 +150,7 @@ export default async function ProductsPage({
           {(brandOptions.length > 0 || categoryOptions.length > 0) && (
             <ProductTaxonomyFilter filter={filter} size={view.size} brands={brandOptions} categories={categoryOptions} />
           )}
+          <ProductCategoryLockedChip filter={filter} size={view.size} />
         </aside>
       )}
       <div className='pcm-prod-main space-y-3'>
@@ -193,8 +197,15 @@ export default async function ProductsPage({
           {/* 🔴 `#661`:有搜尋詞而零命中 ⇒ 換一句話。
               「目前沒有商品」與「找不到符合的商品」在畫面上是同一個空框,
               而前者讀起來像系統壞了或還沒進貨、後者讀起來像「再打一次」。 */}
+          <ProductBatchBar
+            categories={(options?.categories ?? [])
+              .map((c) => ({ id: c.id, label: c.raw_path }))
+              .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hant'))}
+          />
           <ProductsTable
             rows={items}
+            openId={view.open}
+            openHref={(id) => `${buildProductListHref(filter, { page: view.page, size: view.size, open: id })}${id ? `#p-${id}` : ''}`}
             emptyText={
               filter.keyword !== undefined
                 ? `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
@@ -203,7 +214,7 @@ export default async function ProductsPage({
                   : '目前沒有商品。'
             }
           />
-          <p className='pcm-note2'>這裡列出所有商品,含已下架的。上架/下架請點進商品明細頁,其餘欄位目前不能修改。</p>
+          <p className='pcm-note2'>這裡列出所有商品，含已下架的。勾選後可以整批上架、下架或改分類；標題、副標、賣點和照片請點進商品明細頁修改，價格目前不能修改。</p>
           {/* 被截斷的字滑到看全文、可框選複製(同訂單列表那一支;只在真的被截時出現)。 */}
           <TruncationReveal root='table' />
           <ListPagination

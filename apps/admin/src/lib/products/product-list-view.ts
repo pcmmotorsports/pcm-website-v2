@@ -70,6 +70,30 @@ export const CATEGORY_PARAM = 'category';
  *      而產生連結時一律只寫 `?category=<raw_path>` ⇒ **網址是正規化的、只有一種寫法**。
  */
 export const SUBCATEGORY_PARAM = 'subcategory';
+/**
+ * 商品頁乙 A6–A8:批次上下架。一次最多選 200 件(與改分類同一個上限);
+ * 前端每 50 件送一次,逐段累積結果(一個請求跑太久會被平台中斷,整份結果就回不到畫面)。
+ */
+export const MAX_LISTING_BATCH = 200;
+export const LISTING_BATCH_CHUNK = 50;
+
+/**
+ * 批次每一件的結果(計畫第四節)。
+ * NEEDS_REVIEW = 上架時規格料號疑似屬於別件商品,或那道檢查查不出來 ⇒ 不上架,請到商品頁逐件確認。
+ * UNCONFIRMED = 請求沒有回應,不知道有沒有做到(Sean 09-28 Q2 甲:照實標,不從稽核推斷)。
+ * NOT_RUN = 前面中斷,這幾件還沒送出。
+ */
+export type BatchListingOutcome = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND' | 'FAILED' | 'NEEDS_REVIEW' | 'UNCONFIRMED' | 'NOT_RUN';
+export const BATCH_LISTING_OUTCOME_LABEL: Record<BatchListingOutcome, string> = {
+  UPDATED: '已更新',
+  NO_CHANGE: '未變更(本來就是這個狀態)',
+  NOT_FOUND: '找不到這件商品',
+  FAILED: '沒有成功',
+  NEEDS_REVIEW: '需要到商品頁逐件確認',
+  UNCONFIRMED: '結果未確認',
+  NOT_RUN: '尚未執行',
+};
+
 /** 商品頁乙 C3:改分類一次最多幾件。與 20260928050000 的上限同一個數;server action 與 RPC 兩邊都擋。 */
 export const MAX_CATEGORY_BATCH = 200;
 
@@ -79,6 +103,8 @@ export const MAX_CATEGORY_BATCH = 200;
  *    放在這裡才吃得到 filterHiddenFields 與「三張表單都要帶齊」那一格測試的保護。
  */
 export const SORT_PARAM = 'sort';
+/** 商品頁乙 C6:只看分類由員工設定的(`?catlock=1`)。 */
+export const CATEGORY_LOCKED_PARAM = 'catlock';
 export const PRODUCT_SORT_KEYS = ['updated', 'price_asc', 'price_desc', 'sku'] as const;
 export type ProductSort = (typeof PRODUCT_SORT_KEYS)[number];
 export const PRODUCT_SORT_LABEL: Record<ProductSort | 'default', string> = {
@@ -192,6 +218,8 @@ export interface AdminProductFilter {
   readonly attention: readonly ProductAttention[] | undefined;
   /** `?sort=`;`undefined` = 預設排序(最新建立的在前)。 */
   readonly sort: ProductSort | undefined;
+  /** `?catlock=1`;只看分類由員工設定(鎖住)的商品。`undefined` = 不篩。 */
+  readonly categoryLocked: true | undefined;
 }
 
 /**
@@ -205,11 +233,16 @@ export interface AdminProductFilter {
  *      ② 🔴 **`buildProductListHrefResetPage` 會被污染** —— 換篩選要重設 `page`,
  *         **但絕不該重設 `size`**(員工把每頁調成 500,按一下「手動」就跳回 200 = 改動消失)。
  */
+/** 商品頁乙 A9:展開哪一列的摘要(`?open=<商品 id>`)。 */
+export const OPEN_PARAM = 'open';
+
 export interface AdminProductView {
   /** `?page=`;1-indexed,已下界 1。 */
   readonly page: number;
   /** `?size=`;必為 `PAGE_SIZE_OPTIONS` 之一。 */
   readonly size: number;
+  /** 商品頁乙 A9:`?open=`;展開摘要的那一件(合法 uuid)。`undefined` = 都收合。換篩選、翻頁時不帶。 */
+  readonly open?: string;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -535,6 +568,12 @@ export function parseProductAttention(value: string | string[] | undefined): rea
   return keys.length > 0 ? keys : undefined;
 }
 
+/** `?open=` → 合法 uuid 才收,其他一律當成沒展開。 */
+export function parseProductOpen(value: string | string[] | undefined): string | undefined {
+  const v = Array.isArray(value) ? value[0] : value;
+  return v !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v.toLowerCase() : undefined;
+}
+
 /** `?sort=` → 認得的排序;認不得或沒帶 ⇒ `undefined`(預設排序)。 */
 export function parseProductSort(value: string | string[] | undefined): ProductSort | undefined {
   const v = Array.isArray(value) ? value[0] : value;
@@ -557,10 +596,12 @@ export function parseProductListParams(raw: SearchParams): {
       skus: parseProductSkus(raw[SKU_PARAM]),
       attention: parseProductAttention(raw[ATTENTION_PARAM]),
       sort: parseProductSort(raw[SORT_PARAM]),
+      categoryLocked: (Array.isArray(raw[CATEGORY_LOCKED_PARAM]) ? raw[CATEGORY_LOCKED_PARAM][0] : raw[CATEGORY_LOCKED_PARAM]) === '1' ? true : undefined,
     },
     view: {
       page: parseProductPage(raw[PAGE_PARAM]),
       size: parseProductPageSize(raw[SIZE_PARAM]),
+      open: parseProductOpen(raw[OPEN_PARAM]),
     },
   };
 }
@@ -616,6 +657,7 @@ export function filterHrefEntries(
     skus: [SKU_PARAM, filter.skus === undefined ? undefined : filter.skus.join(',')],
     attention: [ATTENTION_PARAM, filter.attention === undefined ? undefined : filter.attention.join(',')],
     sort: [SORT_PARAM, filter.sort],
+    categoryLocked: [CATEGORY_LOCKED_PARAM, filter.categoryLocked ? '1' : undefined],
   };
 }
 
@@ -654,6 +696,7 @@ export function buildProductListHref(
     // 🔴 預設筆數不寫進網址,理由同上;而它也讓「沒選過」與「選了預設值」產生同一個網址
     //    ⇒ 書籤與分享出去的連結不會把一個【當時的預設值】凍在裡面。
     size: [SIZE_PARAM, view.size === DEFAULT_PAGE_SIZE ? undefined : String(view.size)],
+    open: [OPEN_PARAM, view.open],
   };
 
   const params = new URLSearchParams();

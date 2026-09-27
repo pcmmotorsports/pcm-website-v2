@@ -266,6 +266,7 @@ export function resolveProductListQuery(
       skus: filter.skus,
       attention: filter.attention,
       sort: filter.sort,
+      categoryLocked: filter.categoryLocked,
     },
     brandOptions,
     categoryOptions,

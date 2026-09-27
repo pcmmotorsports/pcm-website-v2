@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { ProductSelectAllOnPage } from './product-batch-bar';
+import { ProductQuickListing } from './product-quick-listing';
 import {
   AdminDataTable,
   type AdminColumn,
@@ -51,7 +53,16 @@ function thumbCell(row: AdminProductListRow) {
   return <img src={row.thumb} alt='' loading='lazy' className='bg-muted h-9 w-9 rounded-md object-contain' />;
 }
 
-const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
+function buildColumns(openId: string | undefined, openHref: (id: string | undefined) => string): ReadonlyArray<AdminColumn<AdminProductListRow>> {
+  return [
+  {
+    key: 'select',
+    // 商品頁乙 A6:勾選框。一般 <input>,批次按鈕列(ProductBatchBar)讀 DOM 算已選幾件。
+    header: <ProductSelectAllOnPage />,
+    cell: (row) => (
+      <input type='checkbox' data-product-select value={row.id} data-title={displayTitle(row)} aria-label={`選取 ${displayTitle(row)}`} />
+    ),
+  },
   { key: 'thumb', header: '圖', cell: thumbCell },
   {
     key: 'title',
@@ -59,9 +70,25 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
     // 片1b-1:名稱點進詳情頁。做法沿用 components/customers/customers-table.tsx:18
     // (`AdminDataTable` 沒有整列連結的 API ⇒ 連結包在名稱欄,不去改共用表格元件)。
     cell: (row) => (
-      <Link href={`/products/${row.id}`} className='text-foreground font-bold hover:underline'>
-        {displayTitle(row)}
-      </Link>
+      <div id={`p-${row.id}`}>
+        {/* 商品頁乙 A9:▸ 展開這一列的摘要(網址帶 ?open=,篩選照舊);名稱照舊連到完整頁 */}
+        <Link
+          href={openHref(openId === row.id ? undefined : row.id)}
+          aria-expanded={openId === row.id}
+          aria-label={openId === row.id ? '收合摘要' : '展開摘要'}
+          className='text-muted-foreground mr-1.5 inline-block w-4 no-underline'
+          scroll={false}
+        >
+          {/* 用圖示不用字元:名稱欄的文字只放商品名稱(測試與複製都讀它) */}
+          <svg viewBox='0 0 16 16' width='12' height='12' aria-hidden='true' className={openId === row.id ? 'rotate-90' : undefined}>
+            <path d='M6 3l5 5-5 5' fill='none' stroke='currentColor' strokeWidth='2' />
+          </svg>
+        </Link>
+        <Link href={`/products/${row.id}`} className='text-foreground font-bold hover:underline'>
+          {displayTitle(row)}
+        </Link>
+        {openId === row.id && <ProductRowSummary row={row} closeHref={openHref(undefined)} />}
+      </div>
     ),
     mobile: 'title',
   },
@@ -121,12 +148,47 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
     mobile: 'meta',
   },
 ];
+}
+
+
+/** 商品頁乙 A9:展開後的摘要。只顯示與做最常用的事;其他去完整頁。 */
+function ProductRowSummary({ row, closeHref }: { row: AdminProductListRow; closeHref: string }) {
+  const listed = resolveListingState(row) === 'listed';
+  const price = resolvePrice(row);
+  return (
+    <div className='bg-muted/40 mt-2 space-y-2 rounded-md border p-3 text-sm whitespace-normal' data-product-row-summary>
+      <div className='flex flex-wrap gap-x-4 gap-y-1'>
+        <span>售價 {price === null ? '未設定' : `NT$ ${price.toLocaleString('zh-TW')}`}</span>
+        <span>分類 {row.categories?.raw_path ?? '未設定'}</span>
+        <span>{listed ? '上架中' : '已下架'}</span>
+        <span>{row.availability === 'out-of-stock' ? '缺貨' : '有庫存'}</span>
+        {isSourceMissing(row) && <span>原廠已無此品</span>}
+        {row.image_missing !== false && <span>代表圖待補</span>}
+      </div>
+      <div className='flex flex-wrap items-center gap-2'>
+        <ProductQuickListing productId={row.id} listed={listed} />
+        <Link href={`/products/${row.id}`} className='border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm'>
+          打開完整頁
+        </Link>
+        <Link href={closeHref} scroll={false} className='text-muted-foreground text-sm underline'>
+          收合
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 export function ProductsTable({
   rows,
   emptyText = '目前沒有商品。',
+  openId,
+  openHref = () => '/products',
 }: {
   rows: readonly AdminProductListRow[];
+  /** 商品頁乙 A9:展開摘要的那一件;沒給 = 都收合。 */
+  openId?: string;
+  /** 商品頁乙 A9:展開 / 收合某一件的網址(保留目前的篩選與頁碼);`undefined` = 收合。 */
+  openHref?: (id: string | undefined) => string;
   /**
    * 空狀態文案。**預設是「這一頁真的沒有東西」那一句。**
    *
@@ -139,6 +201,6 @@ export function ProductsTable({
   emptyText?: string;
 }) {
   return (
-    <AdminDataTable rows={rows} columns={COLUMNS} getRowKey={(row) => row.id} emptyText={emptyText} />
+    <AdminDataTable rows={rows} columns={buildColumns(openId, openHref)} getRowKey={(row) => row.id} emptyText={emptyText} />
   );
 }

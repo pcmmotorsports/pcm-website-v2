@@ -22,6 +22,7 @@ const ALL: AdminProductFilter = {
   skus: ['SKU-1'],
   attention: ['out_of_stock', 'image_missing'],
   sort: 'price_desc',
+  categoryLocked: true,
 };
 
 /** 畫出來的 HTML 裡,每個 hidden 欄位的 name → value。 */

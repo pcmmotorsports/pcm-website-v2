@@ -146,3 +146,19 @@ export function ProductSortSelect({ filter, size }: { filter: AdminProductFilter
     </form>
   );
 }
+
+/** 商品頁乙 C6:「分類由員工設定」開關(按一下只看被員工改過分類的商品,再按一下取消)。 */
+export function ProductCategoryLockedChip({ filter, size }: { filter: AdminProductFilter; size: number }) {
+  const active = filter.categoryLocked === true;
+  return (
+    <Link
+      className='fchip'
+      aria-current={active ? 'true' : undefined}
+      data-active={active ? 'true' : undefined}
+      data-category-locked-chip
+      href={buildProductListHrefResetPage({ ...filter, categoryLocked: active ? undefined : true }, size)}
+    >
+      只看分類由員工設定的
+    </Link>
+  );
+}

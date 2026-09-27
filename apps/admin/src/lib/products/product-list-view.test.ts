@@ -34,7 +34,7 @@ const NONE: AdminProductFilter = {
   keyword: undefined,
   brandIds: undefined,
   categoryPath: undefined,
-      skus: undefined, attention: undefined, sort: undefined,
+      skus: undefined, attention: undefined, sort: undefined, categoryLocked: undefined,
 };
 
 describe('parseProductPage', () => {

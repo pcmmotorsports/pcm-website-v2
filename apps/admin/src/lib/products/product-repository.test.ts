@@ -509,6 +509,11 @@ describe('商品頁乙 A2:「要處理」篩選與件數', () => {
     expect(q.calls.filter((c) => c[0] === 'or')).toEqual([]);
   });
 
+  it('C6:只看分類由員工設定的 ⇒ category_locked = true', async () => {
+    await listProductsForAdmin(20, 0, { categoryLocked: true });
+    expect(q.calls).toContainEqual(['eq', 'category_locked', true]);
+  });
+
   it('缺貨 = 上架中而且缺貨(與側欄「商品 缺貨 N 筆」同一個定義);代表圖待補不看 images 是否為空', () => {
     expect(ATTENTION_CONDITION.out_of_stock).toBe('and(delisted_at.is.null,availability.eq.out-of-stock)');
     expect(ATTENTION_CONDITION.image_missing).toBe('admin_card_image_missing.is.true');

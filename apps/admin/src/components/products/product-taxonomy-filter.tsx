@@ -1,5 +1,6 @@
 import {
   ATTENTION_PARAM,
+  CATEGORY_LOCKED_PARAM,
   SORT_PARAM,
   BRAND_PARAM,
   CATEGORY_PARAM,
@@ -95,6 +96,7 @@ export function ProductTaxonomyFilter({
       {filter.sort !== undefined && (
         <input type='hidden' name={SORT_PARAM} value={filter.sort} />
       )}
+      {filter.categoryLocked && <input type='hidden' name={CATEGORY_LOCKED_PARAM} value='1' />}
 
       {/* 2026-09-14(Sean:「上方篩選欄位太佔空間」):品牌從 4 行高的 <select multiple> 改成可打字的 combobox + 可 × 的 chip;
           送出的欄位名與形狀不變(每個 id 一顆 hidden `brand=`,parseProductBrandIds 認同名多鍵)。上面那段「廠牌可複選」的理由照舊成立。 */}

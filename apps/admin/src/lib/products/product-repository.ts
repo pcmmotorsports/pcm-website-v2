@@ -300,6 +300,8 @@ export interface AdminProductQuery {
   readonly attention?: readonly ProductAttention[];
   /** 商品頁乙 A5:排序;`undefined` = 最新建立的在前。 */
   readonly sort?: ProductSort;
+  /** 商品頁乙 C6:只看分類由員工設定的(20260928040000 category_locked)。 */
+  readonly categoryLocked?: true;
 }
 
 /**
@@ -360,6 +362,7 @@ async function filteredProducts(columns: string, head: boolean, query: AdminProd
   //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
   //    而分頁列顯示的 `count` 仍是全表數 ⇒ 「共 20,334 件」配上一頁 3 筆,且翻頁翻不完。
   if (query.setBy) q = q.eq('listing_set_by', query.setBy);
+  if (query.categoryLocked) q = q.eq('category_locked', true);
 
   // 🔴 `#661` 搜尋同樣走 DB,理由同上那條 —— 而它多一個:
   //    在客戶端過濾會讓「共 N 件」是**全表數**,員工看到「共 20341 件」配一頁 2 筆。
@@ -683,14 +686,17 @@ export async function setProductListing(args: {
   note: string | null;
   actor: string;
   requestId: string;
+  /** 商品頁乙 A7:批次用,等太久就放棄這次請求(放棄 = 結果未確認,不是失敗)。 */
+  signal?: AbortSignal;
 }): Promise<AdminListingSetResult> {
-  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_product_listing', {
+  const call = createSupabaseServiceClient().rpc('admin_set_product_listing', {
     p_product_id: args.productId,
     p_delisted: args.delisted,
     p_note: args.note,
     p_actor: args.actor,
     p_request_id: args.requestId,
   });
+  const { data, error } = await (args.signal ? call.abortSignal(args.signal) : call);
   if (error) {
     throw error;
   }
@@ -759,4 +765,16 @@ export async function setProductCategory(args: {
     }
     return { productId: r.product_id, outcome: r.outcome };
   });
+}
+
+/** 商品頁乙 A7:批次結果「重新讀取目前狀態」用。只讀這幾欄;查失敗往上丟。 */
+export async function listProductListingStates(
+  ids: readonly string[],
+): Promise<{ id: string; title: string; override_title: string | null; delisted_at: string | null }[]> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('products')
+    .select('id, title, override_title:staff_overrides->>title, delisted_at')
+    .in('id', [...ids]);
+  if (error) throw error;
+  return (data ?? []) as unknown as { id: string; title: string; override_title: string | null; delisted_at: string | null }[];
 }

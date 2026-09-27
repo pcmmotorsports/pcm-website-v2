@@ -21,6 +21,8 @@ vi.mock('../../lib/products/product-repository', async (importOriginal) => {
   return { ...actual, listProductsForAdmin: mocks.list, listProductFilterOptions: mocks.options, countProductAttention: async () => null };
 });
 vi.mock('server-only', () => ({}));
+// 商品頁乙 A8:批次按鈕列是 client 元件,用到 useRouter;測試環境沒有 app router,給一個空殼。
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }), useSearchParams: () => new URLSearchParams() }));
 
 import ProductsPage from './page';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE } from '../../lib/products/product-list-view';
@@ -81,7 +83,7 @@ function cellTexts(container: HTMLElement, headerLabel: string): string[] {
  *   setBy: undefined, keyword: undefined, brandIds: undefined, categoryIds: undefined,
  *
       skus: undefined,
-      attention: undefined, sort: undefined,
+      attention: undefined, sort: undefined, categoryLocked: undefined,
     });
  * ```
  * 而它旁邊逐字寫著:「篩選軸逐個逐字寫 `undefined`(= 不篩)而不是省略 ——
@@ -176,11 +178,16 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined, sort: undefined,
+      attention: undefined, sort: undefined, categoryLocked: undefined,
     });
 
+    // 商品頁乙 C6(Fable R2 建議):?catlock=1 要真的傳到查詢
+    mocks.list.mockClear();
+    await renderPage({ catlock: '1' });
+    expect((mocks.list.mock.calls.at(-1)![2] as { categoryLocked?: unknown }).categoryLocked).toBe(true);
+
     // 商品頁乙 A2(Fable R2 建議):網址的 ?attn= 要真的傳到查詢。
-    //   `attention: undefined, sort: undefined` 那幾格抓不到漏接(toHaveBeenCalledWith 把 undefined 與沒有這個鍵視為相等)。
+    //   `attention: undefined, sort: undefined, categoryLocked: undefined` 那幾格抓不到漏接(toHaveBeenCalledWith 把 undefined 與沒有這個鍵視為相等)。
     mocks.list.mockClear();
     await renderPage({ attn: 'delisted,out_of_stock' });
     expect((mocks.list.mock.calls.at(-1)![2] as { attention?: unknown }).attention).toEqual(['delisted', 'out_of_stock']);
@@ -194,7 +201,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined, sort: undefined,
+      attention: undefined, sort: undefined, categoryLocked: undefined,
     });
   });
 
@@ -231,7 +238,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined, sort: undefined,
+      attention: undefined, sort: undefined, categoryLocked: undefined,
     });
   });
 
@@ -286,10 +293,11 @@ describe('/products 列表(#20 片1a)', () => {
     //    ↑ 上面那圈守的是「不得宣稱**尚未存在**的功能」;
     //    而 `4f54a851` 讓明細頁有了上下架表單之後,舊字面「只能查看」變成
     //    「**否認一個已經存在的功能**」—— 同一條教訓的另一半,原本沒有人守。
-    // 能改什麼、在哪改:
+    // 能改什麼、在哪改(商品頁乙 A8:列表可以勾選整批上下架;文字與照片在明細頁):
+    expect(text).toContain('勾選後可以整批上架、下架或改分類');
     expect(text).toContain('點進商品明細頁');
-    // 不能改什麼:
-    expect(text).toContain('其餘欄位目前不能修改');
+    // 不能改什麼(P 系列上線時要跟著改這一句):
+    expect(text).toContain('價格目前不能修改');
     // 🔴 反向:舊字面不准回來。擋的是「有人順手把文案改簡潔」——而那一刻它就是假的。
     expect({ 只能查看: text.includes('只能查看') }).toEqual({ 只能查看: false });
   });
@@ -348,7 +356,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined, sort: undefined,
+      attention: undefined, sort: undefined, categoryLocked: undefined,
     });
 
     // 負向對照:認不得的值不得被送進查詢(它會直接進 .eq 條件)。
@@ -360,7 +368,7 @@ describe('/products 列表(#20 片1a)', () => {
       brandIds: undefined,
       categoryIds: undefined,
       skus: undefined,
-      attention: undefined, sort: undefined,
+      attention: undefined, sort: undefined, categoryLocked: undefined,
     });
   });
 
