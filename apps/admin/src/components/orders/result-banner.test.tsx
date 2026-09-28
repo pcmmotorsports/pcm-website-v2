@@ -608,6 +608,9 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       // 20260926100000 刪除會員成功後導回列表的一顆成功碼。偽造 `?r=customer_deleted` 只會在列表頂端印一句
       // 沒有對象的「已刪除會員。」, 不指名任何人、不改任何資料。
       'customer_deleted',
+      // Sean 2026-09-29 Q2 甲:帳號停用時變更會員等級被擋下的兩顆(tier-actions.ts)。偽造網址只會印一句沒有變更的提示。
+      'customer_member_disabled',
+      'customer_member_check_failed',
       'customer_pwreset_not_found',
       'customer_pwreset_denied',
       'customer_pwreset_invalid',

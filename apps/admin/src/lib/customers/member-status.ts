@@ -19,6 +19,21 @@ export type MemberStatus =
   /** 讀不到(例如 migration 還沒貼)⇒ 畫面只說讀不到, 不給任何按鈕。 */
   | { readonly kind: 'unknown' };
 
+/**
+ * Sean 2026-09-29 Q2 甲:加值、扣款、變更等級送出前再讀一次帳號是否停用(畫面鎖按鈕之外的那一道)。
+ * 讀取失敗 ⇒ throw, 呼叫端不送出;查無這位客人 ⇒ false, 交給 RPC 回 NOT_FOUND。
+ * ponytail: 讀與寫之間仍有幾毫秒的空窗(兩支 RPC 本身不看 disabled_at);要完全關掉得改資料庫函式, 先寫 plan。
+ */
+export async function isCustomerDisabled(customerId: string): Promise<boolean> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('customers')
+    .select('disabled_at')
+    .eq('user_id', customerId)
+    .maybeSingle();
+  if (error) throw error;
+  return data !== null && data.disabled_at !== null;
+}
+
 export async function loadMemberStatus(customerId: string): Promise<MemberStatus> {
   const client = createSupabaseServiceClient();
   const [row, elig] = await Promise.all([

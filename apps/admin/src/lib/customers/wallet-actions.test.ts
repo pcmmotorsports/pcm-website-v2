@@ -8,11 +8,13 @@ const mocks = vi.hoisted(() => ({
   adjustCustomerWallet: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
+  isCustomerDisabled: vi.fn(),
 }));
 
 vi.mock('../session/authorize', () => ({
   authorizeAdminMutation: mocks.authorizeAdminMutation,
 }));
+vi.mock('./member-status', () => ({ isCustomerDisabled: mocks.isCustomerDisabled }));
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
@@ -67,11 +69,31 @@ describe('adjustWalletAction — 冪等鍵那條線(⟦b4-WALLETDEDUPE⟧)', () 
     mocks.authorizeAdminMutation.mockResolvedValue({ sid: 's1', actorId: 'staff-1' });
     mocks.getRequestId.mockResolvedValue(HTTP_ID);
     mocks.adjustCustomerWallet.mockResolvedValue('ADJUSTED');
+    mocks.isCustomerDisabled.mockResolvedValue(false);
     mocks.redirect.mockImplementation(() => {
       throw new Error('REDIRECTED');
     });
   });
   afterEach(() => vi.clearAllMocks());
+
+  // Sean 2026-09-29 Q2 甲:帳號停用後不能加值或扣款, 要先恢復。畫面鎖按鈕之外, server 也要擋。
+  it('🔴 帳號已停用 ⇒ member_disabled, 而且【沒有打到 RPC】, 員工輸入原樣帶回', async () => {
+    mocks.isCustomerDisabled.mockResolvedValue(true);
+    const s = await adjustWalletAction({ status: 'idle' }, form());
+    expect(s.status === 'failed' && s.code).toBe('member_disabled');
+    expect(s.status === 'failed' && s.message).toContain('恢復後');
+    expect(s.status === 'failed' && s.requestToken).toBe(FORM_TOKEN);
+    expect(mocks.isCustomerDisabled).toHaveBeenCalledWith(CUS);
+    expect(mocks.adjustCustomerWallet).not.toHaveBeenCalled();
+  });
+
+  it('🔴 讀不到帳號狀態 ⇒ member_check_failed, 不送出(不能當成沒停用)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.isCustomerDisabled.mockRejectedValue(new Error('timeout'));
+    const s = await adjustWalletAction({ status: 'idle' }, form());
+    expect(s.status === 'failed' && s.code).toBe('member_check_failed');
+    expect(mocks.adjustCustomerWallet).not.toHaveBeenCalled();
+  });
 
   it('🔴🔴 送進 RPC 的是【表單 token】, 不是 HTTP request id', async () => {
     // 這一格殺得掉「把 requestId 改回 getRequestId()」—— 那正是 backlog #279 的舊解法,
