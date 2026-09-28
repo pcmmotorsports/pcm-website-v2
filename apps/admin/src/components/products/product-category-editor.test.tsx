@@ -44,3 +44,16 @@ describe('商品頁乙 C4:編輯頁分類區', () => {
     expect(screen.getByRole('status').textContent).toContain('無法確認分類是否已儲存');
   });
 });
+
+describe('商品頁乙 F1:編輯頁分類被拒', () => {
+  it('資料庫拒絕 ⇒ 顯示原因,不顯示「分類已儲存」', async () => {
+    setCategory.mockResolvedValueOnce({ ok: false, message: '沒有權限改分類，請重新登入後再試。' });
+    render(<ProductCategoryEditor productId='p1' currentCategoryId='c1' locked={false} categories={CATS} />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'c2' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('儲存分類'));
+    });
+    expect(screen.getByText('沒有權限改分類，請重新登入後再試。')).toBeTruthy();
+    expect(screen.queryByText('分類已儲存。')).toBeNull();
+  });
+});

@@ -136,3 +136,72 @@ describe('商品頁乙 A8:第一輪審查的五個情況', () => {
     expect(items).toEqual(['商品2 · 結果未確認 · 目前上架中', '商品1 · 已更新']);
   });
 });
+
+// ─────────────── 商品頁乙 F1:失敗流程(計畫第五節 F1 逐條)───────────────
+describe('商品頁乙 F1:批次失敗時員工看得到哪幾件、怎麼了', () => {
+  it('部分失敗:同一段有成功、沒有成功、要逐件確認、找不到 ⇒ 各自計數,沒成功的列在前面,不說「結果未確認」', async () => {
+    setup(4);
+    batch.mockResolvedValueOnce({
+      ok: true,
+      results: [
+        { productId: id(1), outcome: 'UPDATED' },
+        { productId: id(2), outcome: 'FAILED' },
+        { productId: id(3), outcome: 'NEEDS_REVIEW' },
+        { productId: id(4), outcome: 'NOT_FOUND' },
+      ],
+    });
+    fireEvent.click(screen.getByText('上架已選商品'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('確定上架 4 件'));
+    });
+    const result = document.querySelector('[data-product-batch-result]')!;
+    expect(result.textContent).toContain('已更新 1 件');
+    expect(result.textContent).toContain('沒有成功 1 件');
+    expect(result.textContent).toContain('需要到商品頁逐件確認 1 件');
+    expect(result.textContent).toContain('找不到這件商品 1 件');
+    expect(result.textContent).not.toContain('結果未確認');
+    const order = [...result.querySelectorAll('li[data-outcome]')].map((li) => li.getAttribute('data-outcome'));
+    expect(order.at(-1), '成功的那件應該排在最後').toBe('UPDATED');
+    expect(order.slice(0, 3).sort()).toEqual(['FAILED', 'NEEDS_REVIEW', 'NOT_FOUND']);
+  });
+
+  it('伺服器明確拒絕某一段(例如沒登入)⇒ 顯示原因,那一段和後面標「尚未執行」,不說「結果未確認」', async () => {
+    setup(60);
+    batch
+      .mockResolvedValueOnce({ ok: true, results: Array.from({ length: 50 }, (_, i) => ({ productId: id(i + 1), outcome: 'UPDATED' })) })
+      .mockResolvedValueOnce({ ok: false, message: '請重新登入後再操作。' });
+    fireEvent.click(screen.getByText('下架已選商品'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('確定下架 60 件'));
+    });
+    expect(screen.getByText('請重新登入後再操作。')).toBeTruthy();
+    const result = document.querySelector('[data-product-batch-result]')!;
+    expect(result.textContent).toContain('已更新 50 件');
+    expect(result.textContent).toContain('尚未執行 10 件');
+    expect(result.textContent).not.toContain('結果未確認');
+  });
+
+  it('批次改分類被資料庫拒絕 ⇒ 顯示員工看得懂的原因,不顯示「已更新」', async () => {
+    setup(2);
+    setCategory.mockResolvedValue({ ok: false, message: '商品正在更新，請稍後再試。' });
+    fireEvent.click(screen.getByText('改分類…'));
+    fireEvent.change(document.querySelector('[data-product-category-dialog] select')!, { target: { value: 'c2' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('儲存分類（2 件）'));
+    });
+    expect(screen.getByText('商品正在更新，請稍後再試。')).toBeTruthy();
+    expect(document.querySelector('[data-product-category-result]')).toBeNull();
+  });
+
+  it('批次改分類沒有收到回應 ⇒ 說無法確認,不說失敗', async () => {
+    setup(1);
+    setCategory.mockRejectedValue(new Error('network'));
+    fireEvent.click(screen.getByText('改分類…'));
+    fireEvent.change(document.querySelector('[data-product-category-dialog] select')!, { target: { value: 'c1' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('儲存分類（1 件）'));
+    });
+    expect(screen.getByText(/無法確認分類是否已儲存/)).toBeTruthy();
+    expect(screen.queryByText(/失敗/)).toBeNull();
+  });
+});
