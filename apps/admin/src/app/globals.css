@@ -3034,7 +3034,9 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 /* ═══ 商品頁工具列(2026-09-14,Sean「上方篩選欄位太佔空間」)—— 與 `.pcm-plist .pcm-head` 同一列;凍結同訂單頁 ═══ */
 .pcm-plist .pcm-ptoolbar { gap: 8px; }
 .pcm-plist .pcm-ptoolbar .pcm-search input[type=text] { width: 220px; }
-.pcm-plist .pcm-ptoolbar .pcm-search p { display: none; }  /* 「目前搜尋:…」那行:搜尋框自己就顯示著詞,不再多一行 */
+/* 「目前搜尋:…」那行:09-14 為了工具列只佔一列曾整行藏起來, 連「清除搜尋」一起不見, 只能清空搜尋框再按搜尋(2026-09-29 走一遍)。
+   改成只在有搜尋詞時出現、字小, 不另外藏。 */
+.pcm-plist .pcm-ptoolbar .pcm-search p { font-size: 12px; line-height: 1.4; margin: 0; }
 .pcm-plist .pcm-ptoolbar .fchip { padding: 3px 10px; font-size: 12px; line-height: 1.4; }
 .pcm-plist .pcm-ptoolbar form.pcm-filt label { display: none; }  /* 品牌 / 分類 / 子分類 的小標籤:控制項自己有 placeholder / 「全部分類」 */
 .pcm-plist .pcm-ptoolbar form.pcm-filt select { min-width: 0; width: auto; }
