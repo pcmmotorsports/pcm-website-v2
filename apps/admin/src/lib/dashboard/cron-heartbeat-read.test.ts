@@ -89,8 +89,10 @@ describe('白名單這張表本身', () => {
         // 🔵 2026-09-08 加(⟦b9-PROBESCHED⟧ 片 1 · migration 20260908030000 排的)
         //    ✅ 照這一格上面那句「改之前先確認每一支都該在」做了 —— 見下面那段唯讀讀數。
         'pcm-net-exposure',
+        // 🔵 2026-09-28 加(migration 20260928260000 排程紀錄清理;先貼 migration 再推這顆,貼的當下就寫第一筆心跳)
+        'pcm-cron-run-log-purge',
     ]);
-    expect(CRON_JOB_WHITELIST).toHaveLength(10);
+    expect(CRON_JOB_WHITELIST).toHaveLength(11);
     // 🔴 而這【十】個名字必須與**正式庫 cron.job 實際排的**一致。
     //    ⛔ ~~前一次量到的是 2026-08-28 的【六】…後面三支未重量~~
     //    ✅ **2026-09-08 重量了(`tidy`, `pcm_readonly` 唯讀, 2026-09-07 18:23:02 UTC)**:
