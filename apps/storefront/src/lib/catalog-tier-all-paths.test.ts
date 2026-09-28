@@ -106,6 +106,20 @@ describe('§C premiumStore 的今天(範圍選擇, 有出處)', () => {
     ).not.toHaveBeenCalled();
   });
 
+  // 商品頁乙 P12(Sean 2026-09-28 Q1 甲):公開 RPC 起帶特價劃線(original_price),P價會員照一般會員看。
+  it('premiumStore 的卡片和一般會員一樣帶特價劃線', async () => {
+    const row = {
+      id: '11111111-1111-4111-8111-111111111111', title: '碳纖維前土除', subtitle: null, handle: 'rpm-001',
+      availability: 'in-stock', price_general: 8000, original_price: 10000, card_image: null, fits: null,
+      brand_name: 'RPM', brand_slug: 'rpm-carbon', category_raw: '外觀',
+    };
+    anonRpc.mockResolvedValue({ data: [{ item: row, total: 1 }], error: null });
+    const p = (await fetchCatalogPage(q(), null, 'premiumStore')).products[0]!;
+    const g = (await fetchCatalogPage(q(), null, 'general')).products[0]!;
+    expect([p.price, p.origPrice, p.originalPrice, p.isSale]).toEqual([8000, 10000, 10000, true]);
+    expect(p).toEqual(g);
+  });
+
   // 🟢 正對照:少了這一格,「不管什麼 tier 都走公開」的實作在上面全綠 —— 而那會把 store 也弄壞。
   it('🟢 而 store 仍然走經銷那條(證明上面那格不是因為「全部都走公開」才綠)', async () => {
     await fetchCatalogPage(q(), null, 'store');
@@ -190,7 +204,7 @@ const EXPECTED_FETCH_BRAND_TOP = [
  * ⚠️ 數的是【個數】不是只列檔:同一支檔裡多長一個 `unstable_cache(`, 這一格也會紅(對上面 `:124-128` 那個「列到檔為止」的空白補一半)。
  */
 const EXPECTED_UNSTABLE_CACHE: Record<string, number> = {
-  // `catalog-page-v4`:公開 RPC 的結果(general);`tier === 'store'` **整條繞過本快取**(守門 catalog-dealer-not-cached.test.ts)。
+  // `catalog-page-v5`:公開 RPC 的結果(general);`tier === 'store'` **整條繞過本快取**(守門 catalog-dealer-not-cached.test.ts)。
   // `catalog-brand-taxonomy-v1` / `category-tree-v1` / `vehicle-taxonomy-raw-v5`:品牌 / 分類 / 車款原始 rows, 沒有價格欄。
   // `pdp-product-by-handle-v2`:`toUIProduct(product, 'general')` strip 過 ⇒ 沒有經銷價;route 疊的 dealerPrice 寫在 structuredClone 副本上。
   // `pdp-inherited-fitments-v1`:只有車款列(motoBrand / modelCode / 年份), 沒有價格欄。

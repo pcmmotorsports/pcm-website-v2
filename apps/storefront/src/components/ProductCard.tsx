@@ -174,9 +174,9 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       //     price=3000 · origPrice=5000 ⇒ 印 -40%
       //   ⇒ **寫 `> 0` 會把 Sean 2026-08-25 剛拍的贈品情境一起擋掉,而畫面上只是少一個角標。**
       //   ⚠️ `> 0` 是下一個人最可能順手寫的那個 —— 它跟隔壁 `isRenderableOriginalPrice` 長得一樣。
-      //   📌 今天這個分支【走不到】(`catalog-page.ts` 的 `isSale` / `origPrice` 寫死 false / null)
-      //      ⇒ 它是**縱深防線**,不是在修一個現在會發生的事。而它必須在,因為型別放寬後
-      //        typecheck 會在這一行紅,**而繞過它最省事的寫法是 `p.price!`** —— 那正好把 bug 留在原地。
+      //   ~~📌 今天這個分支【走不到】(`catalog-page.ts` 的 `isSale` / `origPrice` 寫死 false / null)~~
+      //   ⇒ 2026-09-28 商品頁乙 P12 起走得到:目錄卡片的 `isSale` / `origPrice` 來自 RPC 的 original_price。
+      //      型別放寬後 typecheck 會在這一行紅,**而繞過它最省事的寫法是 `p.price!`** —— 那正好把 bug 留在原地。
       if (badgeStyle === 'corner' && p.origPrice && p.price !== null) return <div className="badge badge-corner badge-red">-{Math.round((1 - p.price / p.origPrice) * 100)}%</div>;
       return <div className="badge badge-min badge-min-red">特價</div>;
     }

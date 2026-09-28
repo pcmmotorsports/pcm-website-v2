@@ -34,6 +34,7 @@ export async function dealerPricesFor(productIds: readonly string[]): Promise<Ma
 }
 
 export async function withDealerCardPrices(items: readonly CatalogCardProduct[], tier: MemberTier): Promise<CatalogCardProduct[]> {
+  // 商品頁乙 P12:P價會員不換價,特價照一般會員看(Sean 2026-09-28 Q1 甲);經銷會員在下面換價時清掉特價(Q-P2 乙)。
   if (tier !== 'store' || items.length === 0) return [...items];
   let priced = new Map<string, number>(); // product uuid ⇒ 經銷價
   let idOf = new Map<string, string>(); // slug ⇒ product uuid

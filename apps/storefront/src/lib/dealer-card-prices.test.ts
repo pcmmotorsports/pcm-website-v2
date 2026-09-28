@@ -32,7 +32,15 @@ beforeEach(() => {
 });
 
 describe('withDealerCardPrices', () => {
-  it('不是 store ⇒ 原樣(新陣列),不查任何東西', async () => {
+  // 商品頁乙 P12(Sean 2026-09-28 Q1 甲):P價會員照一般會員看特價,不換價、不清特價標記。
+  it('premiumStore ⇒ 原樣(特價標記留著),不查經銷價', async () => {
+    const items = [card('a')];
+    const out = await withDealerCardPrices(items, 'premiumStore');
+    expect(out).toEqual(items);
+    expect(h.prices).not.toHaveBeenCalled();
+  });
+
+  it('一般會員 ⇒ 原樣(新陣列、特價標記留著),不查任何東西', async () => {
     const items = [card('a')];
     const out = await withDealerCardPrices(items, 'general');
     expect(out).toEqual(items);
