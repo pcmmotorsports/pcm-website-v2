@@ -803,6 +803,10 @@ FN	public.pcm_order_card_refunded(p_order_id uuid)	anon	-|INV
 FN	public.pcm_order_card_refunded(p_order_id uuid)	authenticated	-|INV
 FN	public.pcm_order_card_refunded(p_order_id uuid)	payment_confirmer	-|INV
 FN	public.pcm_order_card_refunded(p_order_id uuid)	service_role	X|INV
+FN	public.pcm_order_fully_returned(p_order_id uuid)	anon	-|INV
+FN	public.pcm_order_fully_returned(p_order_id uuid)	authenticated	-|INV
+FN	public.pcm_order_fully_returned(p_order_id uuid)	payment_confirmer	-|INV
+FN	public.pcm_order_fully_returned(p_order_id uuid)	service_role	-|INV
 FN	public.pcm_order_money_moved(p_order_id uuid)	anon	-|INV
 FN	public.pcm_order_money_moved(p_order_id uuid)	authenticated	-|INV
 FN	public.pcm_order_money_moved(p_order_id uuid)	payment_confirmer	-|INV
@@ -1266,6 +1270,7 @@ FNCFG	public.pcm_op2b_immutable_columns()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_op2b_no_delete()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_op2b_reversal_amount()	DEFINER	search_path=pg_catalog, public
 FNCFG	public.pcm_order_card_refunded(p_order_id uuid)	INVOKER	search_path=""
+FNCFG	public.pcm_order_fully_returned(p_order_id uuid)	INVOKER	search_path=""
 FNCFG	public.pcm_order_money_moved(p_order_id uuid)	INVOKER	search_path=""
 FNCFG	public.pcm_order_pending_manual_verdict_amount(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.pcm_order_refund_cap_guard()	DEFINER	search_path=public, pg_temp
