@@ -109,7 +109,10 @@ export type CatalogCardProduct = Omit<MockProduct, 'price'> & {
  * 回新物件、不動傳進來的陣列(它常常是跨使用者共用的快取那一份)。
  * 呼叫端:products.ts 的目錄頁那支(公開那條的非 general)、dealer-card-prices.ts 的換價那支(非 general 的每一條卡片路)。
  */
-export function withoutSaleMarks<T extends Pick<CatalogCardProduct, 'origPrice' | 'originalPrice' | 'isSale'>>(items: readonly T[]): T[] {
+export function withoutSaleMarks<T extends Pick<CatalogCardProduct, 'origPrice' | 'originalPrice' | 'isSale'>>(
+  items: readonly T[],
+): Array<Omit<T, 'origPrice' | 'originalPrice' | 'isSale'> & { origPrice: null; originalPrice: null; isSale: false }> {
+  // 回傳型別寫明三欄被清掉(Codex R3 建議:原本寫 T[],窄型別進來會被型別說成還有原價)
   return items.map((p) => ({ ...p, origPrice: null, originalPrice: null, isSale: false }));
 }
 
