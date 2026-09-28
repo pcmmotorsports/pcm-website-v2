@@ -222,6 +222,26 @@ CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
 
 ## §3 套 migration(**不要求全綠**)
 
+> 🟢 **2026-09-29 起兩支 `up.sh`(`scripts/admin-probe/up.sh`、`scripts/storefront-probe/up.sh`)都不再從空庫重播**,
+> 改走 **dump 模式**(共用段在 `scripts/probe-prod-schema.sh`):
+> ① 還原正式庫 schema dump(`~/pcm-mailbox/schema-dump-20260915`,Sean 2026-09-15 Q41 甲)
+> ② 載入正式庫品牌與分類 `scripts/probe-prod-reference-data.sql`(dump 只有結構;沒有它種子建不出商品、資料型前置閘必然失敗)
+> ③ 照 `supabase/APPLIED.tsv` 列序補套 dump 之後貼的板
+> ④ 補套仍失敗的那幾支所建函式,換上正式庫現行本體 `scripts/probe-prod-parity-fixture.sql`(套前刪同名舊多載)。
+> 起站時第一行 `SCHEMA : dump` 就是量到的答案;印 `replay(…)` 表示退回舊做法(理由寫在括號裡)。
+> 2026-09-29 實量:補套 ok=73 fail=10,剩下的都是平台物件(cron job、storage bucket、權限快照)或要正式資料的前置閘。
+> **下面這段手動重播流程只在退回重播、或你自己手動起一顆拋棄式庫時才用得到。**
+>
+> **兩個資料檔會過期,重產方法**(都只讀正式庫,在有 `.env.local` 的主樹跑):
+> · `probe-prod-parity-fixture.sql`:照該檔第 2 行的「產生指令」重跑
+>   `bash scripts/replay-gap-fixture.sh scripts/probe-prod-parity-fixture.sql <函式名…>`。
+>   要多補哪一支,把名字接在後面;`probe-prod-schema.sh` 讀的是檔頭那行點名清單。
+> · `probe-prod-reference-data.sql`:用 `bash scripts/readonly-prod-sql.sh <你的.sql>` 對正式庫跑
+>   `SELECT format('INSERT INTO public.brands SELECT * FROM json_populate_record(NULL::public.brands, %L) ON CONFLICT DO NOTHING;', row_to_json(b)) FROM public.brands b ORDER BY b.slug;`
+>   與 categories 同一寫法(依 `parent_category_id` 層級排序, 父層先)。
+>   🔴 **brands 的 `premium_extra_pct`(經銷加成 %)要全部改成 0 再存** —— 本 repo 是 public, 經銷價參數不進 repo。
+>   保留原檔頭那幾行說明。
+
 ```bash
 cd <你的 worktree>
 ok=0; fail=0
@@ -1440,7 +1460,7 @@ public 表數                                  47                 50
 **三種形狀,成因不同、處置不同:**
 ```
 ① 路徑選錯    掃 .next 而不是 .next/cache/fetch-cache   ⇒ 分母對、產物類別錯
-② 工具補了門  storefront-probe up.sh:153 的 blanket GRANT ⇒ 環境【被工具改過】
+② 工具補了門  storefront-probe up.sh 的 blanket GRANT ⇒ 環境【被工具改過】(2026-09-29 起只在退回重播時才下, dump 模式不下)
 ③ 門從來沒建  線A 那顆:22 支 migration 沒套 + 灌資料只灌列、沒重放 GRANT/REVOKE
                                                         ⇒ 環境【比正式站少一層】
 ```
