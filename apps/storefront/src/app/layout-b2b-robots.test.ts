@@ -9,7 +9,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }));
 vi.mock('next/font/google', () => {
   const font = () => ({ className: '', variable: '', style: { fontFamily: '' } });
-  return { Inter: font, JetBrains_Mono: font, Antonio: font, Cormorant_Garamond: font, Noto_Sans_TC: font };
+  return { Inter: font, JetBrains_Mono: font, Antonio: font, Cormorant_Garamond: font };
 });
 
 afterEach(() => {

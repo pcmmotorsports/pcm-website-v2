@@ -10,6 +10,10 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { HomeHero } from './HomeHero';
 import type { LiveHomeBanner } from '@/lib/home-banners';
 import { HOME_BANNER_MOTION_MS } from '@pcm/domain';
+// HomeHero 在模組頂層呼叫 next/font(首頁大標字型, 2026-09-28 從 layout 搬來);那是建置期轉換, vitest 裡不是函式。
+vi.mock('next/font/google', () => ({
+  Noto_Sans_TC: () => ({ className: '', variable: '', style: { fontFamily: '' } }),
+}));
 
 const SCENE: LiveHomeBanner = {
   id: 'b1',
