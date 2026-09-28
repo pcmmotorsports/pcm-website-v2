@@ -20,6 +20,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { ProductPage } from './ProductPage';
+import { ProductRelated } from './ProductRelated';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
 import { resetUrlWriterForTests } from '@/lib/url-writer';
@@ -76,7 +77,7 @@ afterEach(() => {
 describe('ProductPage', () => {
   it('should render baseline from=catalog + category breadcrumb', () => {
     mockSearchParams = new URLSearchParams('from=catalog&category=操控部品');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     // 用 within(nav) 限定 breadcrumb 範圍、避免與 Footer 內同字面衝突
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('首頁')).toBeDefined();
@@ -88,7 +89,7 @@ describe('ProductPage', () => {
   it('should render from=brand branch with sourceLabel', () => {
     mockSearchParams = new URLSearchParams('from=brand&sourceId=akrapovic&sourceLabel=AKRAPOVIČ');
     const akrapovic = MOCK_PRODUCTS.find((p) => p.slug === 'akrapovic-6')!;
-    render(<ProductPage product={akrapovic} tier="general" related={[]} />);
+    render(<ProductPage product={akrapovic} tier="general" />);
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('品牌')).toBeDefined();
     expect(within(breadcrumbNav).getByText('AKRAPOVIČ')).toBeDefined();
@@ -106,7 +107,7 @@ describe('ProductPage', () => {
 
   it('should render vehicle pill when vehicle searchParam set', () => {
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" motoBrands={PDP_MOTO} />);
     // M-1-13I Bug 3:pill 拆兩層、外層 button(本體導航)aria-label「回到商品列表 ...」、
     // 內層 span.×(清除)aria-label「清除車輛篩選 ...」;render 驗外層 button 含 label 字面
     // (vehiclePill label = 'YAMAHA · YZF-R6 · 2024')
@@ -127,7 +128,7 @@ describe('ProductPage', () => {
       ...MOCK_PRODUCTS[0]!,
       fitments: [{ motoBrand: 'Harley-Davidson', modelCode: 'Road Glide', yearStart: 2020, yearEnd: null }],
     };
-    render(<ProductPage product={withFitment} tier="general" related={[]} motoBrands={PDP_MOTO} />);
+    render(<ProductPage product={withFitment} tier="general" motoBrands={PDP_MOTO} />);
     const pill = screen.getByLabelText(/回到商品列表/);
     expect(pill.textContent).toContain('Harley-Davidson');
     expect(pill.textContent).toContain('Road Glide');
@@ -137,7 +138,7 @@ describe('ProductPage', () => {
   it('should call router.push to /products with vehicle when pill body clicked', () => {
     // M-1-13I Bug 3:點 pill 本體(外層 button、非 ×)→ router.push 商品列表帶 vehicle
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" motoBrands={PDP_MOTO} />);
     const pill = screen.getByLabelText(/回到商品列表/);
     fireEvent.click(pill);
     expect(mockPush).toHaveBeenCalledOnce();
@@ -150,7 +151,7 @@ describe('ProductPage', () => {
     // :901:清車改走 `lib/url-writer.writeSearch`,以網址列(最新目標)為底 ⇒ 這一格要連網址列一起設
     mockSearchParams = new URLSearchParams('from=catalog&category=操控部品&vehicle=yamaha:r6:2024');
     window.history.replaceState(null, '', `/products/x?${mockSearchParams.toString()}`);
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={PDP_MOTO} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" motoBrands={PDP_MOTO} />);
     const pill = screen.getByLabelText(/清除車輛篩選/);
     fireEvent.click(pill);
     expect(mockReplace).toHaveBeenCalledOnce();
@@ -176,14 +177,14 @@ describe('ProductPage', () => {
       images: ['https://cdn.example.com/g1.jpg', 'https://cdn.example.com/g2.jpg', 'https://cdn.example.com/g3.jpg'],
       variants: [],
     };
-    render(<ProductPage product={三張圖商品} tier="general" related={[]} />);
+    render(<ProductPage product={三張圖商品} tier="general" />);
     expect(screen.getByText('01 / 03')).toBeDefined();
   });
 
   it('should integrate ProductInfo (render SKU line + brand)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const product = MOCK_PRODUCTS[0]!;
-    render(<ProductPage product={product} tier="general" related={[]} />);
+    render(<ProductPage product={product} tier="general" />);
     // M-1-16c-4a:pd-sku 由舊「{brand} · PCM-{id hash}」改「{brand} · {selectedVariant?.sku ?? slug}」
     //   (Sean Q1=A、顯選中變體真 sku、無變體 fallback slug)。MOCK_PRODUCTS[0]=LIGHTECH 無 variants
     //   → 走 slug fallback → 「LIGHTECH · lightech-1」。
@@ -207,7 +208,7 @@ describe('ProductPage', () => {
   // R3:related 由 server 推薦引擎 prop 傳入;傳非空 fixture → section 渲染。無車 → 標題「同款推薦」(L1)。
   it('should render N°03 related section with OD nested eyebrow (related prop 非空、無車標題)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle={false} />} />);
     const related = document.querySelector('.pd-related');
     expect(related).not.toBeNull();
     expect(related!.querySelector('.pd-eb-no')?.textContent).toBe('03');
@@ -222,8 +223,7 @@ describe('ProductPage', () => {
       <ProductPage
         product={MOCK_PRODUCTS[0]!}
         tier="general"
-        related={MOCK_PRODUCTS.slice(1, 3)}
-        relatedHasVehicle
+        relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle />}
       />,
     );
     const related = document.querySelector('.pd-related');
@@ -238,9 +238,7 @@ describe('ProductPage', () => {
       <ProductPage
         product={MOCK_PRODUCTS[0]!}
         tier="general"
-        related={MOCK_PRODUCTS.slice(1, 3)}
-        relatedHasMore
-        relatedMoreHref="/products?brand=rpm-carbon"
+        relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore moreHref="/products?brand=rpm-carbon" hasVehicle={false} />}
       />,
     );
     const link = document.querySelector('.pd-related-more-link') as HTMLAnchorElement | null;
@@ -259,10 +257,8 @@ describe('ProductPage', () => {
       <ProductPage
         product={MOCK_PRODUCTS[0]!}
         tier="general"
-        related={MOCK_PRODUCTS.slice(1, 3)}
-        relatedHasMore
-        relatedMoreHref="/products?brand=rpm-carbon"
         motoBrands={PDP_MOTO}
+        relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore moreHref="/products?brand=rpm-carbon" hasVehicle={false} />}
       />,
     );
     const link = document.querySelector('.pd-related-more-link') as HTMLAnchorElement | null;
@@ -276,10 +272,7 @@ describe('ProductPage', () => {
       <ProductPage
         product={MOCK_PRODUCTS[0]!}
         tier="general"
-        related={MOCK_PRODUCTS.slice(1, 3)}
-        relatedHasMore
-        relatedHasVehicle
-        relatedMoreHref="/products?vehicle=yamaha%3Amt09%3A2024"
+        relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore moreHref="/products?vehicle=yamaha%3Amt09%3A2024" hasVehicle />}
       />,
     );
     const link = document.querySelector('.pd-related-more-link') as HTMLAnchorElement | null;
@@ -291,7 +284,7 @@ describe('ProductPage', () => {
   // R3:hasMore=false(預設)→ 不顯「查看全部」連結。
   it('should hide "查看全部" link when relatedHasMore is false', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle={false} />} />);
     expect(document.querySelector('.pd-related-more-link')).toBeNull();
   });
 
@@ -303,10 +296,8 @@ describe('ProductPage', () => {
       <ProductPage
         product={MOCK_PRODUCTS[0]!}
         tier="general"
-        related={MOCK_PRODUCTS.slice(1, 3)}
-        relatedHasVehicle
-        relatedVehicleParam="yamaha:mt09:2024"
         motoBrands={PDP_MOTO}
+        relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle vehicleParam="yamaha:mt09:2024" />}
       />,
     );
     const grid = document.querySelector('.pd-related-grid')!;
@@ -318,7 +309,7 @@ describe('ProductPage', () => {
   // 無 relatedVehicleParam(Case B / 無車)→ 卡片連結為純 /products/{slug}、不帶 ?vehicle。
   it('should NOT carry ?vehicle on related card links without relatedVehicleParam', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle={false} />} />);
     const grid = document.querySelector('.pd-related-grid')!;
     const links = grid.querySelectorAll('a[href^="/products/"]');
     expect(links.length).toBeGreaterThan(0);
@@ -328,7 +319,13 @@ describe('ProductPage', () => {
   // R3:related 為空(引擎撈不到 / 失敗降級)→ 相關商品 section 條件隱藏(不顯空卡、不 crash)。
   it('should hide related section when related prop is empty', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    render(
+      <ProductPage
+        product={MOCK_PRODUCTS[0]!}
+        tier="general"
+        relatedSlot={<ProductRelated related={[]} hasMore hasVehicle={false} />}
+      />,
+    );
     expect(document.querySelector('.pd-related')).toBeNull();
   });
 
@@ -337,7 +334,7 @@ describe('ProductPage', () => {
   it('RPM 品牌(brandSlug=rpm-carbon)→ 渲染碳纖維專屬區(N°01 + N°02 + 服務橫條泰國原廠卡)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
-    render(<ProductPage product={rpm} tier="general" related={[]} />);
+    render(<ProductPage product={rpm} tier="general" />);
     // N°01「為什麼選 RPM Carbon」(ProductHighlights、整段守門 mount;字面為該區 h2 專屬)
     expect(screen.getByText('為什麼選 RPM Carbon')).toBeDefined();
     // N°02 紋路牆(ProductSwatchWall、整段守門 mount;'亮光款'/'消光款' 為 SwatchWall 專屬字面)
@@ -350,7 +347,7 @@ describe('ProductPage', () => {
   it('非 RPM 品牌(brandSlug=gb-racing)→ RPM 碳纖專屬區不 mount、改渲染 GB 形象區、通用服務卡照顯', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
-    render(<ProductPage product={nonRpm} tier="general" related={[]} />);
+    render(<ProductPage product={nonRpm} tier="general" />);
     // RPM 碳纖專屬整段(N°01/N°02)+ 泰國原廠卡皆不 mount(P0-C-a 守門;ProductTabs 去碳為 P0-C-b、故不驗其碳字)
     expect(screen.queryByText('為什麼選 RPM Carbon')).toBeNull();
     expect(screen.queryByText('亮光款')).toBeNull();
@@ -378,7 +375,7 @@ describe('ProductPage', () => {
   it('RPM 頁 DOM 順序:規格區 < 品牌形象 N°01 < 相關商品 N°03 < FAQ N°04', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
-    render(<ProductPage product={rpm} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    render(<ProductPage product={rpm} tier="general" relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle={false} />} />);
     const spec = document.querySelector('.pd-spec-section');
     const showcase = document.getElementById('pd-h-rpm'); // N°01「為什麼選 RPM Carbon」heading
     const related = document.querySelector('.pd-related');
@@ -391,7 +388,7 @@ describe('ProductPage', () => {
   it('GB 頁 DOM 順序(#270 B S4):規格區 < 品牌形象 N°01(GB)< 相關商品 N°03 < FAQ N°04', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const gb = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
-    render(<ProductPage product={gb} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    render(<ProductPage product={gb} tier="general" relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle={false} />} />);
     const spec = document.querySelector('.pd-spec-section');
     const showcase = document.getElementById('pd-h-gb01'); // N°01「為什麼選 GB Racing」heading
     const related = document.querySelector('.pd-related');
@@ -404,7 +401,7 @@ describe('ProductPage', () => {
   it('Bonamici 頁 DOM 順序(#270 B S5):規格區 < 品牌形象 N°01(Bonamici)< 相關商品 N°03 < FAQ N°04', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const bona = { ...MOCK_PRODUCTS[0]!, brandSlug: 'bonamici' };
-    render(<ProductPage product={bona} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    render(<ProductPage product={bona} tier="general" relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore={false} hasVehicle={false} />} />);
     const spec = document.querySelector('.pd-spec-section');
     const showcase = document.getElementById('pd-h-bona01'); // N°01「為什麼選 Bonamici」heading
     const related = document.querySelector('.pd-related');
@@ -417,7 +414,7 @@ describe('ProductPage', () => {
   it('RPM 頁 related 為空時:品牌形象 N°01 仍在規格之下、且在 FAQ 之前', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
-    render(<ProductPage product={rpm} tier="general" related={[]} />);
+    render(<ProductPage product={rpm} tier="general" />);
     expect(document.querySelector('.pd-related')).toBeNull(); // related 空 → N°03 不渲染
     const spec = document.querySelector('.pd-spec-section');
     const showcase = document.getElementById('pd-h-rpm');
@@ -429,7 +426,7 @@ describe('ProductPage', () => {
   it('RPM hasSpotlight=true → Spotlight 渲染且排在規格之下(reorder 後仍顯、雙守門通過)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', hasSpotlight: true };
-    render(<ProductPage product={rpm} tier="general" related={[]} />);
+    render(<ProductPage product={rpm} tier="general" />);
     const spec = document.querySelector('.pd-spec-section');
     const spotlight = document.querySelector('.pd-spotlight');
     expectBefore(spec, spotlight, '規格區', 'Spotlight'); // 存在 + 在規格之下
@@ -438,7 +435,7 @@ describe('ProductPage', () => {
   it('非 RPM(gb-racing)hasSpotlight=true → Spotlight 仍不渲染(brandSlug 第二道守門)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', hasSpotlight: true };
-    render(<ProductPage product={nonRpm} tier="general" related={[]} />);
+    render(<ProductPage product={nonRpm} tier="general" />);
     // #270 B S4:BrandShowcase gb-racing → GbRacingShowcase(有 GB 形象區);但 RPM 的 ProductSpotlight
     //   雙守門(brandSlug≠rpm-carbon)仍不渲染、RPM 的 N°01(pd-h-rpm 專屬 heading)亦不顯
     expect(document.querySelector('.pd-spotlight')).toBeNull();
@@ -461,7 +458,7 @@ describe('ProductPage', () => {
     );
     // 🔴 刻意【不傳】車款字典:通用商品(沒有 fitments)那條路 route 就是傳 `[]`(Fable 片 9+10 R1 必修 1)。
     //   字典是空的時候車款意圖不初始化 ⇒ 加入購物車退回選車鏡 ⇒ 仍要帶那台車。
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     const buybarCart = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
     expect(buybarCart).toBeTruthy();
     fireEvent.click(buybarCart);
@@ -472,7 +469,7 @@ describe('ProductPage', () => {
 
   it('V-2h/MF-4:buybar 無選車 context → item 不帶 vehicle(零猜、對照)', () => {
     mockSearchParams = new URLSearchParams('from=catalog'); // 無 sessionStorage 選車鏡
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
     const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
     expect(items[0].vehicle).toBeUndefined();
@@ -484,7 +481,7 @@ describe('ProductPage', () => {
   // 「差別 = 多一步導頁」),這支釘住手機那顆也要走同一條路。
   it('F-81:手機 sticky buybar「立即購買」加入購物車後要導去 /cart(不是只加購)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     const buybarBuyNow = container.querySelector('.pd-mbb-buynow') as HTMLButtonElement;
     expect(buybarBuyNow).toBeTruthy();
     fireEvent.click(buybarBuyNow);
@@ -501,13 +498,13 @@ describe('ProductPage', () => {
   describe('F-81:手機數量滑出列', () => {
     it('平常不掛載(沒點過加入購物車之前,畫面上沒有這個區塊)', () => {
       mockSearchParams = new URLSearchParams('from=catalog');
-      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
       expect(container.querySelector('.pd-mbb-qty-panel')).toBeNull();
     });
 
     it('按下加入購物車:①商品立刻真的加進去(qty=1)②滑出列跟著出現(零額外動作)', () => {
       mockSearchParams = new URLSearchParams('from=catalog');
-      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
       const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
       expect(items).toHaveLength(1);
@@ -517,7 +514,7 @@ describe('ProductPage', () => {
 
     it('滑出列的 + 真的會改到購物車裡那一列的數量(不是一個獨立的假數字)', () => {
       mockSearchParams = new URLSearchParams('from=catalog');
-      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
       const panel = container.querySelector('.pd-mbb-qty-panel') as HTMLElement;
       fireEvent.click(panel.querySelector('[aria-label="增加數量"]') as HTMLButtonElement);
@@ -550,7 +547,7 @@ describe('ProductPage', () => {
 
     it('車上已達上限 → 面板不滑出,改出常駐的上限提示(而購物車一件都沒動)', () => {
       window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
-      const { container } = render(<ProductPage product={product} tier="general" related={[]} />);
+      const { container } = render(<ProductPage product={product} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
 
       // ① 購物車真的沒動 —— 這一格是承重的:沒有它,提示可能是對的而東西其實進去了
@@ -567,7 +564,7 @@ describe('ProductPage', () => {
 
     it('對照組:車上沒滿 → 面板照常滑出、上限提示【不】出現(否則就是恆真的提示)', () => {
       window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 3 }]));
-      const { container } = render(<ProductPage product={product} tier="general" related={[]} />);
+      const { container } = render(<ProductPage product={product} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
 
       expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
@@ -581,7 +578,7 @@ describe('ProductPage', () => {
       // 🔴 這一格守的是 `setMobileOverLimit(...)` 的 **null 那半**。
       //   常駐 = 沒有計時器會替你收拾 ⇒ 不主動清的話,它會停在畫面上繼續講一件已經不成立的事。
       window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
-      const { container } = render(<ProductPage product={product} tier="general" related={[]} />);
+      const { container } = render(<ProductPage product={product} tier="general" />);
       const cartBtn = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
       fireEvent.click(cartBtn);
       expect(container.querySelector('.pd-mbb-notice')).not.toBeNull(); // 先確定它真的出來了
@@ -589,7 +586,7 @@ describe('ProductPage', () => {
       // 把那一列降到 3 件(走面板以外的路,模擬客人去購物車調整後回來)
       window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 3 }]));
       cleanup();
-      const second = render(<ProductPage product={product} tier="general" related={[]} />);
+      const second = render(<ProductPage product={product} tier="general" />);
       fireEvent.click(second.container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
       expect(second.container.querySelector('.pd-mbb-notice')).toBeNull();
     });
@@ -603,7 +600,7 @@ describe('ProductPage', () => {
 describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT⟧)', () => {
   it('failed=true ⇒ 那句話在(role="alert")', () => {
     render(
-      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" motoBrands={[]} vehicleTaxonomyFailed />,
     );
     expect(screen.getByRole('alert').textContent).toContain('車款清單暫時無法載入');
   });
@@ -612,7 +609,7 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
   //   (Sean 2026-09-23 拍甲)。列表頁那一句不受影響,由 products-message-state.test.tsx 守。
   it('failed=true ⇒ 商品頁那句不叫客人「自行輸入」(那條路這一頁沒有)', () => {
     render(
-      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" motoBrands={[]} vehicleTaxonomyFailed />,
     );
     const text = screen.getByRole('alert').textContent ?? '';
     expect(text, '叫客人去做一件這一頁做不到的事').not.toContain('自行輸入');
@@ -631,7 +628,6 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       <ProductPage
         product={withFitments}
         tier="general"
-        related={[]}
         motoBrands={[{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] }]}
         vehicleTaxonomyFailed
       />,
@@ -648,7 +644,6 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       <ProductPage
         product={withFitments}
         tier="general"
-        related={[]}
         motoBrands={[{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] }]}
       />,
     );
@@ -667,7 +662,7 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
     };
     const { container } = render(
-      <ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+      <ProductPage product={withFitments} tier="general" motoBrands={[]} vehicleTaxonomyFailed />,
     );
     expect(container.querySelector('.pfc-result'), '客人看不到自己選過的那台車').not.toBeNull();
     expect(screen.queryByText('清除車輛'), '連清掉的入口都沒有').not.toBeNull();
@@ -686,7 +681,7 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
     };
     const { container } = render(
-      <ProductPage product={withFitments} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />,
+      <ProductPage product={withFitments} tier="general" motoBrands={[]} vehicleTaxonomyFailed />,
     );
     await act(async () => {
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
@@ -702,7 +697,7 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
 
   it('🔵 負對照:清單是空的【而沒有失敗】⇒ 那句話不得出現', () => {
     render(
-      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false} />,
+      <ProductPage product={MOCK_PRODUCTS[0]!} tier="general" motoBrands={[]} vehicleTaxonomyFailed={false} />,
     );
     expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
   });
@@ -722,7 +717,7 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     render(
       <ProductPage
         product={{ ...base, price: 8400, origPrice: null, dealerPrice: 6720, variants: [] }}
-        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+        tier="store" motoBrands={[]} vehicleTaxonomyFailed={false}
       />,
     );
     expect(mbb()).toContain('6,720');
@@ -734,7 +729,7 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     render(
       <ProductPage
         product={{ ...base, price: 8400, origPrice: null, dealerPrice: 8400, variants: [] }}
-        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+        tier="store" motoBrands={[]} vehicleTaxonomyFailed={false}
       />,
     );
     expect(mbb()).toContain('8,400');
@@ -747,7 +742,7 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     render(
       <ProductPage
         product={{ ...base, price: 8400, origPrice: null, variants: [] }}
-        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+        tier="store" motoBrands={[]} vehicleTaxonomyFailed={false}
       />,
     );
     expect(mbb()).toContain('價格暫時無法取得');
@@ -762,7 +757,7 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     render(
       <ProductPage
         product={{ ...base, price: 8400, origPrice: null, variants: [] }}
-        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+        tier="store" motoBrands={[]} vehicleTaxonomyFailed={false}
       />,
     );
     window.localStorage.clear();
@@ -777,7 +772,7 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     render(
       <ProductPage
         product={{ ...base, price: 8400, origPrice: null, dealerPrice: 0, variants: [] }}
-        tier="store" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+        tier="store" motoBrands={[]} vehicleTaxonomyFailed={false}
       />,
     );
     expect(mbb()).toContain('NT$ 0');
@@ -787,7 +782,7 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     render(
       <ProductPage
         product={{ ...base, price: 8400, origPrice: null, dealerPrice: 6720, variants: [] }}
-        tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed={false}
+        tier="general" motoBrands={[]} vehicleTaxonomyFailed={false}
       />,
     );
     expect(mbb()).toContain('8,400');

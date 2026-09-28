@@ -814,98 +814,10 @@ function makeFitmentMock(
   return { client: client as unknown as SupabaseClient, captured };
 }
 
-describe('SupabaseProductAdapter.listByFitment — 一步 !inner 反查(2026-08-17 由兩步改)', () => {
-  it('頂層查 products_public + product_fitments!inner，filter 掛在被內嵌那張表、年份 or 帶 referencedTable、安全投射', async () => {
-    const { client, captured } = makeFitmentMock(
-      [],
-      [
-        { ...baseRow, id: 'p1', handle: 'h1' },
-        { ...baseRow, id: 'p2', handle: 'h2' },
-      ],
-    );
-    const adapter = new SupabaseProductAdapter(client);
-
-    const result = await adapter.listByFitment(
-      {
-        motoBrand: 'Ducati',
-        modelCode: 'Streetfighter V4',
-        yearStart: 2021,
-        yearEnd: 2021,
-      },
-      TEST_POOL_LIMIT,
-    );
-
-    // 🔴 一步:只查 products_public，不再有 product_fitments 那一趟
-    expect(captured.tables).toEqual(['products_public']);
-    expect(captured.publicSelect).toContain('product_fitments!inner(');
-    // filter 掛在【被內嵌的那張表】上，不是商品表
-    expect(captured.eqs).toEqual([
-      ['product_fitments.moto_brand', 'Ducati'],
-      ['product_fitments.model_code', 'Streetfighter V4'],
-    ]);
-    expect(captured.publicOr).toBe(
-      'year_start.is.null,and(year_start.lte.2021,or(year_end.is.null,year_end.gte.2021))',
-    );
-    // 🔴 這一條是舊測試沒有的：or 掛錯表會讓年份條件套到商品上 ⇒ 靜默回錯結果
-    expect(captured.publicOrReferencedTable).toBe('product_fitments');
-    // 🔴 上限與排序有沒有真的下推 DB（本片的重點；沒下推就回到「靜默停在 1000」）
-    expect(captured.publicLimit).toBe(TEST_POOL_LIMIT);
-    expect(captured.publicOrder).toEqual(['handle', true]);
-    // 安全:products_public 安全 view、投射不含經銷欄
-    for (const col of DEALER_COLUMNS) {
-      expect(captured.publicSelect).not.toContain(col);
-    }
-    expect(result).toHaveLength(2);
-  });
-
-  it('spec 無 yearStart → 不加年份 or filter(不限年份、對齊 matchFitmentYear 早退)', async () => {
-    const { client, captured } = makeFitmentMock([], [{ ...baseRow, id: 'p1' }]);
-    const adapter = new SupabaseProductAdapter(client);
-
-    await adapter.listByFitment(
-      { motoBrand: 'Ducati', modelCode: 'Panigale V4' },
-      TEST_POOL_LIMIT,
-    );
-
-    expect(captured.publicOr).toBeUndefined();
-    // 沒有年份條件時，上限仍要下推（否則這條路徑又變回無上限）
-    expect(captured.publicLimit).toBe(TEST_POOL_LIMIT);
-  });
-
-  it('開放式 spec(yearEnd null → specEnd Infinity)→ or filter 省 lte 段', async () => {
-    const { client, captured } = makeFitmentMock([], [{ ...baseRow, id: 'p1' }]);
-    const adapter = new SupabaseProductAdapter(client);
-
-    await adapter.listByFitment(
-      {
-        motoBrand: 'BMW',
-        modelCode: 'S 1000 RR',
-        yearStart: 2020,
-        yearEnd: null,
-      },
-      TEST_POOL_LIMIT,
-    );
-
-    expect(captured.publicOr).toBe(
-      'year_start.is.null,or(year_end.is.null,year_end.gte.2020)',
-    );
-    expect(captured.publicOrReferencedTable).toBe('product_fitments');
-  });
-
-  it('查無相容商品 → 回 []', async () => {
-    const { client } = makeFitmentMock([], []);
-    const adapter = new SupabaseProductAdapter(client);
-
-    const result = await adapter.listByFitment(
-      { motoBrand: 'X', modelCode: 'Y', yearStart: 2020 },
-      TEST_POOL_LIMIT,
-    );
-
-    // ⚠️ 舊測試在這裡驗的是「不查 products_public(短路)」——那是兩步查法才有的性質。
-    //    一步查法沒有可短路的第二趟 ⇒ 那條斷言【描述一個不會發生的狀態】，已移除而非放寬。
-    expect(result).toEqual([]);
-  });
-
+// ⛔ ~~listByFitment 一步 !inner 反查的四格(2026-08-17)~~ ⇒ 2026-09-28 查詢改回兩步(計畫〈商品頁推薦查詢逾時〉第 5.1 版),
+//   那四格描述的一步形狀已經不存在;新的形狀、分頁、網址長度、失敗、車款重驗、年份四種都在
+//   `SupabaseProductAdapter.fitment.test.ts`(用真的 supabase-js + 假 fetch 攔實際網址)。改的是被測行為的描述,不是放寬期望值。
+describe('SupabaseProductAdapter.listByFitment — poolLimit 守門', () => {
   it('poolLimit 非正整數 → throw(fail-closed，不靜靜代入預設值)', async () => {
     const { client } = makeFitmentMock([], []);
     const adapter = new SupabaseProductAdapter(client);

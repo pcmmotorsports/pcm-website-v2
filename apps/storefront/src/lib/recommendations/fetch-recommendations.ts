@@ -55,13 +55,21 @@ export async function fetchRecommendedProducts(
   vehicle: VehicleSelection | undefined,
   limit = 8,
 ): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> {
-  const cached = await getRecommendedProductsCached(
-    handle,
-    vehicle?.motoBrand ?? null,
-    vehicle?.modelCode ?? null,
-    vehicle?.year ?? null,
-    limit,
-  );
+  let cached: { items: CatalogCardProduct[]; hasMore: boolean };
+  try {
+    cached = await getRecommendedProductsCached(
+      handle,
+      vehicle?.motoBrand ?? null,
+      vehicle?.modelCode ?? null,
+      vehicle?.year ?? null,
+      limit,
+    );
+  } catch (err) {
+    // 🔴 推薦區在 Suspense 裡串流(計畫-商品頁推薦查詢逾時 §4 甲):這時狀態碼已經送出,
+    //   丟出去會蓋掉整頁而不是只藏推薦(Codex R1 必修 1:快取層本身讀取失敗, 內層的 catch 接不到)。
+    console.error('[fetchRecommendedProducts] recommendation cache read failed:', err);
+    return { items: [], hasMore: false };
+  }
   // 🔴 `structuredClone`(2026-09-14 主視窗 workflow 第 ③ 條, 補齊 codex R1 nit ① 的另一半):
   //    `fetchProductByHandle` 那支已經每發給副本, 這支原本沒有。**今天沒有人就地改 `related`**
   //    (`app/products/[slug]/page.tsx` 只把它傳給元件、`dealerPrice` 只寫在 `product` 與它的變體上)
@@ -74,11 +82,28 @@ async function fetchRecommendedProductsUncached(
   vehicle: VehicleSelection | undefined,
   limit: number,
 ): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> {
+  await testOnlyRecoDelay();
   try {
     const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     const product = await adapter.findByHandle(handle); // domain Product(含 brand.id)
     if (!product) return { items: [], hasMore: false };
+
+    // 計畫-商品頁推薦查詢逾時 §7-5:量車款池那一段(listByFitment 兩步合計)花多久、回幾件。
+    // 車款池空時同分類備援也會把 items 填滿 ⇒ 要看 primaryPool 才知道車款池有沒有回東西。
+    let poolMs: number | null = null;
+    let primaryPool: number | null = null;
+    if (vehicle) {
+      const listByFitment = adapter.listByFitment.bind(adapter);
+      adapter.listByFitment = async (spec, poolLimit) => {
+        const t0 = performance.now();
+        const pool = await listByFitment(spec, poolLimit);
+        poolMs = Math.round(performance.now() - t0);
+        // 跟引擎的 primaryPoolCount 同一個算法:去重、排除這件商品自己(Codex R1 建議 4)
+        primaryPool = new Set(pool.map((p) => p.handle).filter((h) => h !== handle)).size;
+        return pool;
+      };
+    }
 
     const engine = new RuleBasedRecommendationEngine(adapter);
     const result = await engine.recommend({
@@ -86,9 +111,27 @@ async function fetchRecommendedProductsUncached(
       context: { product, vehicle, excludeHandles: [handle] },
       limit,
     });
+    // 只在快取沒命中時會印 ⇒ 這行出現 = 查詢真的跑了(上線後 24 小時的正對照靠它)。
+    const vehicleKey = vehicle ? `${vehicle.motoBrand}:${vehicle.modelCode}:${vehicle.year ?? ''}` : '-';
+    console.info(
+      `[reco] computed handle=${handle} vehicle=${vehicleKey} poolMs=${poolMs ?? '-'} primaryPool=${primaryPool ?? '-'} items=${result.items.length}`,
+    );
     return { items: result.items.map((i) => i.product), hasMore: result.hasMore };
   } catch (err) {
     console.error('[fetchRecommendedProducts] recommendation fetch failed:', err);
     return { items: [], hasMore: false };
   }
+}
+
+/**
+ * 量「推薦晚到時商品主體有沒有被擋住」用的人工延遲(計畫 §6-3)。
+ * 🔴 只在 `VERCEL !== '1'` 生效:Vercel 每一種部署執行時都有 `VERCEL=1`,正式站誤設這個變數也不會變慢;
+ *    本機 `next start` 沒有 `VERCEL`,可以用。不用 `NODE_ENV`,因為本機 `next start` 也是 production。
+ */
+export async function testOnlyRecoDelay(
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
+  if (env.VERCEL === '1') return;
+  const ms = Number(env.PCM_TEST_RECO_DELAY_MS);
+  if (Number.isFinite(ms) && ms > 0) await new Promise((r) => setTimeout(r, ms));
 }

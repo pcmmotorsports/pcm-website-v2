@@ -76,12 +76,16 @@ describe('withDealerCardPrices', () => {
 
   // 清冊:四個列表都要換價(Codex R3 必修 4、R5 必修 1 列的地方;收藏清單與搜尋疊層在片 5b)。
   it('/search、首頁、會員中心、商品頁相關商品都走 withDealerCardPrices', () => {
-    for (const rel of ['../app/search/page.tsx', '../app/page.tsx', '../app/account/page.tsx', '../app/products/[slug]/page.tsx']) {
-      const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const strip = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    // 商品頁相關商品 2026-09-28 搬進 ProductRelatedServer(Suspense 串流, 計畫-商品頁推薦查詢逾時 §4 甲)。
+    for (const rel of ['../app/search/page.tsx', '../app/page.tsx', '../app/account/page.tsx', '../components/ProductRelatedServer.tsx']) {
+      const src = strip(rel);
       expect(src, rel).toContain('withDealerCardPrices(');
       // 第二個參數不可以寫死(Codex 5a R1 建議 1:寫死 'general' 時經銷商會看回一般價,而只查呼叫存在的清冊照樣綠)
       expect(src, rel).not.toMatch(/withDealerCardPrices\([^)]*,\s*['"`]/);
     }
+    // 而 tier 要是商品頁伺服器算的那一份(寫死在呼叫端一樣會讓經銷商看回一般價)。
+    expect(strip('../app/products/[slug]/page.tsx')).toMatch(/<ProductRelatedServer[^>]*\btier=\{tier\}/);
   });
 
   // 片 5b:搜尋疊層與收藏清單。

@@ -17,7 +17,7 @@
 'use client';
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { usePdpVehicleIntent } from './use-pdp-vehicle-intent';
@@ -42,24 +42,16 @@ import type { GarageChipItem } from './GarageChips';
 import { BrandShowcase } from './BrandShowcase';
 import { ProductTabs } from './ProductTabs';
 import { ProductFAQ } from './ProductFAQ';
-import { ProductRelated } from './ProductRelated';
+import { PdpVehicleIntentContext } from './ProductRelated';
 import { LineCtaButton } from './LineCtaButton';
 import '@/styles/product-page.css';
-import type { CatalogCardProduct } from '@/lib/catalog-page';
 
 export type ProductPageProps = {
   product: MockProduct;
   tier: MemberTier;
-  /** R3/N°03:推薦引擎相關商品(server 端 RuleBasedRecommendationEngine 已排自身 + 排序 + 取前 limit、toUIProduct 'general' strip);空 → 相關商品區隱藏。 */
-  related: CatalogCardProduct[]; // B2B 片 5:經銷價取不到時 price 為 null(卡片顯示「—」)
-  /** R3:引擎回傳 hasMore(去重排自身後候選 > limit)→ true 才顯「查看全部相容」。 */
-  relatedHasMore?: boolean;
-  /** R3:「查看全部」連結(有車→ /products?vehicle= / 無車→ /products?brand=);relatedHasMore 為真才用。 */
-  relatedMoreHref?: string;
-  /** R3:情境化標題(L1、plan §5)——有選車=「這台車也適用」/ 無車=「同款推薦」。 */
-  relatedHasVehicle?: boolean;
-  /** Q2=A:選定車輛 URL 短版 slug;有值時相關商品卡片連結帶 ?vehicle=、延續車輛 context。 */
-  relatedVehicleParam?: string;
+  /** N°03 相關商品:`page.tsx` 傳進來的 `<Suspense><ProductRelatedServer/></Suspense>`(計畫-商品頁推薦查詢逾時 §4 甲)。
+   *  推薦在伺服器串流補上, 不擋商品主體;連結跟著車款意圖變的那段在 `ProductRelated` 讀 `PdpVehicleIntentContext`。 */
+  relatedSlot?: ReactNode;
   /** V-2b:§7「是否適用我的車」現選入口所需車款字典;無 fitments 商品不撈=[]。 */
   motoBrands?: MockMotoBrand[];
   /** 🔴 車款樹【讀不到】(不是「真的沒有」)⇒ 顯示一句(2026-09-06 Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧)。
@@ -74,11 +66,7 @@ export type ProductPageProps = {
 export function ProductPage({
   product,
   tier,
-  related,
-  relatedHasMore = false,
-  relatedMoreHref,
-  relatedHasVehicle = false,
-  relatedVehicleParam,
+  relatedSlot = null,
   motoBrands = [],
   vehicleTaxonomyFailed = false,
   garage = [],
@@ -314,11 +302,6 @@ export function ProductPage({
   //   🔴 F1:守門用 brandSlug(≠ product.brand 顯示名 'RPM CARBON');brand 恆 false → RPM 碳段全消失=回歸。
   const isRpmCarbon = product.brandSlug === RPM_CARBON_BRAND_SLUG;
 
-  // R3/N°03(取代 C5/#258 同分類版):Related 由 server 端推薦引擎(RuleBasedRecommendationEngine)供給——
-  //   Case A 反查選定車相容池 / Case B 同品牌,已排自身 + 排序 + 取前 limit(8)+ toUIProduct 'general' strip →
-  //   `related` prop 交 <ProductRelated>(鐵則 6 抽出子元件)渲染;hasMore/情境化標題由 route 傳 prop。
-  const relatedProducts = related;
-
   return (
     <div className="pcm-root" data-screen-label="Product Detail">
       <Header currentPage="catalog" />
@@ -378,23 +361,9 @@ export function ProductPage({
 
         {/* N°03 相關商品(R3、鐵則 6 抽 ProductRelated 子元件、對齊 S3 抽 BrandShowcase 精神);
             內容由 server 推薦引擎供給、情境化標題 + carousel + hasMore CTA 皆在子元件。related 空 → 隱藏。 */}
-        <ProductRelated
-          related={relatedProducts}
-          hasMore={relatedHasMore}
-          moreHref={
-            // 意圖已接手而沒有車 ⇒ 不能退回伺服器算的那一份(它還帶著剛清掉的車;Fable 片 9+10 R1 必修 2)
-            vehicleIntent?.kind === 'vehicle'
-              ? `/products?vehicle=${encodeURIComponent(vehicleIntent.segment)}`
-              : // 🔵 只有「伺服器那份本來就帶車」才需要換掉(客人剛清車);本來就是品牌連結(Case B)要留著,
-                //   否則「查看全部同款商品」會連到全站(Fable 片 9+10 R2 必修)。
-                vehicleIntent && relatedHasVehicle
-                ? '/products'
-                : relatedMoreHref
-          }
-          hasVehicle={relatedHasVehicle}
-          // :901 §3-6 P4:相關商品卡片的車款讀意圖(server prop 只是還沒接手前的初值)
-          vehicleParam={vehicleIntent?.kind === 'vehicle' ? vehicleIntent.segment : vehicleIntent ? undefined : relatedVehicleParam}
-        />
+        {/* 2026-09-28 計畫-商品頁推薦查詢逾時 §4 甲:改成 page.tsx 傳進來的 Suspense slot, 推薦慢不再擋整頁;
+            「查看全部」與卡片車款跟著意圖變的算法搬進 ProductRelated(讀下面這個 context)。 */}
+        <PdpVehicleIntentContext.Provider value={vehicleIntent}>{relatedSlot}</PdpVehicleIntentContext.Provider>
 
         {/* N°04 常見問題(RPM 共用、非條件)+ FAQPage JSON-LD(OD-10、Sean Q1 override 排 N°04) */}
         <ProductFAQ />

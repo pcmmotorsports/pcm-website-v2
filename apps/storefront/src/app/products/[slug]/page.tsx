@@ -34,8 +34,6 @@ import { productRedirectPath } from '@/lib/product-redirect-path';
 import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomy } from '@/lib/products';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
-import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommendations';
-import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import type { VehicleSelection } from '@/lib/recommendations';
 import { resolveVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
@@ -43,6 +41,9 @@ import { productSeoTitle } from '@/lib/product-seo-title';
 import { serializeBreadcrumbJsonLd } from '@/lib/breadcrumb-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
 import { ProductPage } from '@/components/ProductPage';
+import { ProductRelatedServer } from '@/components/ProductRelatedServer';
+import { ProductRelatedSkeleton } from '@/components/ProductRelated';
+import { Suspense } from 'react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
@@ -298,22 +299,9 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
       ? { motoBrand: parsedVehicle.brand, modelCode: parsedVehicle.model, year: parsedVehicle.year }
       : undefined;
 
-  const { items: relatedRaw, hasMore: relatedHasMore } = await fetchRecommendedProducts(
-    product.slug,
-    vehicle,
-  );
-  // B2B 片 5:經銷站的經銷商看經銷價(推薦的快取只存一般價,換價回新物件、不動快取)。
-  const related = await withDealerCardPrices(relatedRaw, tier);
-
-  // 「查看全部」連結(hasMore 才顯):🔴 Case A(有車)一律連車輛 filter——短版 ?vehicle 或由長版
-  //   ?brand=&model= 合成短版 slug(codex R3 r2:長版書籤 Case A 不可退成商品品牌 filter=文案「相容」
-  //   卻連品牌 filter 誤導);Case B(無車)連商品品牌 filter;皆無 → /products(fail-safe)。
+  // 2026-09-28 計畫-商品頁推薦查詢逾時 §4 甲:推薦(含換經銷價、「查看全部」連結)搬進 `ProductRelatedServer`,
+  //   包在 Suspense 裡串流 ⇒ 推薦慢時商品主體先出來。🔴 notFound / 轉址 / metadata / JSON-LD 都留在這層(邊界外)。
   const vehicleParamForHref = vehicle ? vehicleUrlParam({ get: spGet }) : null;
-  const relatedMoreHref = vehicleParamForHref
-    ? `/products?vehicle=${encodeURIComponent(vehicleParamForHref)}`
-    : !vehicle && product.brandSlug
-      ? `/products?brand=${encodeURIComponent(product.brandSlug)}`
-      : '/products';
 
   // M-1-16c-4c:schema.org/Product JSON-LD。base 未解析出時(prod 未設環境變數)省略 url 欄。
   const base = resolveSiteUrl();
@@ -346,11 +334,17 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         // 🔴 **傳真 tier**(2026-09-07 mainB 裁:`· 經銷價` 標記對齊稿 design L527-532 ⇒ 鐵則 1,
         //   不是可順手省的畫面差異)。價已在上面蓋進 `dealerPrice`, 顯示端用它。
         tier={tier}
-        related={related}
-        relatedHasMore={relatedHasMore}
-        relatedMoreHref={relatedMoreHref}
-        relatedHasVehicle={vehicle != null}
-        relatedVehicleParam={vehicleParamForHref ?? undefined}
+        relatedSlot={
+          <Suspense fallback={<ProductRelatedSkeleton />}>
+            <ProductRelatedServer
+              handle={product.slug}
+              vehicle={vehicle}
+              vehicleParam={vehicleParamForHref ?? undefined}
+              brandSlug={product.brandSlug}
+              tier={tier}
+            />
+          </Suspense>
+        }
         motoBrands={taxonomy}
         vehicleTaxonomyFailed={vehicleTaxonomyFailed}
         garage={garage}
