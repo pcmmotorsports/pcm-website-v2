@@ -1,7 +1,7 @@
 // rule-based-engine.test.ts — 推薦引擎 R2b 單體測(對齊 plan §6:各分層 / fallback / 去重 /
 //   排自身 / 決定性 / 經銷價 strip / hasMore 正確 / 空 vehicle / 空結果不 throw / not-implemented)。
 //
-// 🔴 repo 測試替身 = 本檔本地 FakeProductRepository(非 @pcm/adapters InMemory):
+// 🔴 repo 測試替身 = FakeProductRepository(2026-09-28 搬到 __fixtures__/fake-product-repository.ts 共用)(非 @pcm/adapters InMemory):
 //   InMemoryProductRepository 未從 @pcm/adapters root barrel 匯出、且 package `exports` map
 //   僅開 '.'/'./server' 擋 deep import → storefront 測試無法 import 之。本地 fake 鏡射 InMemory
 //   對本引擎相關方法(listByFitment/listByBrand/listByCategory/listGeneral)的語意,且更貼合
@@ -15,129 +15,21 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import type { Product, FitmentSpec, ProductId, CategoryPath, CategorySummary, PaginationParams, Paginated } from '@pcm/domain';
-import { toMoneyAmount, resolveEnd } from '@pcm/domain';
-import type { IProductRepository } from '@pcm/ports';
+import type { Product } from '@pcm/domain';
+import { FakeProductRepository, makeProduct } from './__fixtures__/fake-product-repository';
 import { RuleBasedRecommendationEngine } from './rule-based-engine';
+import { BrandPoolCache } from './brand-pool-cache';
 import type { RecommendationContext } from './types';
-
-/**
- * 本地 repo 測試替身(見檔頭 🔴)。只有引擎會呼叫的 4 個查詢方法做真過濾、其餘 throw
- * (引擎誤呼未預期方法 → 大聲失敗、不靜默)。過濾語意鏡射 InMemoryProductRepository。
- *
- * 🔴 **2026-08-17 codex 對抗審查抓到**:本替身原本的四個方法**簽名裡根本沒有 `poolLimit`**
- * (TS 結構型別容許實作參數比介面少)⇒ 它**永遠回全部**,而真 adapter 只回 `poolLimit` 筆
- * ⇒ 以本替身寫的引擎測試對「池上限」這件事**零判別力**,而且看起來全綠。
- * ⇒ 現在四支都吃 `poolLimit`,並鏡射真 adapter 的 `.order('handle').limit(n)`。
- */
-class FakeProductRepository implements IProductRepository {
-  constructor(private readonly seed: Product[] = []) {}
-
-  /** 鏡射真 adapter:handle 升冪後取前 poolLimit 筆。 */
-  private takePool(items: Product[], poolLimit: number): Product[] {
-    return items
-      .slice()
-      .sort((a, b) => a.handle.localeCompare(b.handle, 'en'))
-      .slice(0, poolLimit);
-  }
-
-  async listByCategory(
-    category: CategoryPath,
-    poolLimit: number,
-  ): Promise<Product[]> {
-    return this.takePool(
-      this.seed.filter((p) => p.category.raw === category.raw),
-      poolLimit,
-    );
-  }
-  async listByBrand(
-    brandId: string,
-    poolLimit: number,
-    categoryRaw?: string,
-  ): Promise<Product[]> {
-    // 🔴 替身也要吃 `categoryRaw`：不吃的話「分類 filter 有沒有真的下推」在測試裡零判別力。
-    return this.takePool(
-      this.seed.filter(
-        (p) =>
-          p.brand.id === brandId &&
-          (categoryRaw === undefined || p.category.raw === categoryRaw),
-      ),
-      poolLimit,
-    );
-  }
-  async listGeneral(poolLimit: number): Promise<Product[]> {
-    return this.takePool(
-      this.seed.filter((p) => p.fitments.length === 0),
-      poolLimit,
-    );
-  }
-  async listByFitment(
-    spec: FitmentSpec,
-    poolLimit: number,
-  ): Promise<Product[]> {
-    // 鏡射 InMemory matchFitment:motoBrand + modelCode 必相同、年份範圍重疊(任一邊無年份=通吃)。
-    return this.takePool(
-      this.seed.filter((p) =>
-        p.fitments.some((f) => {
-          if (f.motoBrand !== spec.motoBrand || f.modelCode !== spec.modelCode) return false;
-          if (f.yearStart === undefined || spec.yearStart === undefined) return true;
-          return f.yearStart <= resolveEnd(spec.yearStart, spec.yearEnd) &&
-            spec.yearStart <= resolveEnd(f.yearStart, f.yearEnd);
-        }),
-      ),
-      poolLimit,
-    );
-  }
-  // 引擎不呼叫、契約完整性用:
-  async findById(_id: ProductId): Promise<Product | null> { throw new Error('unused'); }
-  async findByHandle(_h: string): Promise<Product | null> { throw new Error('unused'); }
-  async listAllByCategory(c: CategoryPath): Promise<Product[]> {
-    // 全量版:不轉呼叫取樣版(`listByCategory` 自 2026-08-17 起必填 poolLimit)。
-    return this.seed.filter((p) => p.category.raw === c.raw);
-  }
-  async listAllProducts(_o?: { limit?: number }): Promise<Product[]> { throw new Error('unused'); }
-  async listAllHandles(): Promise<string[]> { throw new Error('unused'); }
-  async listCategories(): Promise<CategorySummary[]> { throw new Error('unused'); }
-  async searchByKeyword(_q: string, _p: PaginationParams): Promise<Paginated<Product>> { throw new Error('unused'); }
-  async save(_p: Product): Promise<Product> { throw new Error('unused'); }
-}
-
-/** 建 fake Product(對齊 InMemoryProductRepository.test.ts createFakeProduct 風格)。 */
-function makeProduct(overrides: Partial<Product> = {}): Product {
-  return {
-    id: 'p-000',
-    productCode: 'CODE-000',
-    name: '測試商品',
-    brand: { id: 'brand-1', name: 'Brand One', slug: 'brand-one', premium_extra_pct: 0 },
-    category: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] },
-    fitments: [],
-    priceByTier: {
-      general: { amount: toMoneyAmount(45000), currency: 'TWD' },
-      store: { amount: toMoneyAmount(38000), currency: 'TWD' },
-      premiumStore: { amount: toMoneyAmount(36000), currency: 'TWD' },
-    },
-    description: '',
-    highlights: [],
-    manuals: [],
-    soundClips: [],
-    images: [],
-    availability: 'in-stock',
-    handle: 'handle-000',
-    subtitle: '',
-    variants: [],
-    variantCount: 0, // 2026-08-08 必填:本 factory 不測變體 ⇒ 填 0(給不出真值就明填、不用 optional 逃避)
-    createdAt: new Date('2026-01-01T00:00:00Z'),
-    updatedAt: new Date('2026-01-01T00:00:00Z'),
-    ...overrides,
-  };
-}
 
 const CAT_A = { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] };
 const CAT_B = { raw: '制動 · 卡鉗', segments: ['制動', '卡鉗'] };
 const CAT_C = { raw: '外觀 · 碳纖維', segments: ['外觀', '碳纖維'] };
 
+/** 每個案例一份新的候選名單快取(同品牌 id 在各案例重複使用,共用會互相汙染)。 */
+const freshPools = () => new BrandPoolCache(60 * 60 * 1000);
+
 const engineFor = (seed: Product[]) =>
-  new RuleBasedRecommendationEngine(new FakeProductRepository(seed));
+  new RuleBasedRecommendationEngine(new FakeProductRepository(seed), freshPools());
 
 describe('RuleBasedRecommendationEngine — placement / 前置守衛', () => {
   it('非 pdp-related 落點回空、不 throw(not-implemented)', async () => {
@@ -345,11 +237,12 @@ describe('RuleBasedRecommendationEngine — 決定性 / hasMore / 經銷價 stri
   it('repo 查詢 throw → 降級回空、不 throw(不讓推薦區 crash 整頁)', async () => {
     const current = makeProduct({ id: 'cur', handle: 'cur', brand: brand('b1'), category: CAT_A });
     const throwingRepo = new FakeProductRepository([current]);
-    // listByBrand throw(模擬 DB 斷線/RLS 錯);Case B 第一個 repo 呼叫即炸
-    throwingRepo.listByBrand = async () => {
+    // 候選名單查詢 throw(模擬 DB 斷線/RLS 錯);Case B 第一個 repo 呼叫即炸
+    // (2026-09-28 同品牌推薦瘦身:Case B 第一個呼叫從 listByBrand 換成 listBrandPoolKeys,期望值不變)
+    throwingRepo.listBrandPoolKeys = async () => {
       throw new Error('simulated DB failure');
     };
-    const engine = new RuleBasedRecommendationEngine(throwingRepo);
+    const engine = new RuleBasedRecommendationEngine(throwingRepo, freshPools());
     const res = await engine.recommend({
       placement: 'pdp-related',
       context: { product: current },
@@ -460,6 +353,7 @@ describe('hasMore 與池上限的互動(2026-08-17 codex 對抗審查抓到的�
     );
     const engine = new RuleBasedRecommendationEngine(
       new FakeProductRepository(seed),
+      freshPools(),
     );
 
     const res = await engine.recommend({
@@ -481,6 +375,7 @@ describe('hasMore 與池上限的互動(2026-08-17 codex 對抗審查抓到的�
     );
     const engine = new RuleBasedRecommendationEngine(
       new FakeProductRepository(seed),
+      freshPools(),
     );
 
     const res = await engine.recommend({
@@ -532,6 +427,7 @@ describe('同分類那一層改成【下推查詢】(2026-08-17 codex 對抗審�
     });
     const engine = new RuleBasedRecommendationEngine(
       new FakeProductRepository([...seed, current]),
+      freshPools(),
     );
 
     const res = await engine.recommend({
@@ -562,6 +458,7 @@ describe('同分類那一層改成【下推查詢】(2026-08-17 codex 對抗審�
     });
     const engine = new RuleBasedRecommendationEngine(
       new FakeProductRepository([sameCatFirst, current]),
+      freshPools(),
     );
 
     const res = await engine.recommend({

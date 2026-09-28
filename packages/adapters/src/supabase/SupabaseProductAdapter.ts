@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { IProductRepository } from '@pcm/ports';
+import type { BrandPoolKey, IProductRepository } from '@pcm/ports';
 import type {
   CategoryPath,
   CategorySummary,
@@ -107,6 +107,9 @@ const PRODUCT_SELECT_DETAIL =
  * → HTTP 200、每列帶 `[{id},…]`),42703 那格不會發生。
  */
 const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim, original_price, product_variants_public(id)`;
+
+/** `listByIds` 每批幾個 id:100 個 uuid 放進 `.in()` 約 3.8 KB,加上 select 字串仍遠低於網址長度限制。 */
+const LIST_BY_IDS_BATCH = 100;
 
 /**
  * Detail-with-variants projection(M-1-16c-2、backlog #203):PRODUCT_SELECT_DETAIL +
@@ -475,6 +478,78 @@ export class SupabaseProductAdapter implements IProductRepository {
     return (data as unknown as SupabaseProductRow[]).map(
       mapSupabaseProductToDomain,
     );
+  }
+
+  /**
+   * 推薦候選名單:與 `listByBrand` 同一組篩選、排序與筆數,只 select 三個欄位。
+   * 🔴 篩選 / `.order('handle')` / `.limit()` 必須與 `listByBrand` 相同 ——
+   *    推薦引擎靠「兩邊取到同一批前 N 筆」保證改版前後推薦不變。
+   */
+  async listBrandPoolKeys(
+    brandId: string,
+    poolLimit: number,
+    categoryRaw?: string,
+  ): Promise<BrandPoolKey[]> {
+    assertPositiveIntegerPoolLimit('listBrandPoolKeys', poolLimit);
+
+    let categoryId: string | null = null;
+    if (categoryRaw !== undefined) {
+      categoryId = await resolveCategoryId(this.supabase, categoryRaw);
+      if (categoryId === null) {
+        return [];
+      }
+    }
+
+    const base = this.supabase
+      .from('products_public')
+      .select('id, handle, categories(raw_path)')
+      .eq('brand_id', brandId);
+    const { data, error } = await (categoryId === null
+      ? base
+      : base.eq('category_id', categoryId))
+      .order('handle', { ascending: true })
+      .limit(poolLimit);
+
+    if (error) {
+      throw error;
+    }
+
+    return (
+      (data ?? []) as unknown as Array<{
+        id: string;
+        handle: string;
+        categories: { raw_path: string | null } | null;
+      }>
+    ).map((r) => ({
+      id: r.id,
+      handle: r.handle,
+      categoryRaw: r.categories?.raw_path ?? null,
+    }));
+  }
+
+  /**
+   * 依 id 撈完整商品,照傳入順序回;查不到的不回。
+   * 每批 `LIST_BY_IDS_BATCH` 個 id(`.in()` 放在網址裡,太多會超過長度限制);任一批失敗整個丟錯。
+   * 重排用 Map 照傳入順序,不靠 `.order()`(同 `searchByKeyword` 那段的理由)。
+   */
+  async listByIds(ids: readonly string[]): Promise<Product[]> {
+    const rows = new Map<string, SupabaseProductRow>();
+    for (let i = 0; i < ids.length; i += LIST_BY_IDS_BATCH) {
+      const { data, error } = await this.supabase
+        .from('products_public')
+        .select(PRODUCT_SELECT_DETAIL_VIEW)
+        .in('id', ids.slice(i, i + LIST_BY_IDS_BATCH));
+      if (error) {
+        throw error;
+      }
+      for (const r of (data ?? []) as unknown as SupabaseProductRow[]) {
+        rows.set((r as unknown as { id: string }).id, r);
+      }
+    }
+    return ids
+      .map((id) => rows.get(id))
+      .filter((r): r is SupabaseProductRow => r !== undefined)
+      .map(mapSupabaseProductToDomain);
   }
 
   /**

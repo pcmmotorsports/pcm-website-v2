@@ -1166,6 +1166,107 @@ describe('SupabaseProductAdapter.listByBrand', () => {
   });
 });
 
+// 同品牌推薦瘦身(2026-09-28,計畫 `~/pcm-mailbox/計畫-同品牌推薦瘦身-20260928.md`):
+// 候選名單與 listByBrand 必須是同一組篩選、排序與筆數,推薦才會與改版前逐件相同。
+describe('SupabaseProductAdapter.listBrandPoolKeys', () => {
+  const BRAND = 'b-akrapovic';
+
+  it.each([undefined, '排氣管'])('與 listByBrand 同一組 table / 篩選 / 排序 / 筆數(分類 = %s)', async (cat) => {
+    const a = makeBrandClient({ rows: [], categoryRow: { id: 'cat-1' } });
+    const b = makeBrandClient({ rows: [], categoryRow: { id: 'cat-1' } });
+    await new SupabaseProductAdapter(a.client).listByBrand(BRAND, 7, cat);
+    await new SupabaseProductAdapter(b.client).listBrandPoolKeys(BRAND, 7, cat);
+
+    expect(b.calls.tables).toEqual(a.calls.tables);
+    expect(b.calls.eqs).toEqual(a.calls.eqs);
+    expect(b.calls.order).toEqual(a.calls.order);
+    expect(b.calls.limit).toBe(a.calls.limit);
+    expect(b.calls.selects).toEqual(['id, handle, categories(raw_path)']);
+  });
+
+  it('回 id / handle / 分類;商品沒有分類時分類是 null', async () => {
+    const rows = [
+      { id: 'p1', handle: 'h1', categories: { raw_path: '引擎部品 · 排氣管' } },
+      { id: 'p2', handle: 'h2', categories: null },
+    ] as unknown as SupabaseProductRow[];
+    const { client } = makeBrandClient({ rows, categoryRow: null });
+
+    expect(await new SupabaseProductAdapter(client).listBrandPoolKeys(BRAND, 10)).toEqual([
+      { id: 'p1', handle: 'h1', categoryRaw: '引擎部品 · 排氣管' },
+      { id: 'p2', handle: 'h2', categoryRaw: null },
+    ]);
+  });
+
+  it('分類解不到 ⇒ 回 [] 且不發商品查詢;poolLimit 非正整數 ⇒ throw;DB 錯 ⇒ throw', async () => {
+    const miss = makeBrandClient({ rows: [], categoryRow: null });
+    expect(await new SupabaseProductAdapter(miss.client).listBrandPoolKeys(BRAND, 5, '不存在的分類')).toEqual([]);
+    expect(miss.calls.tables).toEqual(['categories']);
+
+    const zero = makeBrandClient({ rows: [], categoryRow: null });
+    await expect(new SupabaseProductAdapter(zero.client).listBrandPoolKeys(BRAND, 0)).rejects.toThrow();
+    expect(zero.calls.tables).toEqual([]);
+
+    const boom = makeBrandClient({ rows: [], categoryRow: null, productsError: { message: 'boom' } });
+    await expect(new SupabaseProductAdapter(boom.client).listBrandPoolKeys(BRAND, 5)).rejects.toBeDefined();
+  });
+});
+
+describe('SupabaseProductAdapter.listByIds', () => {
+  /** `.from().select().in()` 的 mock:依傳入的 id 回列(順序故意反過來),可指定第幾批失敗。 */
+  function makeIdsClient(known: Set<string>, failOnBatch?: number) {
+    const batches: string[][] = [];
+    const selects: string[] = [];
+    const client = {
+      from(table: string) {
+        expect(table).toBe('products_public');
+        return {
+          select(cols: string) {
+            selects.push(cols);
+            return {
+              in(col: string, ids: string[]) {
+                expect(col).toBe('id');
+                batches.push(ids);
+                if (failOnBatch === batches.length) {
+                  return Promise.resolve({ data: null, error: { message: 'boom' } });
+                }
+                const rows = ids.filter((id) => known.has(id)).reverse().map((id) => ({ ...baseRow, id, handle: `h-${id}` }));
+                return Promise.resolve({ data: rows, error: null });
+              },
+            };
+          },
+        };
+      },
+    };
+    return { client: client as unknown as SupabaseClient, batches, selects };
+  }
+
+  it('250 個 id 分成 100 / 100 / 50 三批;回傳照傳入順序;查不到的不回', async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `id-${i}`);
+    const known = new Set(ids.filter((_, i) => i % 7 !== 0));
+    const { client, batches, selects } = makeIdsClient(known);
+
+    const result = await new SupabaseProductAdapter(client).listByIds(ids);
+
+    expect(batches.map((b) => b.length)).toEqual([100, 100, 50]);
+    expect(result.map((p) => p.id)).toEqual(ids.filter((id) => known.has(id)));
+    for (const col of DEALER_COLUMNS) {
+      expect(selects.join(' ')).not.toContain(col);
+    }
+  });
+
+  it('其中一批失敗 ⇒ 整個 throw,不回半份', async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `id-${i}`);
+    const { client } = makeIdsClient(new Set(ids), 2);
+    await expect(new SupabaseProductAdapter(client).listByIds(ids)).rejects.toBeDefined();
+  });
+
+  it('空陣列 ⇒ 不發查詢、回 []', async () => {
+    const { client, batches } = makeIdsClient(new Set());
+    expect(await new SupabaseProductAdapter(client).listByIds([])).toEqual([]);
+    expect(batches).toEqual([]);
+  });
+});
+
 // ════════════════════════════════════════════════════════════════
 // searchByKeyword 的 `countTotal` 分路 —— ⟦搜尋-每字全表掃⟧(2026-09-02,`-f3`)
 //
