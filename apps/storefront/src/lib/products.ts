@@ -159,7 +159,7 @@ export const CATALOG_REVALIDATE_SECONDS = 60;
  * 車款下拉(`getVehicleTaxonomyRawCached`)**單獨**的秒數 —— 不跟上面那個 60 共用。
  *
  * 🔴 **為什麼要分家**:`CATALOG_REVALIDATE_SECONDS` 同時餵**七支**快取
- * (`catalog-page-v4` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `catalog-facet-counts-v2`(vehicle-facet-counts.ts)/
+ * (`catalog-page-v5` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `catalog-facet-counts-v2`(vehicle-facet-counts.ts)/
  *  `pdp-product-by-handle-v2` / `pdp-inherited-fitments-v1` / `pdp-recommendations`(recommendations/fetch-recommendations.ts))。
  * ⛔ ~~「四支, 含 `vehicle-taxonomy-v4`」~~ —— 2026-09-14 訂正:那一支【就是】被分出去吃下面這顆 3600 的,
  *    不在 60 秒那一組;而 PDP 那三支是同日 `7f487eb02` / 本片加的。數法:`grep -rn "revalidate: CATALOG_REVALIDATE_SECONDS" apps/storefront/src`。
@@ -771,7 +771,9 @@ const getCatalogPageCached = unstable_cache(
   //   而片B 之後那個 0 會被印成「NT$ 0」= **告訴客人可以免費帶走**。
   //   ⚠️ 今天 `price_general is null` 的 count = 0(2026-08-25 anon 實測)
   //      ⇒ 舊快取裡**現在**應該沒有偽造值 —— 而那是資料剛好, 不是機制。換鍵是保險, 成本 = 一次快取重建。
-  ['catalog-page-v4'],
+  // 🔵 v4 → v5(2026-09-28 商品頁乙 P12, Codex R1 建議):卡片多了特價劃線(origPrice / originalPrice / isSale),
+  //   而快取存的是 mapper 之後的 UI 物件 ⇒ 不換鍵的話, 上線後命中 v4 舊條目的卡片會暫時照舊不劃線。
+  ['catalog-page-v5'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
@@ -902,13 +904,18 @@ export async function fetchCatalogPage(
     }
   }
   try {
-    return await getCatalogPageCached(
+    const page = await getCatalogPageCached(
       JSON.stringify(query),
       vehicle?.brand ?? null,
       vehicle?.model ?? null,
       vehicle?.year ?? null,
       fitScope,
     );
+    // 商品頁乙 P12:快取裡的卡片是一般會員那一份(RPC 20260928240000 起帶特價劃線)。
+    //   P價會員不吃特價(Q-P2 乙,同 toUIProduct 只在 general 帶 saleOriginalPrice)⇒ 拿掉特價標記。
+    //   🔴 回新物件、不動快取本體:那一份是跨使用者共用的(Codex P12 R1 必修)。
+    if (tier === 'general') return page;
+    return { ...page, products: page.products.map((p) => ({ ...p, origPrice: null, originalPrice: null, isSale: false })) };
   } catch (err) {
     console.error('[fetchCatalogPage] search_catalog_by_vehicle failed:', err);
     return { products: [], total: 0, error: true };
