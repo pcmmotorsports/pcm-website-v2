@@ -77,6 +77,13 @@ export const CORRECTION_P2B44_MARKERS = {
   casMismatch: '期間有人改過',
 } as const;
 
+/**
+ * 20260929010000 在職檢查(Sean 2026-09-28 Q3 甲:只擋停用帳號)的那一句, 走預設 SQLSTATE `P0001`。
+ * 🔴 **P0001 不進 `CORRECTION_RPC_RAISE_CODES`**:本支 G4 另有兩句無 ERRCODE 的 P0001
+ *    (「找不到退款」「order_id 在鎖前後不一致」)是真的異常 ⇒ 只認「P0001 + 這一句」, 其他 P0001 照舊原樣拋。
+ */
+export const CORRECTION_ACTOR_GATE_MARKER = '無權執行此操作';
+
 /** 協定漂移 = **我們的 bug**,不是業務錯。呼叫端不得把它映成「請重試」。 */
 export class CorrectionCallerBugError extends Error {
   constructor(message: string) {
@@ -186,6 +193,9 @@ export async function correctRefundVerdict(input: CorrectionInput): Promise<Corr
       return { result: 'REQUEST_ID_COLLISION' };
     }
     if (code !== null && (CORRECTION_RPC_RAISE_CODES as readonly string[]).includes(code)) {
+      throw new CorrectionRejectedError(code, `${fn} 拒收本次呼叫:${errText(error)}`);
+    }
+    if (code === 'P0001' && errRaw(error).includes(CORRECTION_ACTOR_GATE_MARKER)) {
       throw new CorrectionRejectedError(code, `${fn} 拒收本次呼叫:${errText(error)}`);
     }
     // 🔴 表層 CHECK 也是「拒絕」,不是故障(見 CORRECTION_INPUT_REJECT_CODE 那段)。
