@@ -240,3 +240,47 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ 目錄頁 RPC 路徑', () => {
     expect(r.imageTrim).toEqual(trim);
   });
 });
+
+// 商品頁乙 P12:型錄卡片劃線原價(RPC 20260928240000 起送 original_price)
+describe('catalogRowToUIProduct 特價劃線(商品頁乙 P12)', () => {
+  const base = {
+    id: '11111111-1111-4111-8111-111111111111', title: '碳纖維前土除', subtitle: null, handle: 'rpm-001',
+    availability: 'in-stock', price_general: 8000, card_image: null, fits: null,
+    brand_name: 'RPM', brand_slug: 'rpm-carbon', category_raw: '外觀',
+  };
+
+  it('🔴 原價比現價高 ⇒ 劃線原價、特價角標', () => {
+    const p = catalogRowToUIProduct({ ...base, original_price: 10000 });
+    expect(p.price).toBe(8000);
+    expect(p.originalPrice).toBe(10000);
+    expect(p.origPrice).toBe(10000);
+    expect(p.isSale).toBe(true);
+  });
+
+  it.each([
+    ['缺鍵(RPC 還沒貼 / 經銷那支)', undefined],
+    ['null(沒有特價)', null],
+    ['等於現價', 8000],
+    ['比現價低(髒資料)', 7000],
+    ['不是整數', 9000.5],
+  ])('%s ⇒ 不劃線、不是特價', (_label, original_price) => {
+    const row = original_price === undefined ? { ...base } : { ...base, original_price };
+    const p = catalogRowToUIProduct(row as Parameters<typeof catalogRowToUIProduct>[0]);
+    expect(p.originalPrice).toBeNull();
+    expect(p.origPrice).toBeNull();
+    expect(p.isSale).toBe(false);
+  });
+
+  it('現價空(null)⇒ 不劃線(沒有現價就沒有「比現價高」)', () => {
+    const p = catalogRowToUIProduct({ ...base, price_general: null, original_price: 10000 });
+    expect(p.price).toBeNull();
+    expect(p.originalPrice).toBeNull();
+    expect(p.isSale).toBe(false);
+  });
+
+  it('0 元贈品有原價 ⇒ 劃線(0 是合法現價)', () => {
+    const p = catalogRowToUIProduct({ ...base, price_general: 0, original_price: 5000 });
+    expect(p.price).toBe(0);
+    expect(p.originalPrice).toBe(5000);
+  });
+});

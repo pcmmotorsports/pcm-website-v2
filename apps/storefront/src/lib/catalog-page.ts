@@ -10,6 +10,11 @@ export type CatalogListRow = {
   handle: string | null;
   availability: string | null;
   price_general: number | null;
+  /**
+   * 商品頁乙 P12(型錄卡片劃線):RPC 20260928240000 起每張卡多送,= products_list_public.original_price
+   * (代表款的特價正在生效時是它的原一般價,否則 null)。經銷那支 RPC 不送;RPC 還沒貼時也沒有這個鍵。
+   */
+  original_price?: number | null;
   card_image: string | null;
   fits: string | null;
   brand_name: string | null;
@@ -101,6 +106,15 @@ export type CatalogCardProduct = Omit<MockProduct, 'price'> & {
 
 /** List view → ProductCard 的最小公開 UI shape；不接觸 detail 或 tier price。 */
 export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
+  // 商品頁乙 P12:特價的劃線原價。規則同 domain mapper(mappers/product.ts saleOriginalPrice):
+  //   是整數而且比現價高才算;缺鍵(RPC 還沒貼 / 經銷那支)或 null ⇒ 不劃線,畫面和今天一樣。
+  const saleOrig =
+    typeof row.original_price === 'number' &&
+    Number.isInteger(row.original_price) &&
+    typeof row.price_general === 'number' &&
+    row.original_price > row.price_general
+      ? row.original_price
+      : null;
   return {
     id: hashIdToNumber(row.id),
     productId: row.id,
@@ -151,9 +165,9 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
     //      「RPC 契約破了(缺鍵)」與「這個商品真的沒有價格」。畫面上兩者都印「—」是對的,
     //      **而故障來源從此看不出來。** 要分開,得在 RPC 邊界做 runtime 驗證(本片不做、另一片)。
     price: row.price_general ?? null,
-    origPrice: null,
+    origPrice: saleOrig,
     isNew: false,
-    isSale: false,
+    isSale: saleOrig !== null,
     inStock: row.availability === 'in-stock',
     category: row.category_raw ?? '',
     color: 'silver',
@@ -176,7 +190,8 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
       row.card_image && hasNoRealImage(row.card_image)
         ? undefined
         : parseImageTrim(row.card_image_trim) ?? undefined,
-    originalPrice: null,
+    // 一般會員的劃線(同 toUIProduct 一般會員那一半);經銷換價(withDealerCardPrices)會再清成 null
+    originalPrice: saleOrig,
     tierLabel: null,
   };
 }

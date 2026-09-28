@@ -481,6 +481,9 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       //   ② 兩支函式本體與 20260916260000 對應段落 diff ⇒ 只有 4 行 LIMIT 差, 年份述詞逐字相同。
       // ⚠️ 本支**未貼**正式庫 ⇒ live 又指向 repo 裡最後一支(缺口同 20260916260000 那則)。
       '20260922130000_m4b_catalog_page_limit_1000.sql',
+      // 商品頁乙 P12(2026-09-28)型錄卡片多送 original_price —— 本體從 20260922130000 逐字抄,
+      // 只在兩處組卡片各加一行 'original_price', pg.original_price(整支 diff 只有這 2 行);年份相關行 diff = 0 差。
+      '20260928240000_m4b_catalog_card_original_price.sql',
     ]);
     // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
     //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
@@ -526,7 +529,9 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
     //       年份相關行 `diff` = **0 差**(YS=2 / YE=2 / UNION=2)⇒ 守新的等於也守了正式庫那一代的內容。
     // 🔴 2026-09-22 更新 live = `20260922130000`(目錄每頁上限 1000, **未貼**):正式庫此刻跑的是 20260916260000
     //    (md5 `9242dea9…`, 2026-09-22 唯讀實查), 本支本體只差 4 行 LIMIT ⇒ 年份述詞守新的等於也守了正式庫那一代。
-    expect(live).toBe('20260922130000_m4b_catalog_page_limit_1000.sql');
+    // 🔴 2026-09-28 更新 live = `20260928240000`(型錄卡片劃線原價, **未貼**):正式庫此刻跑的是 20260922130000
+    //    (md5 `55d387e8…`, 2026-09-28 唯讀實查), 本支本體只多 2 行 original_price ⇒ 年份述詞守新的等於也守了正式庫那一代。
+    expect(live).toBe('20260928240000_m4b_catalog_card_original_price.sql');
   });
 
   /**
