@@ -37,7 +37,7 @@ import { SiteAnalytics } from '@/components/SiteAnalytics';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { resolveSiteMode } from '@/lib/site-mode';
 import { CartProvider } from '@/contexts/CartContext';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getVerifiedUser } from '@/lib/auth/verified-user';
 import { FavoritesProvider } from '@/contexts/FavoritesContext';
 import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
@@ -205,11 +205,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       ? null
       : cookieStore.getAll().some((c) => c.name === base || c.name.startsWith(`${base}.`));
 
+  // 🔵 2026-09-28(Codex 優化盤點第 2 項):改用 request 內共用的 getVerifiedUser(),
+  //   頁面(會員等級、愛車)已經問過 Auth 的話這裡不再問一次;回來的 user / error 與直接 getUser() 真假值相同
+  //   (undefined 會變成 null),
+  //   下面三態判斷一個字都沒改。丟例外時照舊進 catch。
   let cartOwnerId: string | null | undefined;
   try {
-    const supabase = await createServerSupabaseClient();
-    const { data, error } = await supabase.auth.getUser();
-    if (data?.user) cartOwnerId = data.user.id;
+    const { user, error } = await getVerifiedUser();
+    if (user) cartOwnerId = user.id;
     // `!== false` = 有 cookie **或** 不知道有沒有 ⇒ 都不動作。只有【確定沒有】才判成登出。
     else if (error && hasAuthCookie !== false) cartOwnerId = undefined;
     else cartOwnerId = null;
