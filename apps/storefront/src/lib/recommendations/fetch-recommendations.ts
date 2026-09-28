@@ -55,13 +55,21 @@ export async function fetchRecommendedProducts(
   vehicle: VehicleSelection | undefined,
   limit = 8,
 ): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> {
-  const cached = await getRecommendedProductsCached(
-    handle,
-    vehicle?.motoBrand ?? null,
-    vehicle?.modelCode ?? null,
-    vehicle?.year ?? null,
-    limit,
-  );
+  let cached: { items: CatalogCardProduct[]; hasMore: boolean };
+  try {
+    cached = await getRecommendedProductsCached(
+      handle,
+      vehicle?.motoBrand ?? null,
+      vehicle?.modelCode ?? null,
+      vehicle?.year ?? null,
+      limit,
+    );
+  } catch (err) {
+    // 🔴 推薦區在 Suspense 裡串流(計畫-商品頁推薦查詢逾時 §4 甲):這時狀態碼已經送出,
+    //   丟出去會蓋掉整頁而不是只藏推薦(Codex R1 必修 1:快取層本身讀取失敗, 內層的 catch 接不到)。
+    console.error('[fetchRecommendedProducts] recommendation cache read failed:', err);
+    return { items: [], hasMore: false };
+  }
   // 🔴 `structuredClone`(2026-09-14 主視窗 workflow 第 ③ 條, 補齊 codex R1 nit ① 的另一半):
   //    `fetchProductByHandle` 那支已經每發給副本, 這支原本沒有。**今天沒有人就地改 `related`**
   //    (`app/products/[slug]/page.tsx` 只把它傳給元件、`dealerPrice` 只寫在 `product` 與它的變體上)
@@ -91,7 +99,8 @@ async function fetchRecommendedProductsUncached(
         const t0 = performance.now();
         const pool = await listByFitment(spec, poolLimit);
         poolMs = Math.round(performance.now() - t0);
-        primaryPool = pool.length;
+        // 跟引擎的 primaryPoolCount 同一個算法:去重、排除這件商品自己(Codex R1 建議 4)
+        primaryPool = new Set(pool.map((p) => p.handle).filter((h) => h !== handle)).size;
         return pool;
       };
     }

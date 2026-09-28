@@ -90,6 +90,8 @@ interface Db {
   endlessStep1?: boolean;
   /** 第二步回傳順序倒過來(測依第一步順序排好)。 */
   reverseStep2?: boolean;
+  /** 假資料庫的定序;預設 JavaScript 字串比較。給 en-US 那種就能跟 JavaScript 排出不同順序。 */
+  collation?: (a: string, b: string) => number;
 }
 
 function makeClient(db: Db) {
@@ -114,7 +116,12 @@ function makeClient(db: Db) {
       const rows = db.fits
         .filter((f) => f.moto_brand === brand && f.model_code === model && db.products.has(f.product_id))
         .map((f) => ({ product_id: f.product_id, id: f.id, products_public: { handle: db.products.get(f.product_id)!.handle } }))
-        .sort((a, b) => (a.products_public.handle < b.products_public.handle ? -1 : a.products_public.handle > b.products_public.handle ? 1 : a.id - b.id));
+        .sort((a, b) => {
+          const byHandle = db.collation
+            ? db.collation(a.products_public.handle, b.products_public.handle)
+            : a.products_public.handle < b.products_public.handle ? -1 : a.products_public.handle > b.products_public.handle ? 1 : 0;
+          return byHandle || a.id - b.id;
+        });
       return json(rows.slice(offset, offset + limit));
     }
     if (table === 'products_public') {
@@ -179,6 +186,22 @@ describe('listByFitment 兩步查詢:形狀', () => {
     expect(step2.searchParams.get('select')).toContain('product_fitments!inner(moto_brand)');
     // 資料庫 handle 升冪:h-00000 是 id 3、h-00001 是 id 2、h-00002 是 id 1;第二步故意倒過來回
     expect(result.map((p) => p.id)).toEqual([uuid(3), uuid(2), uuid(1)]);
+  });
+
+  // R1 建議 2:上面那格的 handle 用 JavaScript 排也是同一個順序 ⇒ 抓不到「在 JavaScript 重排」。
+  //   正式庫定序是 en_US.UTF-8(計畫 §2-4),這裡讓假資料庫用 en-US 排,跟 JavaScript 排出不同順序。
+  it('🔴 順序完全照第一步(資料庫定序),不在 JavaScript 重排', async () => {
+    const products = new Map<string, Prod>([
+      [uuid(1), product(uuid(1), 'B-y')],
+      [uuid(2), product(uuid(2), 'a-x')],
+      [uuid(3), product(uuid(3), 'b-z')],
+    ]);
+    const fits = [1, 2, 3].map((i) => ({ id: i, product_id: uuid(i), moto_brand: 'BMW', model_code: 'S 1000 RR', year_start: 2019, year_end: null }));
+    const db: Db = { fits, products, reverseStep2: true, collation: (a, b) => a.localeCompare(b, 'en-US') };
+    const { client } = makeClient(db);
+    const result = await new SupabaseProductAdapter(client).listByFitment(SPEC, 100);
+    expect(['B-y', 'a-x', 'b-z'].sort(), '前提:JavaScript 排出來要跟資料庫不同').toEqual(['B-y', 'a-x', 'b-z']);
+    expect(result.map((p) => p.handle)).toEqual(['a-x', 'B-y', 'b-z']);
   });
 
   it('🔴 經銷欄位不在第一步的內嵌、也不在第二步的 select', async () => {
