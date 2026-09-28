@@ -117,8 +117,9 @@ import { getHeartbeatStore, type HeartbeatStore } from './composition';
 export const HEARTBEAT_MAX_MS = 4_000;
 
 /**
- * 失敗那一支(`recordHeartbeatFailure`)的上界。**它只讀寫 DB、不送外部訊號** ⇒ 不跟著 ping 拉長,
+ * 失敗那一支(`recordHeartbeatFailure`)的上界。**它不送成功那種 3.2 秒的 ping** ⇒ 不跟著 ping 拉長,
  * 維持 2026-09-22 之前的 2000(讀 + 寫共用這一個截止時刻)。
+ * ⟦b4-CRON60SDOGPILE⟧ 片 1 起 email-sweep 的 `/fail` 也吃這同一個截止時刻(與 DB 並行),不另給預算。
  */
 export const HEARTBEAT_FAILURE_MAX_MS = 2_000;
 
@@ -239,9 +240,11 @@ export type CronJobName = (typeof CRON_JOB_NAME)[keyof typeof CRON_JOB_NAME];
 //    ⇒ **唯一的盲窗是「建好」到「第一發 ping」之間,而那一段正好是那道驗收蓋住的。**
 // 📌 **⇒ 一個「還沒開始」的監控與一個「壞掉」的監控,只有在第一發訊號之前分不開。**
 //
-// ⚠️ **刻意不做的**:失敗時打 `/fail` 端點。理由:route 若一直失敗,成功 ping 就不會送出
-//    ⇒ check 照樣會在 grace 之後掉下去 ⇒ **`/fail` 只讓它【更快】,不讓它【變得可能】。**
-//    ⇒ 收益是分鐘級的提前,代價是多一條路要維護 ⇒ 本片不做,明寫在這裡。
+// ⛔ ~~**刻意不做的**:失敗時打 `/fail` 端點。~~(2026-08-28 的理由:`/fail` 只讓告警更快,不讓它變得可能。)
+// ✅ 2026-09-28 ⟦b4-CRON60SDOGPILE⟧ 片 1 起 **email-sweep 會送 `/start` 與 `/fail`**(Sean 選 Q1 甲、Q2 甲;
+//    計畫 `~/pcm-mailbox/計畫-寄信排程逾時-20260928.md`):`/start?rid=` 讓 healthchecks 量每一輪耗時,
+//    並在「開始了而寬限內沒成功」時告警 —— 被平台中止的那一輪原本完全沒有紀錄;503 那輪送 `/fail?rid=`,
+//    事件頁直接顯示「失敗」,分得出是 503 還是被中止。其他四支排程**不送**,網址逐位元不變。
 
 /**
  * 那支 job 的 ping URL:**環境變數名(字面)** 與**當下的值**。
@@ -299,6 +302,27 @@ export function pingTarget(jobName: CronJobName): {
 const PING_URL_PREFIX = 'https://hc-ping.com/';
 
 /**
+ * 送往 healthchecks 的是哪一種訊號(⟦b4-CRON60SDOGPILE⟧ 片 1)。
+ * `signal` 沒給 = 成功訊號;`rid` 用來配對同一輪的開始、成功、失敗(healthchecks 文件
+ * https://healthchecks.io/docs/measuring_script_run_time/ :有 rid 時它只盯「最近開始的那一輪」)。
+ */
+export interface PingOptions {
+  signal?: 'start' | 'fail';
+  rid?: string;
+}
+
+/**
+ * 組出要打的網址。🔴 **沒給選項 ⇒ 原封不動回傳**(連尾斜線都不動):其他四支排程今天送出的網址逐位元不變。
+ * 有選項才去掉尾斜線再接 `/start`、`/fail`,避免變成 `//start`。
+ */
+export function pingUrlFor(base: string, opts?: PingOptions): string {
+  if (!opts || (opts.signal === undefined && opts.rid === undefined)) return base;
+  const trimmed = base.replace(/\/+$/, '');
+  const path = opts.signal ? `${trimmed}/${opts.signal}` : trimmed;
+  return opts.rid ? `${path}?rid=${encodeURIComponent(opts.rid)}` : path;
+}
+
+/**
  * 送一發「我還活著」。**永不拋、永不讓 route 紅** —— 它是監控,不是工作。
  *
  * 🔴 吃呼叫端算好的 `deadlineAt`(不是另外給一份)⇒ 整支 `recordHeartbeatSuccess` 的最壞
@@ -310,7 +334,11 @@ export async function pingExternalHeartbeat(
   jobName: CronJobName,
   deadlineAt: number,
   fetchImpl: typeof fetch = fetch,
+  /** ⟦b4-CRON60SDOGPILE⟧ 片 1:開始 / 失敗訊號與 rid。沒給 = 今天的成功訊號,行為與網址都不變。 */
+  opts?: PingOptions,
 ): Promise<void> {
+  // 🔵 log 裡分得出是哪一種訊號;成功訊號(沒給 signal)那幾行字面不變。
+  const kindLabel = opts?.signal ? `(${opts.signal})` : '';
   try {
     const { envName, url, notApplicable } = pingTarget(jobName);
     if (notApplicable) {
@@ -332,9 +360,9 @@ export async function pingExternalHeartbeat(
       console.error(`[heartbeat] ${jobName} 外部存活訊號:預算已用完,這一輪不送`);
       return;
     }
-    const res = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(ms) });
+    const res = await fetchImpl(pingUrlFor(url, opts), { method: 'GET', signal: AbortSignal.timeout(ms) });
     // 🔴 **非 2xx 也要出聲** —— 否則「送出去了」與「送到一個 404」印同一個安靜。
-    if (!res.ok) console.error(`[heartbeat] ${jobName} 外部存活訊號回 ${res.status}`);
+    if (!res.ok) console.error(`[heartbeat] ${jobName} 外部存活訊號${kindLabel}回 ${res.status}`);
   } catch (err) {
     // 逾時 / DNS / 網路 —— 全部吃掉。**監控不得把被監控的弄死。**
     // 🔴🔴 **不得把原始 `err` 交出去**(codex 2026-08-28 must-fix):`fetch` 拋的錯
@@ -344,7 +372,30 @@ export async function pingExternalHeartbeat(
     //    📌 **一個為了好除錯而印出來的錯誤物件,與一次憑證外洩,長得一模一樣。**
     //    ⇒ 只印**分類名**(`err.name`),不印 message、不印 cause、不印整顆物件。
     const kind = err instanceof Error ? err.name : typeof err;
-    console.error(`[heartbeat] ${jobName} 外部存活訊號送出失敗(${kind})`);
+    console.error(`[heartbeat] ${jobName} 外部存活訊號${kindLabel}送出失敗(${kind})`);
+  }
+}
+
+/**
+ * ⟦b4-CRON60SDOGPILE⟧ 片 1:這一輪【開始】了(healthchecks `/start?rid=`)。**永不拋。**
+ *
+ * 🔴 上限用 `HEARTBEAT_PING_MS`(3.2 秒),不是 1 秒:2026-09-22 量到成功 ping 有一群落在 997–1056ms
+ *    (見上面 `HEARTBEAT_DB_MS` 那段),1 秒會讓很多輪的開始訊號送不到 ⇒ 那些輪被中止時不會告警(Fable R2)。
+ * 🔴 呼叫端要 `await`:不等的話整輪只跑 1–2 秒時成功訊號可能先到、開始訊號後到
+ *    ⇒ healthchecks 盯的「最近開始的那一輪」沒有成功 ⇒ 誤告警。
+ * ⚠️ 這 3.2 秒算在整輪 60 秒之內;寄信那段的預算從整輪起點算(route 的 `invocationStartedAtMs`,以 `runStartedAtMs` 選項交給 use-case),看得到它。
+ */
+export async function sendHeartbeatStart(
+  jobName: CronJobName,
+  rid: string,
+  pingImpl: typeof pingExternalHeartbeat = pingExternalHeartbeat,
+): Promise<void> {
+  try {
+    await pingImpl(jobName, Date.now() + HEARTBEAT_PING_MS, undefined, { signal: 'start', rid });
+  } catch (err) {
+    // `pingExternalHeartbeat` 自己永不拋;注入的替身可能拋。只印分類名(理由同上:錯誤物件可能夾帶 ping 網址)。
+    const kind = err instanceof Error ? err.name : typeof err;
+    console.error(`[heartbeat] ${jobName} 開始訊號那一層自己拋了(${kind})`);
   }
 }
 
@@ -370,6 +421,11 @@ export async function recordHeartbeatSuccess(
    *    ⇒ 它是**下界**, 不是平台那把碼表。兩者的差沒有人量過。
    */
   roundStartedAtMs?: number,
+  /**
+   * ⟦b4-CRON60SDOGPILE⟧ 片 1:與開始訊號同一個 rid。**只有 email-sweep 傳**;
+   * 沒傳 ⇒ 呼叫 `pingImpl` 時仍只給兩個參數,其他四支送出的網址逐位元不變。
+   */
+  rid?: string,
 ): Promise<void> {
   // 🔴🔴 **整支函式的起點,而它是【總預算】的錨**(codex R2 must-fix 3):
   //    上一版把 ping 的截止寫成 `Date.now() + HEARTBEAT_PING_MS`(在 DB 之後才算)
@@ -398,7 +454,7 @@ export async function recordHeartbeatSuccess(
     //    ⇒ 例外冒到 route ⇒ 又是一次「監控把被監控的弄死」。
     const nowIso = new Date().toISOString();
     // 🔴 DB 那發吃【自己的】預算(R1 MF1)。
-    //    ⚠️ 失敗那一支(`recordHeartbeatFailure`)【不動】—— 它不 ping,沒有理由縮它的預算。
+    //    ⚠️ 失敗那一支(`recordHeartbeatFailure`)【不動】—— 它不送成功那種 ping(片 1 起的 `/fail` 共用它自己的 2 秒),沒有理由縮它的預算。
     const deadlineAt = startedAt + HEARTBEAT_DB_MS;
     // 🔴🔴 **`getHeartbeatStore()` 必須在 try 【裡面】呼叫,不能寫成預設參數。**
     //    預設參數在**函式本體之前**求值 ⇒ 它拋的時候 **`catch` 接不到** ⇒ 例外冒到 route,
@@ -443,7 +499,8 @@ export async function recordHeartbeatSuccess(
     //    `pingImpl` 是可注入的(`heartbeat.test.ts` 用 spy 注入)⇒ 改它的回傳型別會動到那些 spy。
     //    ⇒ 📌 在呼叫端量, 拿得到同一個數字而**不動任何既有簽章**。
     const pingStartedAt = Date.now();
-    await pingImpl(jobName, Math.min(startedAt + HEARTBEAT_MAX_MS, Date.now() + HEARTBEAT_PING_MS));
+    const pingDeadline = Math.min(startedAt + HEARTBEAT_MAX_MS, Date.now() + HEARTBEAT_PING_MS);
+    await (rid === undefined ? pingImpl(jobName, pingDeadline) : pingImpl(jobName, pingDeadline, undefined, { rid }));
     const pingMs = Date.now() - pingStartedAt;
 
     // ══ 🔴🔴 這一行的用途, 以及它【答不出】什麼 ══════════════════════════════
@@ -503,15 +560,36 @@ export async function recordHeartbeatSuccess(
 export async function recordHeartbeatFailure(
   jobName: CronJobName,
   store?: HeartbeatStore,
+  /**
+   * ⟦b4-CRON60SDOGPILE⟧ 片 1(Sean 2026-09-28 Q2 甲):給了 `failRid` ⇒ 同時送 healthchecks `/fail?rid=`,
+   * 事件頁直接顯示「失敗」(分得出是 503 還是被中止)。**只有 email-sweep 傳**;沒傳 ⇒ 不送任何外部訊號(同今天)。
+   */
+  opts?: { failRid?: string; pingImpl?: typeof pingExternalHeartbeat },
 ): Promise<void> {
+  // 🔴 `/fail` 與 DB 的讀寫【並行】、共用同一個截止時刻(不另給 3.2 秒,Fable R4):
+  //    503 路徑最壞 44 + 12 + 2 秒;另給一份會變 ≈ 61 秒又跨線。
+  //    並行而不是 DB 之後才送:DB 卡住時預算會被吃光,`/fail` 就送不出去 —— 而 DB 掛掉正是最需要它的時候。
+  let failPing: Promise<void> | undefined;
   try {
     // 🔴 `new Date().toISOString()` **在 try 裡面**(codex R1 finding 6):它會拋
     //    (`RangeError: Invalid time value`,或有人替換掉 `Date`)⇒ 放在外面就繞過了本函式的 catch
     //    ⇒ 例外冒到 route ⇒ 又是一次「監控把被監控的弄死」。
-    const nowIso = new Date().toISOString();
     // 🔴 **整支函式共用一個截止時刻**(finding 3):不是每一發各給一份。
-    //    用 HEARTBEAT_FAILURE_MAX_MS 不用 HEARTBEAT_MAX_MS:這一支不送外部訊號, 不需要 ping 的那段時間。
+    //    用 HEARTBEAT_FAILURE_MAX_MS 不用 HEARTBEAT_MAX_MS:成功那一支的 ping 預算這裡不需要;
+    //    片 1 起 `/fail` 也吃這同一個截止時刻。
     const deadlineAt = Date.now() + HEARTBEAT_FAILURE_MAX_MS;
+    // 🔴 `/fail` 在 try 的最前面就送出(R1 nit):排在 `toISOString()` 之後的話,那一行一拋就漏送。
+    const failRid = opts?.failRid;
+    if (failRid !== undefined) {
+      const ping = opts?.pingImpl ?? pingExternalHeartbeat;
+      failPing = Promise.resolve()
+        .then(() => ping(jobName, deadlineAt, undefined, { signal: 'fail', rid: failRid }))
+        .catch((err: unknown) => {
+          const kind = err instanceof Error ? err.name : typeof err;
+          console.error(`[heartbeat] ${jobName} 失敗訊號那一層自己拋了(${kind})`);
+        });
+    }
+    const nowIso = new Date().toISOString();
     // 🔴🔴 **`getHeartbeatStore()` 必須在 try 【裡面】呼叫,不能寫成預設參數。**
     //    預設參數在**函式本體之前**求值 ⇒ 它拋的時候 **`catch` 接不到** ⇒ 例外冒到 route,
     //    而那幾支 route 的 catch 會把它變成 **503** ⇒ **一輪明明做完了的 sweeper 被心跳弄成失敗。**
@@ -540,5 +618,8 @@ export async function recordHeartbeatFailure(
     else if (r.error) console.error(`[heartbeat] ${jobName} 失敗心跳寫入失敗`, r.error);
   } catch (err) {
     console.error(`[heartbeat] ${jobName} 失敗心跳寫入拋錯`, err);
+  } finally {
+    // 🔴 不論 DB 那半怎麼結束都等 `/fail` 送完(它自己有截止時刻,不會超過 HEARTBEAT_FAILURE_MAX_MS)。
+    if (failPing) await failPing;
   }
 }
