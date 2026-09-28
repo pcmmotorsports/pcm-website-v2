@@ -104,7 +104,8 @@ export class SupabasePaidEmailContextAdapter implements IPaidEmailContext {
         // 🔴 `cancelled_at` 是 2026-08-24 加的**第六欄**,而它**不進信裡** ——
         //    它只用來判「這封信還該不該寄」(見下方 `cancelled` 那一段)。
         //    ⇒ 白名單的原則沒有鬆動:**多撈的這一欄不會被印出去**。
-        .select('display_id, subtotal, shipping_fee, discount_total, total, tax_total, cancelled_at')
+        // ⟦f3-RECIPIENTBIND1⟧ 2026-09-29:`id` 是第八欄, 不進信裡 —— 只用來回報「撈到的是哪一張單」。
+        .select('id, display_id, subtotal, shipping_fee, discount_total, total, tax_total, cancelled_at')
         .eq('id', input.orderId)
         .limit(1),
     );
@@ -146,6 +147,9 @@ export class SupabasePaidEmailContextAdapter implements IPaidEmailContext {
     //    那個值看起來合法、長度也對,是本 repo 反覆記載的「接通了而送空值」的形狀。
     const displayId = emptyToNull(order.display_id);
     if (displayId === null) return { kind: 'unavailable' };
+    // ⟦f3-RECIPIENTBIND1⟧:不知道撈到的是哪一張單 ⇒ 不寄(與 display_id 空值同一個理由)。
+    const rowOrderId = typeof order.id === 'string' && order.id.trim() !== '' ? order.id : null;
+    if (rowOrderId === null) return { kind: 'unavailable' };
 
     // ── ② 品項 ─────────────────────────────────────────────────────────────
     // 多要一列當探針:拿到 MAX+1 就代表沒載完。
@@ -178,6 +182,7 @@ export class SupabasePaidEmailContextAdapter implements IPaidEmailContext {
 
     return {
       kind: 'ok',
+      orderId: rowOrderId,
       context: {
         orderDisplayId: displayId,
         lines,

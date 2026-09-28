@@ -368,7 +368,7 @@ describe('enqueueOrderCreatedEmails — 付款信金額凍結快照', () => {
   };
 
   it('🟢 讀得到 ⇒ 帶 paidSnapshot 入列(同一支 loadPaidContext、問的是那張單)', async () => {
-    const { d, enqueue, loadPaidContext } = withPaid({ kind: 'ok', context: snap });
+    const { d, enqueue, loadPaidContext } = withPaid({ kind: 'ok', orderId: 'order-1', context: snap });
     const res = await enqueueOrderCreatedEmails(d, { cutoff: CUTOFF, limit: 50 });
     expect(loadPaidContext).toHaveBeenCalledWith({ orderId: 'order-1' });
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-1', paidSnapshot: snap }));
@@ -379,7 +379,7 @@ describe('enqueueOrderCreatedEmails — 付款信金額凍結快照', () => {
   it.each([
     ['unavailable', { kind: 'unavailable' } as LoadPaidContextResult],
     ['cancelled', { kind: 'cancelled' } as LoadPaidContextResult],
-    ['截斷', { kind: 'ok', context: { ...snap, linesTruncated: true } } as LoadPaidContextResult],
+    ['截斷', { kind: 'ok', orderId: 'order-1', context: { ...snap, linesTruncated: true } } as LoadPaidContextResult],
     ['throw', new Error('boom')],
   ])('🔵 %s ⇒ 照今天入列 v1(不帶 paidSnapshot、不計 error)', async (_l, result) => {
     const { d, enqueue } = withPaid(result);

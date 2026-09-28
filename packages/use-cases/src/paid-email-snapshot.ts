@@ -48,6 +48,9 @@ export async function loadFreezablePaidSnapshot(
   try {
     const loaded = await paidContext.loadPaidContext({ orderId });
     if (loaded.kind !== 'ok') return null;
+    // ⟦f3-RECIPIENTBIND1⟧ 2026-09-29:撈回來的不是這張單 ⇒ 不凍(退回寄出當下現查, 那一端也會比對)。
+    //    凍進去的快照寄出時不再比對單號 ⇒ 這一道必須在入列這一端擋。
+    if (loaded.orderId !== orderId) return null;
     return isFreezablePaidSnapshot(loaded.context) ? loaded.context : null;
   } catch {
     return null;
