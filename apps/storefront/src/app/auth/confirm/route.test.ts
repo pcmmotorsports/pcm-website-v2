@@ -22,6 +22,8 @@ vi.mock('@/lib/auth/site-login-gate', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createSignInSupabaseClient: () => Promise.resolve({ auth: { verifyOtp: verifySpy } }),
 }));
+// route 現在不讀登入狀態(2026-09-28 拿掉「剛確認過就當成功」捷徑)。這個 mock 留著:有人把捷徑加回來時,
+// 下面 userRef 設成「剛確認過」的幾格會因為導到確認成功而紅。
 vi.mock('@/lib/auth/verified-user', () => ({
   getVerifiedUser: async () => ({ supabase: {}, user: userRef.value, error: null }),
 }));
@@ -98,18 +100,20 @@ describe('/auth/confirm · 註冊確認(type=email)', () => {
 describe('/auth/confirm · 舊登入的背景換發與重複開啟', () => {
   const recent = () => new Date(Date.now() - 60_000).toISOString();
 
-  it('🔴 同一個連結開第二次:token 已用掉, 但登入中的帳號剛確認過 ⇒ 仍顯示確認成功(也跑站別檢查)', async () => {
+  // 2026-09-28 改:原本這兩格要求「開第二次仍顯示成功」。那和下面 A/B 那格是同一組輸入(驗證失敗 + 登入中的帳號剛確認過),
+  // 伺服器分不出來 ⇒ 兩種都走「連結已失效或已使用過」(每週總掃必修, f0081b1b8)。
+  it('🔴 同一個連結開第二次:token 已用掉 ⇒ 登入頁說明「已失效或已使用過」, 不跑站別檢查', async () => {
     verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
     userRef.value = { email_confirmed_at: recent() };
-    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/?confirmed=1');
-    expect(siteCheckSpy).toHaveBeenCalledTimes(1);
+    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/login?error=confirm');
+    expect(siteCheckSpy).not.toHaveBeenCalled();
   });
 
-  it('同一個 token 連打兩次:第一次成功、第二次失敗, 兩次都落在確認成功', async () => {
+  it('同一個 token 連打兩次:第一次確認成功, 第二次走連結已失效', async () => {
     await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/?confirmed=1');
     verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
     userRef.value = { email_confirmed_at: recent() };
-    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/?confirmed=1');
+    await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/login?error=confirm');
   });
 
   it('🔴 登入中的帳號很久以前就確認過(不是剛剛這個連結)⇒ 照舊顯示連結失效', async () => {
@@ -124,6 +128,14 @@ describe('/auth/confirm · 舊登入的背景換發與重複開啟', () => {
       userRef.value = u;
       await expect(go('?token_hash=h1&type=email')).rejects.toThrow('NEXT_REDIRECT:/login?error=confirm');
     }
+    expect(siteCheckSpy).not.toHaveBeenCalled();
+  });
+
+  // 2026-09-28 每週總掃必修(Codex, f0081b1b8):驗證失敗時看不出連結是誰的, 不能拿「登入中的帳號剛確認過」當成功。
+  it('🔴 A 剛確認完, 10 分鐘內在同一個瀏覽器開 B 已過期的連結 ⇒ 連結失效, 不顯示成功', async () => {
+    verifySpy.mockResolvedValue({ error: { code: 'otp_expired' } });
+    userRef.value = { email_confirmed_at: recent() }; // 登入中的是 A
+    await expect(go('?token_hash=b-expired&type=email')).rejects.toThrow('NEXT_REDIRECT:/login?error=confirm');
     expect(siteCheckSpy).not.toHaveBeenCalled();
   });
 
