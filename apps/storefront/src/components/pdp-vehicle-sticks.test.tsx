@@ -10,7 +10,7 @@ import { ProductRelated } from './ProductRelated';
 import { CartProvider } from '../contexts/CartContext';
 import { renderNextLike, router, type NextLikeHarness } from './test-utils/next-like-router';
 import type { LandingMode } from './test-utils/next-like-navigation';
-import { MOCK_PRODUCTS } from '../data/mock-products';
+import { MOCK_PRODUCTS, type MockProduct } from '../data/mock-products';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
 import { getVehicleIntent } from '@/lib/vehicle-intent';
@@ -30,8 +30,10 @@ const MOTO: MockMotoBrand[] = [
     ],
   },
 ];
-const PRODUCT = {
+// 2026-09-28 起手機購買列也擋「沒有任何規格」的商品(跟桌機同一套)⇒ 給它一個規格(真的商品都有規格)。
+const PRODUCT: MockProduct = {
   ...MOCK_PRODUCTS[0]!,
+  variants: [{ id: 'v-1', sku: 'LT-1', spec: {}, price: MOCK_PRODUCTS[0]!.price, images: [] }],
   fitments: [
     { motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 },
     { motoBrand: 'Yamaha', modelCode: 'YZF-R7', yearStart: 2021, yearEnd: 2022 },
@@ -191,7 +193,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       () => (
         <CartProvider>
           {/* route 對沒有 fitments 的商品就是傳空字典 */}
-          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" motoBrands={[]} />
+          <ProductPage product={{ ...PRODUCT, fitments: [] }} tier="general" motoBrands={[]} />
         </CartProvider>
       ),
       { mode, url: '/products/lightech-1' },
@@ -389,7 +391,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     h = renderNextLike(
       () => (
         <CartProvider>
-          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" motoBrands={[]} />
+          <ProductPage product={{ ...PRODUCT, fitments: [] }} tier="general" motoBrands={[]} />
         </CartProvider>
       ),
       { mode, url: '/products/lightech-1' },

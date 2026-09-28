@@ -33,7 +33,7 @@ import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductBreadcrumb } from './ProductBreadcrumb';
 import { ProductGallery } from './ProductGallery';
-import { ProductInfo } from './ProductInfo';
+import { ProductInfo, addToCartBlockedReason } from './ProductInfo';
 import { PdpVehicleTaxonomyNotice } from './products-message-state';
 import { ProductFitments } from './ProductFitments';
 import { ProductFitmentCheck, type PdpUrlVehicleState } from './ProductFitmentCheck';
@@ -254,9 +254,15 @@ export function ProductPage({
 
   // B2B 5d(Sean Q3 甲「沒有經銷價就不能買」):按鈕照 #161 永遠可按;按下去不加入,說明原因。回傳有沒有加進去。
   const addToCart = (): boolean => {
-    if (dealerPriceUnavailable) {
+    // 跟桌機同一套判斷(經銷價拿不到 / 沒有任何規格 / 一般價空),字也一樣;說明借用上限提示那一行顯示
+    const blocked = addToCartBlockedReason({
+      dealerPriceUnavailable,
+      hasVariants: (product.variants ?? []).length > 0,
+      displayPrice,
+    });
+    if (blocked) {
       setShowMobileQtyPanel(false);
-      setMobileOverLimit('這件商品暫時無法取得價格，無法加入購物車。若需要這件商品，請聯絡 PCM 業務。');
+      setMobileOverLimit(blocked);
       return false;
     }
     // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由

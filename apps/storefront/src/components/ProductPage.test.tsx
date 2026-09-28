@@ -20,12 +20,20 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { ProductPage } from './ProductPage';
+import { addToCartBlockedReason } from './ProductInfo';
 import { ProductRelated } from './ProductRelated';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { resetVehicleIntentForTests } from '@/lib/vehicle-intent';
 import { resetUrlWriterForTests } from '@/lib/url-writer';
 import { MOCK_PRODUCTS } from '../data/mock-products';
 import { CartProvider } from '../contexts/CartContext';
+
+// 2026-09-28 起手機購買列跟桌機同一套判斷,也擋「沒有任何規格」的商品(板 ⟦b4-NOVARIANT1⟧)。
+// mock 商品沒有規格 ⇒ 要測「加得進去」的格子改用這個有一個規格的版本(真的商品都有規格)。
+const SELLABLE = {
+  ...MOCK_PRODUCTS[0]!,
+  variants: [{ id: 'v-1', sku: 'LT-1', spec: {}, price: MOCK_PRODUCTS[0]!.price, images: [] }],
+};
 
 // M-1-13e-b:render shadow + CartProvider wrapper(useCart 必須在 Provider 內)
 const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
@@ -458,7 +466,7 @@ describe('ProductPage', () => {
     );
     // 🔴 刻意【不傳】車款字典:通用商品(沒有 fitments)那條路 route 就是傳 `[]`(Fable 片 9+10 R1 必修 1)。
     //   字典是空的時候車款意圖不初始化 ⇒ 加入購物車退回選車鏡 ⇒ 仍要帶那台車。
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
     const buybarCart = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
     expect(buybarCart).toBeTruthy();
     fireEvent.click(buybarCart);
@@ -469,7 +477,7 @@ describe('ProductPage', () => {
 
   it('V-2h/MF-4:buybar 無選車 context → item 不帶 vehicle(零猜、對照)', () => {
     mockSearchParams = new URLSearchParams('from=catalog'); // 無 sessionStorage 選車鏡
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
     fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
     const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
     expect(items[0].vehicle).toBeUndefined();
@@ -481,7 +489,7 @@ describe('ProductPage', () => {
   // 「差別 = 多一步導頁」),這支釘住手機那顆也要走同一條路。
   it('F-81:手機 sticky buybar「立即購買」加入購物車後要導去 /cart(不是只加購)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
     const buybarBuyNow = container.querySelector('.pd-mbb-buynow') as HTMLButtonElement;
     expect(buybarBuyNow).toBeTruthy();
     fireEvent.click(buybarBuyNow);
@@ -498,13 +506,13 @@ describe('ProductPage', () => {
   describe('F-81:手機數量滑出列', () => {
     it('平常不掛載(沒點過加入購物車之前,畫面上沒有這個區塊)', () => {
       mockSearchParams = new URLSearchParams('from=catalog');
-      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+      const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
       expect(container.querySelector('.pd-mbb-qty-panel')).toBeNull();
     });
 
     it('按下加入購物車:①商品立刻真的加進去(qty=1)②滑出列跟著出現(零額外動作)', () => {
       mockSearchParams = new URLSearchParams('from=catalog');
-      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+      const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
       const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
       expect(items).toHaveLength(1);
@@ -514,7 +522,7 @@ describe('ProductPage', () => {
 
     it('滑出列的 + 真的會改到購物車裡那一列的數量(不是一個獨立的假數字)', () => {
       mockSearchParams = new URLSearchParams('from=catalog');
-      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+      const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
       const panel = container.querySelector('.pd-mbb-qty-panel') as HTMLElement;
       fireEvent.click(panel.querySelector('[aria-label="增加數量"]') as HTMLButtonElement);
@@ -543,16 +551,16 @@ describe('ProductPage', () => {
   // ══════════════════════════════════════════════════════════════════════
   describe('N4:手機 sticky 買價列 —— 車上已滿時不准說「已加入」', () => {
     const CART_KEY = 'pcm-cart-mock-v2';
-    const product = MOCK_PRODUCTS[0]!;
+    const product = SELLABLE;
 
     it('車上已達上限 → 面板不滑出,改出常駐的上限提示(而購物車一件都沒動)', () => {
-      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, variantId: 'v-1', qty: 99 }]));
       const { container } = render(<ProductPage product={product} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
 
       // ① 購物車真的沒動 —— 這一格是承重的:沒有它,提示可能是對的而東西其實進去了
       expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
-        { productId: product.slug, qty: 99 },
+        { productId: product.slug, variantId: 'v-1', qty: 99 },
       ]);
       // ② 那句「已加入・數量」不准出現
       expect(container.querySelector('.pd-mbb-qty-panel')).toBeNull();
@@ -563,12 +571,12 @@ describe('ProductPage', () => {
     });
 
     it('對照組:車上沒滿 → 面板照常滑出、上限提示【不】出現(否則就是恆真的提示)', () => {
-      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 3 }]));
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, variantId: 'v-1', qty: 3 }]));
       const { container } = render(<ProductPage product={product} tier="general" />);
       fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
 
       expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
-        { productId: product.slug, qty: 4 },
+        { productId: product.slug, variantId: 'v-1', qty: 4 },
       ]);
       expect(container.querySelector('.pd-mbb-qty-panel')).not.toBeNull();
       expect(container.querySelector('.pd-mbb-notice')).toBeNull();
@@ -577,14 +585,14 @@ describe('ProductPage', () => {
     it('先撞上限、再把數量降下來重按 → 舊那句要當場收掉(常駐提示不准變成過期的話)', () => {
       // 🔴 這一格守的是 `setMobileOverLimit(...)` 的 **null 那半**。
       //   常駐 = 沒有計時器會替你收拾 ⇒ 不主動清的話,它會停在畫面上繼續講一件已經不成立的事。
-      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, variantId: 'v-1', qty: 99 }]));
       const { container } = render(<ProductPage product={product} tier="general" />);
       const cartBtn = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
       fireEvent.click(cartBtn);
       expect(container.querySelector('.pd-mbb-notice')).not.toBeNull(); // 先確定它真的出來了
 
       // 把那一列降到 3 件(走面板以外的路,模擬客人去購物車調整後回來)
-      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 3 }]));
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, variantId: 'v-1', qty: 3 }]));
       cleanup();
       const second = render(<ProductPage product={product} tier="general" />);
       fireEvent.click(second.container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
@@ -677,7 +685,7 @@ describe('ProductPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
       JSON.stringify({ brandId: 'yamaha', modelId: 'mt-07', label: 'Yamaha MT-07', brandName: 'Yamaha', modelName: 'MT-07', savedAt: 1 }),
     );
     const withFitments = {
-      ...MOCK_PRODUCTS[0]!,
+      ...SELLABLE,
       fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-07', yearStart: 2021, yearEnd: 2021 }],
     };
     const { container } = render(
@@ -788,5 +796,87 @@ describe('⟦b4-DEALERSIGNUPUNSEEN⟧ ProductPage 手機 sticky bar 的經銷價
     expect(mbb()).toContain('8,400');
     expect(mbb()).not.toContain('6,720');
     expect(mbbOrig()).toBeNull();
+  });
+});
+
+// 2026-09-28(Codex 在推薦修正 R1 抓到的既有漏洞,主視窗派):手機購買列的「加入購物車 / 立即購買」
+//   原本只擋經銷價拿不到,一般價空的規格(P12b「—」)與完全沒規格的商品都會進購物車。
+//   改成跟桌機共用 `addToCartBlockedReason`;這一組把手機與桌機兩顆都按一次。
+describe('加入購物車:一般價空的規格、沒有規格的商品都不能加(手機與桌機同一套)', () => {
+  const CART_KEY = 'pcm-cart-mock-v2';
+  const cartItems = () => JSON.parse(window.localStorage.getItem(CART_KEY) ?? '[]') as unknown[];
+  const NO_PRICE = { ...SELLABLE, price: null, variants: [{ ...SELLABLE.variants[0]!, price: null }] };
+  const NO_VARIANT = { ...MOCK_PRODUCTS[0]!, variants: [] };
+  const NO_PRICE_MSG = '這個規格目前沒有售價，無法加入購物車。請改選其他規格，或聯繫客服 LINE 詢問。';
+  const NO_VARIANT_MSG = '這件商品目前不能單獨購買,請聯繫客服 LINE 協助訂購。';
+
+  afterEach(() => window.localStorage.removeItem(CART_KEY));
+
+  it('🔴 手機:一般價空的規格 ⇒ 不進購物車、說明原因、「立即購買」不跳購物車', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const { container } = render(<ProductPage product={NO_PRICE} tier="general" />);
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(container.querySelector('.pd-mbb-qty-panel')).toBeNull();
+    expect(container.querySelector('.pd-mbb-notice')?.textContent).toBe(NO_PRICE_MSG);
+    mockPush.mockClear();
+    fireEvent.click(container.querySelector('.pd-mbb-buynow') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(mockPush).not.toHaveBeenCalledWith('/cart');
+  });
+
+  it('🔴 手機:完全沒有規格的商品 ⇒ 不進購物車,字跟桌機一樣', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const { container } = render(<ProductPage product={NO_VARIANT} tier="general" />);
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(container.querySelector('.pd-mbb-notice')?.textContent).toBe(NO_VARIANT_MSG);
+  });
+
+  it('🔴 桌機:一般價空的規格 ⇒ 不進購物車,說明同一句', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const { container } = render(<ProductPage product={NO_PRICE} tier="general" />);
+    fireEvent.click(container.querySelector('.pd-add-btn') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(screen.getByRole('alert').textContent).toBe(NO_PRICE_MSG);
+  });
+
+  it('對照組:有價有規格 ⇒ 手機與桌機都加得進去(不是一律擋)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    fireEvent.click(container.querySelector('.pd-add-btn') as HTMLButtonElement);
+    expect(cartItems()).toHaveLength(1);
+    expect((cartItems()[0] as { qty: number }).qty).toBe(2);
+  });
+
+  // Codex R1 建議:商品價有值、選中規格一般價空 ⇒ 仍要擋。上面 NO_PRICE 兩層都空,抓不到
+  //   「手機改回 `selectedVariant?.price ?? product.price`」那種退回商品價的錯。
+  it('🔴 手機:商品價有值、選中規格一般價空 ⇒ 印「—」、不進購物車、「立即購買」不跳購物車', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const mixed = { ...SELLABLE, price: 4400, variants: [{ ...SELLABLE.variants[0]!, price: null }] };
+    const { container } = render(<ProductPage product={mixed} tier="general" />);
+    expect(container.querySelector('.pd-mbb-price')?.textContent).toBe('—');
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(container.querySelector('.pd-mbb-notice')?.textContent).toBe(NO_PRICE_MSG);
+    mockPush.mockClear();
+    fireEvent.click(container.querySelector('.pd-mbb-buynow') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(mockPush).not.toHaveBeenCalledWith('/cart');
+  });
+
+  it('0 元規格(贈品)⇒ 手機與桌機都加得進去', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const free = { ...SELLABLE, price: 0, variants: [{ ...SELLABLE.variants[0]!, price: 0 }] };
+    const { container } = render(<ProductPage product={free} tier="general" />);
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    fireEvent.click(container.querySelector('.pd-add-btn') as HTMLButtonElement);
+    expect((cartItems()[0] as { qty: number }).qty).toBe(2);
+  });
+
+  it('0 元是合法價(贈品),不當成空價', () => {
+    expect(addToCartBlockedReason({ dealerPriceUnavailable: false, hasVariants: true, displayPrice: 0 })).toBeNull();
+    expect(addToCartBlockedReason({ dealerPriceUnavailable: false, hasVariants: true, displayPrice: null })).toBe(NO_PRICE_MSG);
   });
 });
