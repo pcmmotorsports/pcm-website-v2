@@ -24,6 +24,7 @@
 //   (`FilterDrawer.tsx:250`)⇒ 不改就是漏一個入口。
 
 import { useState } from 'react';
+import { useLazyBrandYears, YEARS_FAILED_TEXT, YEARS_LOADING_TEXT } from './use-lazy-brand-years';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -39,7 +40,7 @@ import { GarageChips, type GarageChipItem } from './GarageChips';
 import { VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 
 export function FilterDrawerVehicleTab({
-  motoBrands,
+  motoBrands: motoBrandsProp,
   cascade,
   dispatch,
   garage = [],
@@ -53,6 +54,11 @@ export function FilterDrawerVehicleTab({
   const [vehBrand, setVehBrand] = useState<MockMotoBrand | null>(null);
   const [vehModel, setVehModel] = useState<MockMotoModel | null>(null);
   const [query, setQuery] = useState('');
+  // 2026-09-29:收到的是底盤清單時, 點進去的那個牌子的年份由這支補(與 VehicleSelect 同一支 hook)。
+  const { motoBrands, yearsPending, yearsFailed } = useLazyBrandYears(motoBrandsProp, vehBrand?.name);
+  // 🔴 `vehBrand` / `vehModel` 是點下去當下的快照 —— 年份補到之後要從最新那棵樹重讀, 否則年份層永遠是空的。
+  const liveBrand = vehBrand ? (motoBrands.find((b) => b.id === vehBrand.id) ?? vehBrand) : null;
+  const liveModel = vehModel ? (liveBrand?.models.find((m) => m.id === vehModel.id) ?? vehModel) : null;
 
   const searching = query.trim() !== '';
 
@@ -78,11 +84,13 @@ export function FilterDrawerVehicleTab({
     : [];
 
   // 點跨層結果:有年份→跳年份層讓客人選;無年份→直接 dispatch 套用(對齊桌機「不限年份」)
+  // 🔴 2026-09-29:那個牌子年份還沒補到(`yearsLoaded: false`)時年份也是空的 —— 那要跳年份層等它補,
+  //   不能當成「不限年份」直接套用(否則客人永遠選不到年份)。
   const pickCrossEntry = (entry: FlatVehicleEntry) => {
     setVehBrand(entry.brand);
     setVehModel(entry.model);
     setQuery('');
-    if (entry.model.years.length === 0) {
+    if (entry.brand.yearsLoaded !== false && entry.model.years.length === 0) {
       dispatch(selectVehicleBrand(entry.brand.name));
       dispatch(selectVehicleModel(entry.model.name));
     }
@@ -96,8 +104,8 @@ export function FilterDrawerVehicleTab({
   };
 
   const brands = filterVehicleOptions(motoBrands, query, (b) => b.name);
-  const models = vehBrand ? filterVehicleOptions(vehBrand.models, query, (m) => m.name) : [];
-  const years = vehModel ? filterVehicleOptions(vehModel.years, query, (y) => String(y)) : [];
+  const models = liveBrand ? filterVehicleOptions(liveBrand.models, query, (m) => m.name) : [];
+  const years = liveModel ? filterVehicleOptions(liveModel.years, query, (y) => String(y)) : [];
 
   return (
     <div className="fd-veh">
@@ -166,7 +174,9 @@ export function FilterDrawerVehicleTab({
               {vehBrand.name} / {vehModel.name}
             </button>
             <div className="fd-step-label">選擇年份</div>
-            {vehModel.years.length === 0 ? (
+            {yearsPending ? (
+              <div className="fd-veh-empty">{yearsFailed ? YEARS_FAILED_TEXT : YEARS_LOADING_TEXT}</div>
+            ) : (liveModel?.years.length ?? 0) === 0 ? (
               /* V-1f:無年份車型 → 「不限年份」套用出口(修 V-1b2 年份層卡死;對齊桌機 modelNoYears) */
               <button className={`fd-row ${noYearApplied ? 'is-active' : ''}`} onClick={applyNoYear}>
                 <span>不限年份(此車型套用全部)</span>

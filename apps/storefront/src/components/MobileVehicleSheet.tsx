@@ -37,6 +37,7 @@ import {
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { modelFieldOptions, resolveModelPick, yearsNewestFirst } from '@/lib/vehicle-options';
+import { useLazyBrandYears, YEARS_FAILED_TEXT, YEARS_LOADING_TEXT } from './use-lazy-brand-years';
 import { VehicleCombo, VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
 import { formatSkippedDraftNotice, type VehicleDraftTexts } from '@/lib/vehicle-draft-notice';
@@ -68,7 +69,7 @@ const KEYBOARD_SETTLE_MS = 160;
 export function MobileVehicleSheet({
   open,
   onClose,
-  motoBrands,
+  motoBrands: motoBrandsProp,
   cascade,
   dispatch,
   garage = [],
@@ -95,6 +96,9 @@ export function MobileVehicleSheet({
   const [draftText, setDraftText] = useState(EMPTY_TEXT);
   // Q8=A:remount 三顆 VehicleCombo 逼它們丟掉內部草稿字(見下方 Fragment key)。
   const [comboSeq, setComboSeq] = useState(0);
+  // 2026-09-29:收到的是底盤清單時, 草稿那個牌子的年份由這支補(與 VehicleSelect 同一支 hook)。
+  //   🔴 看的是【草稿】的牌子不是已套用的車:客人在面板裡換了牌子、還沒套用, 年份也要出得來。
+  const { motoBrands, yearsPending, yearsFailed } = useLazyBrandYears(motoBrandsProp, draft.brand);
 
   // 面板開著時鎖背景捲動(對齊 FilterDrawer 既有做法;同一時間只會有一個面板開著)。
   useEffect(() => {
@@ -142,7 +146,8 @@ export function MobileVehicleSheet({
     ? brandEntry?.models.find((model) => model.name === draft.model)
     : undefined;
   const years = yearsNewestFirst(modelEntry);
-  const modelHasNoYears = modelEntry !== undefined && years.length === 0;
+  // 🔴 年份還沒補到時 `years` 也是空的 —— 那不是「不限年份」。
+  const modelHasNoYears = !yearsPending && modelEntry !== undefined && years.length === 0;
 
   // V-1f ①:未選廠牌 → 車型欄改在「品牌 車型」攤平字面空間跨層搜尋(打 mt-09 直達車款)。
   // 🔴 與桌機選車列共用 lib/vehicle-options 的同一顆(2026-07-30 抽出;不建立第二套比對邏輯)。
@@ -290,9 +295,13 @@ export function MobileVehicleSheet({
                 label="選擇年份"
                 value={draft.year != null ? String(draft.year) : null}
                 options={years.map(String)}
-                disabled={draft.model === null || modelHasNoYears}
+                disabled={draft.model === null || modelHasNoYears || yearsPending}
                 placeholder={
-                  modelHasNoYears ? '不限年份' : draft.model === null ? '請先選擇車型' : '選擇或輸入年份'
+                  draft.model === null
+                    ? '請先選擇車型'
+                    : yearsPending
+                      ? yearsFailed ? YEARS_FAILED_TEXT : YEARS_LOADING_TEXT
+                      : modelHasNoYears ? '不限年份' : '選擇或輸入年份'
                 }
                 emptyHint={VEHICLE_EMPTY_HINTS.year}
                 onPick={(year) => setDraft((current) => ({ ...current, year: Number(year) }))}

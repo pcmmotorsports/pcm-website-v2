@@ -40,6 +40,7 @@ import type { FilterTopData } from './FilterTop';
 import { VehicleCombo, VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
 import { modelFieldOptions, resolveModelPick, yearsNewestFirst } from '@/lib/vehicle-options';
+import { useLazyBrandYears, YEARS_FAILED_TEXT, YEARS_LOADING_TEXT } from './use-lazy-brand-years';
 
 export function CascadeFilterTop({
   data,
@@ -56,24 +57,27 @@ export function CascadeFilterTop({
   autoFocusBrand?: boolean;
 } & CascadeControlledProps) {
   const vehicle = cascade.vehicle;
+  // 2026-09-29:收到的是底盤清單時, 目前這個牌子的年份由這支補(與 VehicleSelect 同一支 hook)。
+  const { motoBrands, yearsPending, yearsFailed } = useLazyBrandYears(data.motoBrands, vehicle?.brand);
   const currentBrand = vehicle
-    ? data.motoBrands.find((brand) => brand.name === vehicle.brand)
+    ? motoBrands.find((brand) => brand.name === vehicle.brand)
     : undefined;
   const currentModel = vehicle?.model != null
     ? currentBrand?.models.find((model) => model.name === vehicle.model)
     : undefined;
   // ADR-0007 桌機決定 3:年份由新到舊(與手機面板共用同一個排序函式、不各排一次)。
   const years = yearsNewestFirst(currentModel);
-  const modelHasNoYears = currentModel !== undefined && years.length === 0;
+  // 🔴 年份還沒補到時 `years` 也是空的 —— 那不是「不限年份」。
+  const modelHasNoYears = !yearsPending && currentModel !== undefined && years.length === 0;
   // Sean 2026-07-30 逐字:「電腦版也要可以直接輸入車款,目前只有輸入廠牌」。
   // 未選廠牌時車型欄改在「品牌 車型」攤平字面空間跨層搜尋(打 r6 直達車款),選定同時補上廠牌。
   // 🔴 與手機選車面板共用 lib/vehicle-options 的同一顆(不建立第二套車款比對邏輯)。
   const { crossLayer, options: modelOptions } = modelFieldOptions(
-    data.motoBrands,
+    motoBrands,
     vehicle?.brand ?? null,
   );
   const pickModel = (picked: string) => {
-    const resolved = resolveModelPick(data.motoBrands, vehicle?.brand ?? null, picked);
+    const resolved = resolveModelPick(motoBrands, vehicle?.brand ?? null, picked);
     if (!resolved) return;
     // 跨層命中 → 先立廠牌再立車型(reducer 的 select-model 在無廠牌時是 no-op)
     if (resolved.brand !== vehicle?.brand) dispatch(selectVehicleBrand(resolved.brand));
@@ -105,7 +109,7 @@ export function CascadeFilterTop({
           <VehicleCombo
             label="選擇廠牌"
             value={vehicle?.brand ?? null}
-            options={data.motoBrands.map((brand) => brand.name)}
+            options={motoBrands.map((brand) => brand.name)}
             placeholder="選擇或輸入廠牌"
             emptyHint={VEHICLE_EMPTY_HINTS.brand}
             onPick={(name) => dispatch(selectVehicleBrand(name))}
@@ -129,8 +133,10 @@ export function CascadeFilterTop({
             label="選擇年份"
             value={vehicle?.year != null ? String(vehicle.year) : null}
             options={years.map(String)}
-            disabled={!vehicle || vehicle.model == null || modelHasNoYears}
-            placeholder={modelHasNoYears ? '不限年份' : '選擇或輸入年份'}
+            disabled={!vehicle || vehicle.model == null || modelHasNoYears || yearsPending}
+            placeholder={
+              yearsPending ? (yearsFailed ? YEARS_FAILED_TEXT : YEARS_LOADING_TEXT) : modelHasNoYears ? '不限年份' : '選擇或輸入年份'
+            }
             emptyHint={VEHICLE_EMPTY_HINTS.year}
             onPick={(year) => dispatch(selectVehicleYear(Number(year)))}
             onClear={() => {
@@ -142,7 +148,7 @@ export function CascadeFilterTop({
         <div className="cft-right">
           {/* V-1e:「我的愛車」鈕(登入會員才顯示、點開展膠囊、套用=dispatch 進同一 cascade)。
               ADR-0007 桌機決定 4:位置與中性配色不動。 */}
-          <GarageChips garage={garage} motoBrands={data.motoBrands} dispatch={dispatch} variant="top" />
+          <GarageChips garage={garage} motoBrands={motoBrands} dispatch={dispatch} variant="top" />
           {/* A7 / Sean 08-03 拍 Q3=A:桌機「清除車輛」= 清車 + 清分類,與手機一致
               (參考實作 ProductsMobileControls.tsx 的 clearVehicleAndCategory)。鈕字面不變。
               🔴 這是**唯一**改到的清除語意。上方廠牌欄的 onClear 是 combobox 單欄清空
