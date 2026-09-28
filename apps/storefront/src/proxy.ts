@@ -26,7 +26,8 @@ import { resolveSiteMode } from '@/lib/site-mode';
 import { authCookieBase, decideSiteAccess, isAuthCookieName, resolveRawTier, tierReaderFrom } from '@/lib/site-access';
 import { DEALER_APPLY_URL, type SiteLoginError } from '@/lib/auth/site-login-copy';
 
-const EXEMPT_PAGES = new Set(['/login', '/login/reset', '/auth/confirm', '/auth/callback']);
+// `/api/csp-report`:瀏覽器送的 CSP 違規回報(同網域會帶登入 cookie)⇒ 不為每則回報跑一次會員等級查詢。
+const EXEMPT_PAGES = new Set(['/login', '/login/reset', '/auth/confirm', '/auth/callback', '/api/csp-report']);
 const EXEMPT_ACTIONS = new Set(['/login/reset']);
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {

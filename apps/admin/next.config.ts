@@ -71,7 +71,38 @@ const FONT_GLOBS = ['noto-sans', 'noto-sans-tc'].flatMap((pkg) => [
   `../../node_modules/.pnpm/@fontsource+${pkg}@*/node_modules/@fontsource/${pkg}/files/*-700-normal.woff2`,
 ]);
 
+/* 安全標頭(2026-09-29 Sean 批准;計畫 ~/pcm-mailbox/計畫-安全標頭-20260928.md;理由同 storefront 那份的註解)。
+ * 🔴 **後台刻意不設 Referrer-Policy**:SSO 與 session 三支檔(七處)自己設 `no-referrer`(網址帶 state,不能外洩),
+ *    而 Next 會以 next.config 的同名標頭為準、把路由的丟掉(R1 審查查 Next 16.3.6 `router-server.js:397`、
+ *    `send-response.js:47-52`)。瀏覽器預設本來就是 strict-origin-when-cross-origin,不設不少任何保護。
+ *    `src/lib/security-headers.test.ts` 掃「路由自己 set 的標頭 ∩ 這裡的標頭」必須是空的。 */
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "connect-src 'self'",
+  "frame-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+  'report-uri https://www.pcmmotorsports.com/api/csp-report',
+].join('; ');
+const SECURITY_HEADERS = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  { key: 'Content-Security-Policy-Report-Only', value: CSP_REPORT_ONLY },
+];
+
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: '/:path*', headers: SECURITY_HEADERS }];
+  },
   // 🔴🔴 **首頁大圖「選檔上傳」的 body 上限**(Sean 2026-09-16 逐字「甲 = 改設定, 上限提到 5MB」)。
   //
   // 為什麼一定要設:Next 16.3.0 的預設是 **1 MB**
