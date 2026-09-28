@@ -67,6 +67,10 @@ function buildColumns(
   {
     key: 'title',
     header: '商品名稱',
+    // 2026-09-29 走一遍:共用表格預設不換行, 一件 61 字的名稱就把表撐到 1840px, 售價 / 狀態被切掉又捲不到
+    //   (寬螢幕外層是 overflow-x: clip, 為了凍結表頭)。名稱、料號、品牌、分類改成可換行。
+    //   要加 `!`:共用表格的 `whitespace-nowrap` 在產出的 CSS 裡排在後面, 不加蓋不過(本機實測)。
+    className: 'whitespace-normal! min-w-48',
     // 片1b-1:名稱點進詳情頁。做法沿用 components/customers/customers-table.tsx:18
     // (`AdminDataTable` 沒有整列連結的 API ⇒ 連結包在名稱欄,不去改共用表格元件)。
     cell: (row) => (
@@ -108,10 +112,18 @@ function buildColumns(
         },
       ]
     : []),
-  { key: 'external_id', header: '料號', cell: (row) => <span className='font-mono'>{row.external_id}</span>, mobile: 'sub' },
+  {
+    key: 'external_id',
+    header: '料號',
+    // 有的料號是幾個料號串起來的(例 Evotech 60 字), 不斷行一樣會撐寬 ⇒ 允許在任何字元斷行。
+    className: 'whitespace-normal! break-all min-w-28',
+    cell: (row) => <span className='font-mono'>{row.external_id}</span>,
+    mobile: 'sub',
+  },
   {
     key: 'brand',
     header: '品牌',
+    className: 'whitespace-normal! min-w-24',
     // 🔴 `null` 回 `null` ⇒ `AdminDataTable` 自己渲染「—」(同 `priceCell` 的紀律)。
     //    **不在這裡編一個空字串** —— 空白格與「這一欄還沒載入」在畫面上分不開。
     //    (`brand_id` 在 DB 上是 NOT NULL,而**正式庫量到填充率 100%**
@@ -122,6 +134,7 @@ function buildColumns(
   {
     key: 'category',
     header: '分類',
+    className: 'whitespace-normal! min-w-32',
     // 顯示完整路徑(`'引擎部品 · 排氣管'`)而不是只顯示子類名 ——
     // 子類名單獨看常常認不出是哪一塊(例「卡鉗」屬煞車還是屬避震)。
     cell: (row) => row.categories?.raw_path ?? null,

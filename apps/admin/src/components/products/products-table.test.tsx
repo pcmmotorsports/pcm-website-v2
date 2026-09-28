@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +28,22 @@ describe('商品頁乙 A4:縮圖與缺貨標記', () => {
     const delisted = renderToStaticMarkup(<ProductsTable rows={[{ ...ROW, availability: 'out-of-stock', delisted_at: '2026-09-01T00:00:00Z' }]} />);
     expect(delisted).toContain('已下架');
     expect(delisted).not.toContain('缺貨');
+  });
+});
+
+// 2026-09-29 走一遍:一件 61 字的名稱或 60 字的料號就把表撐到 1840px, 售價 / 狀態被切掉又捲不到。
+describe('長名稱、長料號不撐寬表格', () => {
+  it('🔴 名稱、料號、品牌、分類那幾格可以換行(蓋過共用表格的 whitespace-nowrap)', () => {
+    const out = renderToStaticMarkup(<ProductsTable rows={[ROW]} />);
+    // 找「畫面上的字」在哪一格(勾選框那格的 data-title 也有名稱, 所以比對 >字<)
+    const cellOf = (text: string) => out.split('<td ').slice(1).find((td) => td.slice(0, td.indexOf('</td>') + 5).includes(text))?.match(/class="([^"]*)"/)?.[1] ?? '';
+    for (const text of ['>Brake Lever<', '>X-1<', '>B<', '>A · B<']) {
+      expect(cellOf(text), text).toContain('whitespace-normal!');
+    }
+  });
+  it('🔴 搜尋時「目前搜尋 / 清除搜尋」那行沒有被 CSS 藏起來', () => {
+    const css = readFileSync(resolve(__dirname, '../../app/globals.css'), 'utf8');
+    expect(css).not.toMatch(/\.pcm-search p\s*\{[^}]*display:\s*none/);
   });
 });
 
