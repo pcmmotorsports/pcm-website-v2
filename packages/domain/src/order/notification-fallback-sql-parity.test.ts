@@ -80,3 +80,35 @@ describe('SQL 與 TS 的 manual_* 值域要一致(兩份會各自漂)', () => {
     expect(sql).not.toContain('zzz_never_a_source_xyz');
   });
 });
+
+/**
+ * ⟦b4-MANUALBLANKSTUCK⟧ 20260928235000:每日告警那兩支函式(`get_order_created_stuck_count`、
+ * `get_order_created_gap_counts`)也排除「manual_* 且 notification_email 空白」—— 同一組值域的【第三個家】。
+ * 🔴 怎麼會紅:任一個子查詢少了那一段(數量不是 4)、值域與 TS 不同、或拿掉 `order_source IS NULL`
+ *    那一格(來源不明的單會被靜靜排除,與 TS「照舊寄」相反)。
+ * ⚠️ 它比的是那一支檔案的字面,不是正式庫現在跑的版本(同檔上面那段的限制)。
+ */
+describe('告警函式那一支 migration 的 manual_* 值域也要與 TS 一致', () => {
+  const MIG = resolve(
+    __dirname,
+    '../../../../supabase/migrations/20260928235000_m4b_order_created_alert_skip_manual_blank.sql',
+  );
+  const sql = readFileSync(MIG, 'utf8');
+  const list = MANUAL_ORDER_SOURCES_FOR_EMAIL.map((v) => `'${v}'`).join(', ');
+
+  it('🔴 四個子查詢(stuck_count、oldest_stuck_minutes、paid_no_email_count、no_recipient_count)都有那一段,值域逐字等於 TS', () => {
+    const lines = sql.split('\n').filter((l) => /^ {13}OR o\.order_source NOT IN \(/.test(l));
+    expect(lines.length, '少了一處 ⇒ 那個數字照樣把手動留白的單算成誤報').toBe(4);
+    for (const l of lines) expect(l.trim()).toBe(`OR o.order_source NOT IN (${list})`);
+  });
+
+  it('🔴 四處都保留 `order_source IS NULL`(來源不明照舊算,與 TS 同方向)', () => {
+    const lines = sql.split('\n').filter((l) => /^ {16}o\.order_source IS NULL$/.test(l));
+    expect(lines.length).toBe(4);
+  });
+
+  it('🔴 後置閘裡那一份(引號加倍的字串)也與 TS 一致', () => {
+    const doubled = MANUAL_ORDER_SOURCES_FOR_EMAIL.map((v) => `''${v}''`).join(', ');
+    expect(sql).toContain(`'OR o.order_source NOT IN (${doubled})'`);
+  });
+});
