@@ -6,6 +6,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { ProductPage } from './ProductPage';
+import { ProductRelated } from './ProductRelated';
 import { CartProvider } from '../contexts/CartContext';
 import { renderNextLike, router, type NextLikeHarness } from './test-utils/next-like-router';
 import type { LandingMode } from './test-utils/next-like-navigation';
@@ -56,17 +57,16 @@ afterEach(() => {
 
 const page = () => (
   <CartProvider>
-    {/* 🔴 `relatedMoreHref` 是伺服器依【當時網址】算的,帶著那時的車款 ⇒ 清車後不能再用它。
-        `relatedHasVehicle` 跟著一起給:route 是 `relatedHasVehicle={vehicle != null}`
-        (`app/products/[slug]/page.tsx:288,328`)⇒ 連結帶車 = 這個旗標為真,兩者在正式站不會不一致。 */}
+    {/* 🔴 `moreHref` 是伺服器依【當時網址】算的,帶著那時的車款 ⇒ 清車後不能再用它。
+        `hasVehicle` 跟著一起給:`ProductRelatedServer` 是 `hasVehicle={vehicle != null}`
+        ⇒ 連結帶車 = 這個旗標為真,兩者在正式站不會不一致。
+        推薦區 2026-09-28 起是 page.tsx 傳進來的 slot, 這裡照同樣形狀把 ProductRelated 塞進去,
+        它讀 ProductPage 提供的車款意圖 context。 */}
     <ProductPage
       product={PRODUCT}
       tier="general"
-      related={MOCK_PRODUCTS.slice(1, 3)}
-      relatedHasMore
-      relatedMoreHref="/products?vehicle=yamaha%3Amt-07"
-      relatedHasVehicle
       motoBrands={MOTO}
+      relatedSlot={<ProductRelated related={MOCK_PRODUCTS.slice(1, 3)} hasMore moreHref="/products?vehicle=yamaha%3Amt-07" hasVehicle />}
     />
   </CartProvider>
 );
@@ -169,7 +169,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       () => (
         <CartProvider>
           {/* 通用商品:沒有 fitments ⇒ 適用判斷那一區本來整段不畫,提示要在那道早退之前 */}
-          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" related={[]} motoBrands={MOTO} />
+          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" motoBrands={MOTO} />
         </CartProvider>
       ),
       { mode, url: '/products/lightech-1?vehicle=yamaha:nosuch' },
@@ -191,7 +191,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       () => (
         <CartProvider>
           {/* route 對沒有 fitments 的商品就是傳空字典 */}
-          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" related={[]} motoBrands={[]} />
+          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" motoBrands={[]} />
         </CartProvider>
       ),
       { mode, url: '/products/lightech-1' },
@@ -211,7 +211,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     let product = PRODUCT;
     const mutable = () => (
       <CartProvider>
-        <ProductPage product={product} tier="general" related={[]} motoBrands={dict} />
+        <ProductPage product={product} tier="general" motoBrands={dict} />
       </CartProvider>
     );
     h = renderNextLike(mutable, { mode, url: '/products/lightech-1?vehicle=yamaha:nosuch' });
@@ -236,7 +236,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
         () => (
           <CartProvider>
             {/* 車款清單撈失敗 ⇒ route 傳空字典(通用商品那條路網址不會帶車款) */}
-            <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={[]} vehicleTaxonomyFailed />
+            <ProductPage product={PRODUCT} tier="general" motoBrands={[]} vehicleTaxonomyFailed />
           </CartProvider>
         ),
         { mode, url },
@@ -259,7 +259,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       let failed = false;
       const mutable = () => (
         <CartProvider>
-          <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={dict} vehicleTaxonomyFailed={failed} />
+          <ProductPage product={PRODUCT} tier="general" motoBrands={dict} vehicleTaxonomyFailed={failed} />
         </CartProvider>
       );
       h = renderNextLike(mutable, { mode, url: '/products/lightech-1?vehicle=yamaha:mt-07' });
@@ -304,7 +304,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
       let failed = false;
       const mutable = () => (
         <CartProvider>
-          <ProductPage product={PRODUCT} tier="general" related={[]} motoBrands={dict} vehicleTaxonomyFailed={failed} />
+          <ProductPage product={PRODUCT} tier="general" motoBrands={dict} vehicleTaxonomyFailed={failed} />
         </CartProvider>
       );
       h = renderNextLike(mutable, { mode, url: '/products/lightech-1?vehicle=yamaha:mt-07' });
@@ -341,7 +341,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     let product: typeof PRODUCT = { ...MOCK_PRODUCTS[0]!, fitments: [] };
     const mutable = () => (
       <CartProvider>
-        <ProductPage product={product} tier="general" related={[]} motoBrands={dict} />
+        <ProductPage product={product} tier="general" motoBrands={dict} />
       </CartProvider>
     );
     h = renderNextLike(mutable, { mode, url: '/products/universal-1' });
@@ -389,7 +389,7 @@ describe('商品詳情頁:車款停在客人最後選的那台', () => {
     h = renderNextLike(
       () => (
         <CartProvider>
-          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" related={[]} motoBrands={[]} />
+          <ProductPage product={{ ...MOCK_PRODUCTS[0]!, fitments: [] }} tier="general" motoBrands={[]} />
         </CartProvider>
       ),
       { mode, url: '/products/lightech-1' },

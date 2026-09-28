@@ -45,7 +45,7 @@ vi.mock('./rule-based-engine', () => ({
   },
 }));
 
-const { fetchRecommendedProducts } = await import('./fetch-recommendations');
+const { fetchRecommendedProducts, testOnlyRecoDelay } = await import('./fetch-recommendations');
 
 beforeEach(() => {
   cacheStore.clear();
@@ -69,5 +69,33 @@ describe('PDP 推薦快取回副本', () => {
     expect(b).toEqual(a);
     expect(b).not.toBe(a);
     expect(b.items[0]).not.toBe(a.items[0]);
+  });
+});
+
+describe('量串流用的人工延遲只在本機生效(計畫 §6-3)', () => {
+  const settled = async (env: Parameters<typeof testOnlyRecoDelay>[0]): Promise<boolean> => {
+    vi.useFakeTimers();
+    try {
+      let done = false;
+      void testOnlyRecoDelay(env).then(() => {
+        done = true;
+      });
+      await vi.advanceTimersByTimeAsync(4999);
+      return done;
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it('🔴 Vercel 上(VERCEL=1)設了延遲也不等', async () => {
+    expect(await settled({ VERCEL: '1', PCM_TEST_RECO_DELAY_MS: '5000' })).toBe(true);
+  });
+
+  it('本機(沒有 VERCEL)設了延遲就等滿', async () => {
+    expect(await settled({ PCM_TEST_RECO_DELAY_MS: '5000' })).toBe(false);
+  });
+
+  it('沒設延遲就不等', async () => {
+    expect(await settled({})).toBe(true);
   });
 });

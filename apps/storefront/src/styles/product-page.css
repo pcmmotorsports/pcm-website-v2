@@ -2372,3 +2372,11 @@
      與 `/brands/` 現在的行為相同。plan:`docs/plans/2026-09-17-products-soft-404-plan.md`。
    🛑 **這段墓碑留著**:拿 `pd-route-loading` 去搜的人要在同一發撞到這裡,
       而不是找到一個死掉的 class 然後以為它還在用。 */
+
+/* 推薦區載入骨架(計畫-商品頁推薦查詢逾時 §4 甲-7):閃爍條沿用型錄的 .pp-loading-*;
+   圖區改成跟商品卡一樣 1:1, 標題條佔 .pd-h2 的高度, 補上前後版面不跳。
+   高度是 2026-09-28 本機 1440 / 390 寬實量對齊的:真卡片 = 卡寬 + 117px, 骨架原本 = 卡寬 + 76px。 */
+.pd-related-grid .pd-related-skel .pp-loading-image { aspect-ratio: 1 / 1; }
+.pd-related-grid .pd-related-skel { padding-bottom: 41px; }
+.pd-related-skel-title { width: 180px; height: calc(clamp(26px, 3.1vw, 36px) * 1.2); margin-bottom: 16px; }
+.pd-related-skel-more { display: inline-block; vertical-align: top; width: 168px; height: 36px; }

@@ -74,11 +74,27 @@ async function fetchRecommendedProductsUncached(
   vehicle: VehicleSelection | undefined,
   limit: number,
 ): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> {
+  await testOnlyRecoDelay();
   try {
     const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     const product = await adapter.findByHandle(handle); // domain Product(含 brand.id)
     if (!product) return { items: [], hasMore: false };
+
+    // 計畫-商品頁推薦查詢逾時 §7-5:量車款池那一段(listByFitment 兩步合計)花多久、回幾件。
+    // 車款池空時同分類備援也會把 items 填滿 ⇒ 要看 primaryPool 才知道車款池有沒有回東西。
+    let poolMs: number | null = null;
+    let primaryPool: number | null = null;
+    if (vehicle) {
+      const listByFitment = adapter.listByFitment.bind(adapter);
+      adapter.listByFitment = async (spec, poolLimit) => {
+        const t0 = performance.now();
+        const pool = await listByFitment(spec, poolLimit);
+        poolMs = Math.round(performance.now() - t0);
+        primaryPool = pool.length;
+        return pool;
+      };
+    }
 
     const engine = new RuleBasedRecommendationEngine(adapter);
     const result = await engine.recommend({
@@ -86,9 +102,27 @@ async function fetchRecommendedProductsUncached(
       context: { product, vehicle, excludeHandles: [handle] },
       limit,
     });
+    // 只在快取沒命中時會印 ⇒ 這行出現 = 查詢真的跑了(上線後 24 小時的正對照靠它)。
+    const vehicleKey = vehicle ? `${vehicle.motoBrand}:${vehicle.modelCode}:${vehicle.year ?? ''}` : '-';
+    console.info(
+      `[reco] computed handle=${handle} vehicle=${vehicleKey} poolMs=${poolMs ?? '-'} primaryPool=${primaryPool ?? '-'} items=${result.items.length}`,
+    );
     return { items: result.items.map((i) => i.product), hasMore: result.hasMore };
   } catch (err) {
     console.error('[fetchRecommendedProducts] recommendation fetch failed:', err);
     return { items: [], hasMore: false };
   }
+}
+
+/**
+ * 量「推薦晚到時商品主體有沒有被擋住」用的人工延遲(計畫 §6-3)。
+ * 🔴 只在 `VERCEL !== '1'` 生效:Vercel 每一種部署執行時都有 `VERCEL=1`,正式站誤設這個變數也不會變慢;
+ *    本機 `next start` 沒有 `VERCEL`,可以用。不用 `NODE_ENV`,因為本機 `next start` 也是 production。
+ */
+export async function testOnlyRecoDelay(
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
+  if (env.VERCEL === '1') return;
+  const ms = Number(env.PCM_TEST_RECO_DELAY_MS);
+  if (Number.isFinite(ms) && ms > 0) await new Promise((r) => setTimeout(r, ms));
 }
