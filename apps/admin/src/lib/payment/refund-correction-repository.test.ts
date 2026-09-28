@@ -11,6 +11,7 @@ vi.mock('@pcm/adapters/server', () => ({
 }));
 
 import {
+  CORRECTION_ACTOR_GATE_MARKER,
   CORRECTION_P2B44_MARKERS,
   CORRECTION_REQUEST_ID_UNIQUE,
   CORRECTION_RPC_RAISE_CODES,
@@ -30,6 +31,11 @@ import {
 const MIGRATION = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../../../../../supabase/migrations/20260814190000_m4b_e10_473b1_refund_manual_corrections.sql',
+);
+
+const ACTOR_GATE_MIGRATION = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../../../supabase/migrations/20260929010000_m4b_01c_correct_verdict_actor_gate.sql',
 );
 
 const REFUND = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -115,6 +121,38 @@ describe('🔴 跨側:我的碼表 vs migration 裡【真的 RAISE 出來】的�
 
   it('🔴 負對照:一句編出來的話比不到(證明上一格不是「什麼都算有」)', () => {
     expect(sql).not.toContain('本支只更正人工判定zzq6641');
+  });
+});
+
+describe('🔴 20260929010000 在職檢查:「P0001 + 無權執行此操作」⇒ 沒有權限, 其他 P0001 照舊原樣拋', () => {
+  const gateSql = readFileSync(ACTOR_GATE_MIGRATION, 'utf8');
+
+  it('跨側:那支 migration 真的 RAISE 這一句(字面尺, RPC 改字時這一格會叫)', () => {
+    expect(gateSql).toContain(`RAISE EXCEPTION '${CORRECTION_ACTOR_GATE_MARKER}';`);
+  });
+
+  it('🔴 P0001 沒有加進碼表 —— 本支 G4 另有兩句無 ERRCODE 的 P0001(找不到退款 / 鎖前後不一致), 那是異常不是沒權限', () => {
+    expect((CORRECTION_RPC_RAISE_CODES as readonly string[]).includes('P0001')).toBe(false);
+  });
+
+  it('P0001 + 無權執行此操作 ⇒ CorrectionRejectedError, sqlstate 帶 P0001', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'P0001', message: CORRECTION_ACTOR_GATE_MARKER },
+    });
+    const err = await correctRefundVerdict(input()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CorrectionRejectedError);
+    expect((err as CorrectionRejectedError).sqlstate).toBe('P0001');
+  });
+
+  it('🔴 對照:P0001 而訊息是「找不到退款」⇒ 原樣拋(不得說成沒有權限)', async () => {
+    const raw = {
+      code: 'P0001',
+      message: 'admin_correct_order_refund_verdict:找不到退款(aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa)',
+    };
+    mocks.rpc.mockResolvedValue({ data: null, error: raw });
+    const err = await correctRefundVerdict(input()).catch((e: unknown) => e);
+    expect(err).toBe(raw);
   });
 });
 

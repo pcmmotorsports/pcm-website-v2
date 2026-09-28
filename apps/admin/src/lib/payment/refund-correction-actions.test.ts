@@ -150,6 +150,9 @@ describe('🔴 結果碼分派 —— stale 與 bug 必須讓員工做【相反�
     ['P8C03', 'correction_not_applicable'],
     ['P2B43', 'correction_bug'],
     ['P8C01', 'correction_bug'],
+    // 20260929010000:停用或不存在的操作人被資料庫擋下 ⇒ 沒有權限, 不是系統異常。
+    // (repository 只在「P0001 + 無權執行此操作」時才包成 Rejected, 其他 P0001 原樣拋 ⇒ 到這裡是 bug。)
+    ['P0001', 'correction_denied'],
   ] as const)('SQLSTATE %s ⇒ %s', async (sqlstate, expected) => {
     mocks.correct.mockRejectedValue(new CorrectionRejectedError(sqlstate, 'x'));
     expect(await correctVerdictAction({ ok: true }, fd())).toEqual({ ok: false, code: expected });

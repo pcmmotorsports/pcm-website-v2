@@ -60,6 +60,9 @@ function toResultCode(sqlstate: string, message: string): CorrectionResultCode {
       return 'correction_invalid';
     case 'P8C03':
       return 'correction_not_applicable';
+    // 20260929010000:操作人不是在職員工(repository 只在帶「無權執行此操作」時才丟這個碼)。
+    case 'P0001':
+      return 'correction_denied';
     // P2B43(row_count / row_count_audit)與 P8C01(isolation)都是「不該發生」的縱深斷言
     // ⇒ 它們不是員工填錯,是我們這一側出事了。
     default:
