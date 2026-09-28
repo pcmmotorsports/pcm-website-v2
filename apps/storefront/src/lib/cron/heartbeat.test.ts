@@ -20,8 +20,10 @@ import {
   HEARTBEAT_PING_MS,
   pingExternalHeartbeat,
   pingTarget,
+  pingUrlFor,
   recordHeartbeatFailure,
   recordHeartbeatSuccess,
+  sendHeartbeatStart,
 } from './heartbeat';
 
 // heartbeat.test.ts — ⟦b4-CRON6⟧ 片1 寫入端的守門。
@@ -758,4 +760,119 @@ describe('⟦b4-CRON6⟧ 心跳耗時那一行', () => {
     const dbMs = Number(/\bdb=(\d+)ms\b/.exec(hit ?? '')?.[1] ?? '-1');
     expect(dbMs, '碼錶壞了會印 db=0ms, 而它的形狀完全正確').toBeGreaterThan(100);
   });
+});
+
+// ══ ⟦b4-CRON60SDOGPILE⟧ 片 1:開始訊號 / rid / fail(計畫 ~/pcm-mailbox/計畫-寄信排程逾時-20260928.md)══
+describe('⟦b4-CRON60SDOGPILE⟧ 片 1 · 網址', () => {
+  const BASE = 'https://hc-ping.com/aaaa-bbbb';
+
+  it('沒給選項 ⇒ 網址【逐位元不變】(其他四支排程靠這一格)', () => {
+    // 🔴 怎麼會紅:一律去尾斜線或一律加參數 ⇒ 其他四支送出的網址變了。
+    expect(pingUrlFor(BASE)).toBe(BASE);
+    expect(pingUrlFor(`${BASE}/`)).toBe(`${BASE}/`);
+    expect(pingUrlFor(BASE, {})).toBe(BASE);
+  });
+
+  it('開始 / 失敗 / 成功帶 rid 的網址形狀,尾斜線不會變成 //start', () => {
+    const rid = '11111111-2222-3333-4444-555555555555';
+    expect(pingUrlFor(BASE, { signal: 'start', rid })).toBe(`${BASE}/start?rid=${rid}`);
+    expect(pingUrlFor(`${BASE}/`, { signal: 'start', rid })).toBe(`${BASE}/start?rid=${rid}`);
+    expect(pingUrlFor(BASE, { signal: 'fail', rid })).toBe(`${BASE}/fail?rid=${rid}`);
+    expect(pingUrlFor(BASE, { rid })).toBe(`${BASE}?rid=${rid}`);
+  });
+
+  it('pingExternalHeartbeat 帶選項 ⇒ 真的打到那個網址', async () => {
+    vi.stubEnv('HEALTHCHECKS_PING_URL_PCM_EMAIL_SWEEP', `${BASE}/`);
+    const calls: string[] = [];
+    const fake = (async (u: string | URL | Request) => {
+      calls.push(String(u));
+      return { ok: true, status: 200 } as Response;
+    }) as unknown as typeof fetch;
+    await pingExternalHeartbeat(CRON_JOB_NAME.emailSweep, Date.now() + 2000, fake, { signal: 'start', rid: 'r-1' });
+    expect(calls).toEqual([`${BASE}/start?rid=r-1`]);
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('⟦b4-CRON60SDOGPILE⟧ 片 1 · sendHeartbeatStart', () => {
+  it('送 start + rid,截止時間用 HEARTBEAT_PING_MS(3.2 秒)', async () => {
+    const ping = vi.fn(async () => {});
+    const before = Date.now();
+    await sendHeartbeatStart(CRON_JOB_NAME.emailSweep, 'rid-a', ping as unknown as typeof pingExternalHeartbeat);
+    expect(ping).toHaveBeenCalledTimes(1);
+    const [job, deadline, fetchArg, opts] = ping.mock.calls[0] as unknown as [string, number, unknown, unknown];
+    expect(job).toBe('pcm-email-sweep');
+    expect(fetchArg).toBeUndefined();
+    expect(opts).toEqual({ signal: 'start', rid: 'rid-a' });
+    // 🔴 怎麼會紅:改回 1 秒上限(第二版的寫法,Fable R2 必修)⇒ deadline 太近。
+    expect(deadline).toBeGreaterThanOrEqual(before + HEARTBEAT_PING_MS);
+    expect(deadline).toBeLessThanOrEqual(Date.now() + HEARTBEAT_PING_MS);
+  });
+
+  it('送出那一層拋錯 ⇒ 吃掉,不往上拋(監控不得弄死寄信)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ping = vi.fn(async () => { throw new TypeError('boom'); });
+    await expect(
+      sendHeartbeatStart(CRON_JOB_NAME.emailSweep, 'rid-b', ping as unknown as typeof pingExternalHeartbeat),
+    ).resolves.toBeUndefined();
+    expect(String(spy.mock.calls[0]?.[0])).toContain('TypeError');
+    spy.mockRestore();
+  });
+});
+
+describe('⟦b4-CRON60SDOGPILE⟧ 片 1 · 成功訊號帶 rid', () => {
+  it('給了 rid ⇒ 成功訊號帶 { rid };沒給 ⇒ 仍只傳兩個參數(其他四支不變)', async () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const ping = vi.fn(async () => {});
+    await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep, fakeStore().store, ping as unknown as typeof pingExternalHeartbeat, Date.now(), 'rid-c');
+    expect((ping.mock.calls[0] as unknown[])[3]).toEqual({ rid: 'rid-c' });
+    ping.mockClear();
+    await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep, fakeStore().store, ping as unknown as typeof pingExternalHeartbeat);
+    // 🔴 怎麼會紅:沒給 rid 也多傳 undefined 參數 ⇒ 這裡長度變 4。
+    expect(ping.mock.calls[0]).toHaveLength(2);
+    spy.mockRestore();
+  });
+});
+
+describe('⟦b4-CRON60SDOGPILE⟧ 片 1 · 失敗訊號 /fail', () => {
+  it('給了 failRid ⇒ 送 fail + 同一個 rid,截止時間共用 HEARTBEAT_FAILURE_MAX_MS(2 秒)', async () => {
+    const ping = vi.fn(async () => {});
+    const before = Date.now();
+    await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep, fakeStore().store, {
+      failRid: 'rid-d',
+      pingImpl: ping as unknown as typeof pingExternalHeartbeat,
+    });
+    expect(ping).toHaveBeenCalledTimes(1);
+    const [job, deadline, , opts] = ping.mock.calls[0] as unknown as [string, number, unknown, unknown];
+    expect(job).toBe('pcm-email-sweep');
+    expect(opts).toEqual({ signal: 'fail', rid: 'rid-d' });
+    // 🔴 怎麼會紅:另外給 /fail 一份 3.2 秒 ⇒ 503 路徑最壞跨過 60 秒(Fable R4 建議)。
+    expect(deadline).toBeLessThanOrEqual(before + HEARTBEAT_FAILURE_MAX_MS + 50);
+  });
+
+  it('沒給 failRid ⇒ 不送任何外部訊號(其他四支不變)', async () => {
+    const ping = vi.fn(async () => {});
+    await recordHeartbeatFailure(CRON_JOB_NAME.settleSweep, fakeStore().store, {
+      pingImpl: ping as unknown as typeof pingExternalHeartbeat,
+    });
+    expect(ping).not.toHaveBeenCalled();
+  });
+
+  it('🔴 DB 寫入卡住 ⇒ /fail 照樣送出,而且整支仍在 2 秒上限附近結束', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ping = vi.fn(async () => {});
+    const stuck = {
+      readFailureCount: () => new Promise<number | null>(() => {}),
+      write: () => new Promise<{ error: unknown }>(() => {}),
+    } as unknown as HeartbeatStore;
+    const t0 = Date.now();
+    await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep, stuck, {
+      failRid: 'rid-e',
+      pingImpl: ping as unknown as typeof pingExternalHeartbeat,
+    });
+    // 🔴 怎麼會紅:把 /fail 放在 DB 之後才送 ⇒ DB 卡住時預算用光、/fail 不送(或送出時已經 0 毫秒)。
+    expect(ping).toHaveBeenCalledTimes(1);
+    expect(Date.now() - t0).toBeLessThan(HEARTBEAT_FAILURE_MAX_MS + 500);
+    spy.mockRestore();
+  }, 10_000);
 });

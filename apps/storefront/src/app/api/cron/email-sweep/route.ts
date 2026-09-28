@@ -87,7 +87,7 @@ import {
   BankAmountChangedScanQueryError,
 } from '@pcm/adapters/server';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
-import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
+import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure, sendHeartbeatStart } from '@/lib/cron/heartbeat';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -563,6 +563,16 @@ export async function GET(request: Request): Promise<Response> {
   if (!checkCronRateLimit('email-sweep')) {
     return new Response(null, { status: 429 });
   }
+
+  // 1c'. ⟦b4-CRON60SDOGPILE⟧ 片 1:告訴 healthchecks「這一輪開始了」(`/start?rid=`)。
+  //     計畫 `~/pcm-mailbox/計畫-寄信排程逾時-20260928.md`(Sean 2026-09-28 Q1 甲、Q2 甲)。
+  //     🔴 位置在認證與限流【之後】:401 / 429 / secret 設定錯都不送,否則未授權的請求會製造「開始而沒成功」的假告警。
+  //     🔴 要 await:不等的話成功訊號可能比開始訊號先到 ⇒ 誤告警。上限 3.2 秒、永不拋,不擋住寄信。
+  //     ⇒ 被平台中止的那一輪(不留任何紀錄、也不回 503)會在寬限(約 2 分鐘)到時告警;
+  //       成功與 503 都帶同一個 rid,healthchecks 才配得到同一輪。
+  //     rid 用全域 `crypto.randomUUID()`(Node runtime 內建):認證那段的 `node:crypto` import 行有 source-contract 測試釘住,不動它。
+  const heartbeatRid = crypto.randomUUID();
+  await sendHeartbeatStart(CRON_JOB_NAME.emailSweep, heartbeatRid);
 
   // 2. 建 deps + 跑 sweepEmailOutbox。
   //    deps 建構(getSweepEmailOutboxDeps)缺 env → requireEnv throw → 503 fail-closed(不偽 200;= 真寄前的自然閘)。
@@ -1466,7 +1476,7 @@ export async function GET(request: Request): Promise<Response> {
       warnIfSlowRound(invocationStartedAtMs, {
         enqueueStatus, shippedStatus, trackFixStatus, cancelledStatus, unpaidCancelStatus,
       });
-      await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
+      await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep, undefined, { failRid: heartbeatRid });
       return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...bankOrderSection, ...cancelledSection, ...partialRefundSection, ...partialCancelSection, ...returnReceivedSection, ...amountChangedSection }, { status: 503 });
     }
 
@@ -1487,6 +1497,7 @@ export async function GET(request: Request): Promise<Response> {
       undefined,
       undefined,
       invocationStartedAtMs,
+      heartbeatRid, // ⟦b4-CRON60SDOGPILE⟧ 片 1:與開始訊號同一個 rid
     );
     /**
      * ⟦QB-2⟧ **每輪印一行純數字**(Sean 2026-09-07 01:2x 逐字答「**乙**」)。
@@ -1511,7 +1522,7 @@ export async function GET(request: Request): Promise<Response> {
     console.error('[email-sweep] 🔴 sweeper 無法執行(deps/env 缺或非預期 throw、回 503;不吞 200 偽裝成功)', {
       reason: 'deps_or_unexpected_throw',
     });
-    await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
+    await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep, undefined, { failRid: heartbeatRid });
     return new Response(null, { status: 503 });
   }
 }

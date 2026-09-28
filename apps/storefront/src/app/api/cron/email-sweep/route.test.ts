@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const {
-  sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy, hbOkSpy, hbFailSpy,
+  sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy, hbOkSpy, hbFailSpy, hbStartSpy,
   shippedEnqueueSpy, getShippedDepsSpy,
   unpaidCancelSpy, getUnpaidCancelDepsSpy,
   trackFixSpy, getTrackFixDepsSpy,
@@ -32,6 +32,8 @@ const {
   getReturnReceivedDepsSpy: vi.fn(),
   hbOkSpy: vi.fn(),
   hbFailSpy: vi.fn(),
+  // ⟦b4-CRON60SDOGPILE⟧ 片 1:送 healthchecks `/start` 的那一支。不 mock 的話每一格 GET 都會跑真的實作、印錯誤 log。
+  hbStartSpy: vi.fn(),
   sweepSpy: vi.fn(),
   getDepsSpy: vi.fn(),
   // 🔴 B-5:enqueue 那半有**自己的** use-case 與**自己的** deps factory(plan §3.1)。
@@ -86,6 +88,7 @@ vi.mock('@/lib/cron/heartbeat', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   recordHeartbeatSuccess: hbOkSpy,
   recordHeartbeatFailure: hbFailSpy,
+  sendHeartbeatStart: hbStartSpy,
 }));
 
 import * as route from './route';
@@ -945,7 +948,8 @@ describe('GET email-sweep — 心跳三態', () => {
     sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, errors: 2 });
     const res = await GET(makeReq(bearer()));
     expect(res.status).toBe(503);
-    expect(hbFailSpy).toHaveBeenCalledWith('pcm-email-sweep');
+    // ⟦b4-CRON60SDOGPILE⟧ 片 1(Sean 2026-09-28 Q2 甲):503 那輪帶同一個 rid 送 /fail ⇒ 參數多了第三格。
+    expect(hbFailSpy).toHaveBeenCalledWith('pcm-email-sweep', undefined, { failRid: expect.any(String) });
     expect(hbOkSpy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
@@ -956,6 +960,86 @@ describe('GET email-sweep — 心跳三態', () => {
     expect(hbOkSpy).not.toHaveBeenCalled();
     expect(hbFailSpy).not.toHaveBeenCalled();
   });
+});
+
+// ══ ⟦b4-CRON60SDOGPILE⟧ 片 1:開始訊號(計畫 ~/pcm-mailbox/計畫-寄信排程逾時-20260928.md 第二節)══
+// 送 healthchecks `/start?rid=` 讓它量每一輪耗時、並在「開始了而沒成功」時告警。
+// 🔴 只能在認證與限流【之後】送:否則未授權的請求也會製造「開始而沒成功」的假告警(R1 建議)。
+describe('GET email-sweep — 開始訊號(/start?rid=)', () => {
+  beforeEach(() => {
+    hbStartSpy.mockReset().mockResolvedValue(undefined);
+    hbOkSpy.mockClear();
+    hbFailSpy.mockClear();
+  });
+
+  it('🟢 通過認證與限流 ⇒ 送一次開始訊號;成功訊號帶【同一個】rid,而且開始在成功之前', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    // 🔴 怎麼會紅:拿掉 route 裡送開始訊號那一行 ⇒ 0 次。
+    expect(hbStartSpy).toHaveBeenCalledTimes(1);
+    const [job, rid] = hbStartSpy.mock.calls[0]!;
+    expect(job).toBe('pcm-email-sweep');
+    expect(rid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    // 🔴 成功訊號沒帶 rid ⇒ healthchecks 配不到「最近開始的那一輪」⇒ 每一輪都在寬限後誤告警。
+    expect(hbOkSpy.mock.calls[0]![4], '成功訊號沒帶同一個 rid').toBe(rid);
+    expect(hbStartSpy.mock.invocationCallOrder[0]!).toBeLessThan(hbOkSpy.mock.invocationCallOrder[0]!);
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 503(errors>0)⇒ 失敗心跳帶同一個 rid 送 /fail,不送成功訊號', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, errors: 1 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    const rid = hbStartSpy.mock.calls[0]![1];
+    expect(hbFailSpy).toHaveBeenCalledWith('pcm-email-sweep', undefined, { failRid: rid });
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('🔴 503(建 deps 就拋)⇒ 失敗心跳也帶同一個 rid', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    getDepsSpy.mockImplementation(() => { throw new Error('RESEND_API_KEY not set'); });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    const rid = hbStartSpy.mock.calls[0]![1];
+    expect(hbFailSpy).toHaveBeenCalledWith('pcm-email-sweep', undefined, { failRid: rid });
+    spy.mockRestore();
+  });
+
+  it('🔴 [負對照] 401 / 500(secret 設定錯)/ 429 都【不】送開始訊號', async () => {
+    // 🔴 怎麼會紅:把送開始訊號那一行搬到認證或限流之前 ⇒ 這裡有呼叫。
+    expect((await GET(makeReq(bearer('b'.repeat(48))))).status).toBe(401);
+    expect((await GET(makeReq())).status).toBe(401);
+    process.env.CRON_SECRET = 'short';
+    expect((await GET(makeReq(bearer('short')))).status).toBe(500);
+    process.env.CRON_SECRET = SECRET;
+    for (let i = 0; i < CRON_RATE_MAX_HITS; i++) await GET(makeReq(bearer()));
+    hbStartSpy.mockClear();
+    expect((await GET(makeReq(bearer()))).status).toBe(429);
+    expect(hbStartSpy).not.toHaveBeenCalled();
+  });
+
+  it('每一輪的 rid 都不一樣(重疊的兩輪才配得開)', async () => {
+    await GET(makeReq(bearer()));
+    await GET(makeReq(bearer()));
+    const [a, b] = hbStartSpy.mock.calls.map((c) => c[1]);
+    expect(a).not.toBe(b);
+  });
+
+  it('🔴 開始訊號很慢(例如 1.5 秒)⇒ route 會等它送完才往下跑(不等的話成功訊號可能先到)', async () => {
+    let startDone = false;
+    hbStartSpy.mockImplementation(
+      () => new Promise<void>((r) => setTimeout(() => { startDone = true; r(); }, 1500)),
+    );
+    let doneWhenSweepRan: boolean | undefined;
+    sweepSpy.mockImplementation(async () => { doneWhenSweepRan = startDone; return { ...CLEAN_RESULT }; });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    // 🔴 怎麼會紅:把 `await sendHeartbeatStart(...)` 的 await 拿掉 ⇒ 寄信那段跑的時候開始訊號還沒送完。
+    expect(doneWhenSweepRan, '寄信開始時開始訊號還沒送完').toBe(true);
+  }, 10_000);
 });
 
 // ══════════════════════════════════════════════════════════════════════════
