@@ -175,7 +175,14 @@ function scanClientRandomness(): Record<string, number> {
     for (const p of walkCached(join(REPO_ROOT, root))) {
       // 🔴 先剝註解再判兩件事(既有前例 `cancel-order-forms.test.tsx` 的 must-fix:
       //    拿未剝註解的原始碼比 `'use client'` 會把「註解裡提到它」的檔一起算進來)。
-      const code = stripComments(readFileSync(p, 'utf8'));
+      //    🔵 2026-09-28 先用原文篩一次:原文沒有 `use client` 這串字 ⇒ 剝完註解也不會有
+      //       (剝註解只把註解換成空白;`'use client'` 是字串字面, 註解切不進字串裡)⇒ 結果一模一樣。
+      //       亂數那一半同理:三種字面都含 `random` 或 `Random`, 而註解切不進識別字
+      //       (`Math/**/.random` 剝完會命中, 但它原文也有 `random`)⇒ 原文沒有就不可能命中。
+      //       省下的是 TypeScript 解析:1,222 支檔只解析兩串字都有的(全套併跑時這格曾逾時 60 秒)。
+      const raw = readFileSync(p, 'utf8');
+      if (!raw.includes('use client') || !/[rR]andom/.test(raw)) continue;
+      const code = stripComments(raw);
       if (!/^\s*['"]use client['"]/.test(code)) continue;
       const hits = code.match(RANDOMNESS);
       if (hits) found[relative(REPO_ROOT, p)] = hits.length;
