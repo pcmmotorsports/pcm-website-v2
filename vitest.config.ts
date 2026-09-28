@@ -29,9 +29,31 @@
  * - exclude 不依賴繼承的合併語意(concat vs replace 官方未保證)⇒ 每個 project
  *   明寫完整清單(SHARED_EXCLUDE)。
  */
+import { execFileSync } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+
+// 🔴 **會起真瀏覽器的那一族(2026-09-28)另成一批, 在其他測試全部跑完之後才跑, 同時最多 BROWSER_WORKERS 支。**
+//    量到的病:全套 1,158 支檔預設 9 個 worker 一起跑, 21 支各開一個 Chromium 跟其他測試搶 CPU
+//    ⇒ 單跑 0.5 秒的格子(catalog-vehicle-sticks T2b)在全套裡 15 秒逾時、關瀏覽器 30 秒逾時。
+//    ⇒ 把「誰和誰同時跑」分開, 不是把逾時調大。
+//    · 清單來源 = `scripts/browser-test-family.py --list`(那支有正負對照自測;這裡不另寫一把尺)。
+//      它壞掉或回空 ⇒ 這裡丟錯, vitest 起不來(大聲), 不會安靜地少跑。
+//    · 只拆 admin / storefront 底下的;其他目錄若哪天出現瀏覽器測試, 它留在 node 那一批照常跑(不會漏)。
+//    · 清單裡有 `[id]` 這種路徑 ⇒ 方括號要跳脫, 否則被當成 glob 的字元集合、比對不到。
+//    ⚠️ `--project admin` / `--project storefront` 從此不含瀏覽器那幾支;要一起跑用 `--project 'admin*'`。
+const BROWSER_TESTS = execFileSync('python3', ['scripts/browser-test-family.py', '--list'], {
+  cwd: fileURLToPath(new URL('.', import.meta.url)),
+  encoding: 'utf8',
+})
+  .split('\n')
+  .filter(Boolean);
+const asGlob = (path: string) => path.replace(/[[\]]/g, '\\$&');
+const browserIn = (app: string) => BROWSER_TESTS.filter((p) => p.startsWith(`apps/${app}/`)).map(asGlob);
+// ponytail: 上限 3 是 10 核心這台量出來的;核心少的機器(CI)不超過 vitest 自己的預設 worker 數。
+const BROWSER_WORKERS = Math.max(1, Math.min(3, availableParallelism() - 1));
 
 // 共用 exclude(每個 project 逐字全列、不靠繼承合併):
 // - Playwright E2E specs 用 @playwright/test runner、非 vitest;vitest include 的 .spec
@@ -107,7 +129,22 @@ export default defineConfig({
         test: {
           name: 'storefront',
           include: ['apps/storefront/**/*.{test,spec}.{ts,tsx}'],
+          exclude: [...SHARED_EXCLUDE, ...browserIn('storefront')],
+        },
+      },
+      {
+        extends: true,
+        resolve: {
+          alias: {
+            '@': fileURLToPath(new URL('./apps/storefront/src', import.meta.url)),
+          },
+        },
+        test: {
+          name: 'storefront-browser',
+          include: browserIn('storefront'),
           exclude: SHARED_EXCLUDE,
+          maxWorkers: BROWSER_WORKERS,
+          sequence: { groupOrder: 1 },
         },
       },
       {
@@ -122,9 +159,25 @@ export default defineConfig({
         test: {
           name: 'admin',
           include: ['apps/admin/**/*.{test,spec}.{ts,tsx}'],
-          exclude: SHARED_EXCLUDE,
+          exclude: [...SHARED_EXCLUDE, ...browserIn('admin')],
           // 2026-09-14:jsdom 缺 `scrollIntoView` 的 stub 提成一處(原本三支測試就地補;理由在檔頭)。
           setupFiles: ['./apps/admin/src/lib/test-support/vitest-setup.ts'],
+        },
+      },
+      {
+        extends: true,
+        resolve: {
+          alias: {
+            '@': fileURLToPath(new URL('./apps/admin/src', import.meta.url)),
+          },
+        },
+        test: {
+          name: 'admin-browser',
+          include: browserIn('admin'),
+          exclude: SHARED_EXCLUDE,
+          setupFiles: ['./apps/admin/src/lib/test-support/vitest-setup.ts'],
+          maxWorkers: BROWSER_WORKERS,
+          sequence: { groupOrder: 1 },
         },
       },
       {
