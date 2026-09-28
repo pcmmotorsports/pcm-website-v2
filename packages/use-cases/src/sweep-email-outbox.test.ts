@@ -1674,10 +1674,16 @@ function paidCtx(over: Partial<PaidEmailContext> = {}): PaidEmailContext {
     ...over,
   };
 }
-const paidFake = (r: LoadPaidContextResult): IPaidEmailContext => ({
-  loadPaidContext: async () => r,
+/**
+ * ⟦f3-RECIPIENTBIND1⟧ 之後 `ok` 必帶 `orderId`。既有測項不關心這一格 ⇒ 沒給就回聲那一發查詢的 orderId;
+ * 要驗「內容屬於別張單」的測項自己給一個不同的值。
+ */
+type PaidFakeResult = LoadPaidContextResult | { kind: 'ok'; context: PaidEmailContext };
+const paidFake = (r: PaidFakeResult): IPaidEmailContext => ({
+  loadPaidContext: async ({ orderId }) =>
+    (r.kind === 'ok' && !('orderId' in r) ? { ...r, orderId } : r) as LoadPaidContextResult,
 });
-const paidDeps = (r: LoadPaidContextResult, outbox: OutboxFake, sender: IEmailSender) => ({
+const paidDeps = (r: PaidFakeResult, outbox: OutboxFake, sender: IEmailSender) => ({
   ineligibleScanner: eligibleAll(),
   outbox,
   sender,
@@ -2287,6 +2293,30 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
     );
     expect(sender.send).not.toHaveBeenCalled();
     expect(r.errors).toBe(1);
+  });
+
+  // ⟦f3-RECIPIENTBIND1⟧:收件人來自 outbox 那一列(job.recipientEmail), 內容由 job.orderId 另外撈。
+  //  今天兩邊鍵同一個 job, 不會錯配 ⇒ 這道斷言在正常世界紅不了, 只能造一份「別張單的內容」來驗。
+  it('🔴 ⟦f3-RECIPIENTBIND1⟧ 撈回來的內容屬於別張單 ⇒ 不寄、計 error', async () => {
+    const outbox = outboxFake([job({ orderId: 'order-1' })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const r = await sweepEmailOutbox(
+      paidDeps({ kind: 'ok', orderId: 'order-OTHER', context: paidCtx() }, outbox, sender),
+      OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔵 正對照:內容屬於同一張單 ⇒ 照寄', async () => {
+    const outbox = outboxFake([job({ orderId: 'order-1' })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    const r = await sweepEmailOutbox(
+      paidDeps({ kind: 'ok', orderId: 'order-1', context: paidCtx() }, outbox, sender),
+      OPTS,
+    );
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(r.errors).toBe(0);
   });
 
   it('🔵 `order_shipped` 不受影響:注入了 paidContext 也不會被呼叫', async () => {
@@ -3745,7 +3775,8 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     // 🔵 **23 ⇒ 26**(2026-09-14 ⟦line-PUSH⟧ S4:line 列的三格 fail-closed —— 線沒接 / 讀好友狀態 throw / unavailable —— 都走 helper)。
     //    取自當場印出來的那一個(「expected 26 to be 23」)。
     // 2026-09-14 +3:部分取消信寄出當下重讀那三條路(dep 沒接 / 讀不到 / 稅算不出)各一個 release。
-    expect(wired).toBe(29);
+    // 🔵 **29 ⇒ 30**(2026-09-29 ⟦f3-RECIPIENTBIND1⟧:付款信內容屬於別張單 ⇒ 走 helper)。取自當場印出來的那一個(「expected 30 to be 29」)。
+    expect(wired).toBe(30);
 
     // 🟢 正對照:剩下的 `result.errors++` 要恰好 15 = B 堆 3 + C 堆 11 + helper 自己 1。
     //    🔴 **兩個數要一起釘** —— 只釘 22 的話, 一個「把某處的 helper 呼叫【多加一份】、
@@ -3817,7 +3848,7 @@ describe('付款信金額凍結快照 —— 入列當下凍住的那一份, 寄
   const run = async (payload: unknown, ineligible: string[] = []) => {
     const outbox = outboxFake([job({ payload })], { markSkippedOrderIneligible: vi.fn(async () => true) });
     const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
-    const load = vi.fn(async (): Promise<LoadPaidContextResult> => ({ kind: 'ok', context: LIVE_AFTER_PRICE_CHANGE }));
+    const load = vi.fn(async ({ orderId }: { orderId: string }): Promise<LoadPaidContextResult> => ({ kind: 'ok', orderId, context: LIVE_AFTER_PRICE_CHANGE }));
     const r = await sweepEmailOutbox(
       {
         ineligibleScanner: { listIneligibleAmong: async () => ineligible } as never,

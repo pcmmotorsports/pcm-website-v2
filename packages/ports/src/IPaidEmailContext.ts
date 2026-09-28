@@ -283,8 +283,15 @@ export type PaidEmailContext = {
  *   ⇒ **本片刻意不做**,而把它記成 S4 的第一題:**要不要為此開 runtime 匯出。**
  */
 export type LoadPaidContextResult =
-  /** 撈到了,可以寄。 */
-  | { kind: 'ok'; context: PaidEmailContext }
+  /**
+   * 撈到了,可以寄。
+   * 🔴 `orderId` = **撈到的那一列 `orders.id`**(⟦f3-RECIPIENTBIND1⟧, 2026-09-29):寄信端在寄之前比對
+   *    `=== job.orderId`, 對不上就不寄 —— 收件人來自 outbox 那一列, 內容另外撈, 兩者要證明是同一張單。
+   *    實作端**不得**把參數原樣抄回來(那樣這道比對在任何世界都成立)。
+   *    ⚠️ 放在結果上、不放進 `PaidEmailContext`:後者會被凍進 outbox payload(v2 快照),
+   *       加必填欄會讓已排隊的舊快照被判成讀不懂。
+   */
+  | { kind: 'ok'; orderId: string; context: PaidEmailContext }
   /**
    * 讀不到、或撈回來的東西對不上(單不存在 / 撈不到 display_id / **這張單 0 項**)。
    * 🔴 呼叫端必須 fail-closed:**不寄、計 error**。這一態**應該**吵。

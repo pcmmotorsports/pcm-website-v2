@@ -55,14 +55,16 @@ describe('isFreezablePaidSnapshot', () => {
 describe('loadFreezablePaidSnapshot —— 讀不到一律 null ⇒ 入列 v1', () => {
   it('🟢 ok ⇒ 回那一份', async () => {
     const c = ctx();
-    expect(await loadFreezablePaidSnapshot({ loadPaidContext: async () => ({ kind: 'ok', context: c }) }, 'o1')).toBe(c);
+    expect(await loadFreezablePaidSnapshot({ loadPaidContext: async () => ({ kind: 'ok', orderId: 'o1', context: c }) }, 'o1')).toBe(c);
   });
   it.each([
     ['沒注入', undefined],
     ['unavailable', { loadPaidContext: async () => ({ kind: 'unavailable' as const }) }],
     ['cancelled', { loadPaidContext: async () => ({ kind: 'cancelled' as const }) }],
     ['throw', { loadPaidContext: async () => { throw new Error('boom'); } }],
-    ['截斷', { loadPaidContext: async () => ({ kind: 'ok' as const, context: ctx({ linesTruncated: true }) }) }],
+    ['截斷', { loadPaidContext: async () => ({ kind: 'ok' as const, orderId: 'o1', context: ctx({ linesTruncated: true }) }) }],
+    // ⟦f3-RECIPIENTBIND1⟧:撈回來的是別張單 ⇒ 不凍(凍進去之後寄出端不再比對單號)。
+    ['別張單', { loadPaidContext: async () => ({ kind: 'ok' as const, orderId: 'o-OTHER', context: ctx() }) }],
   ])('🔴 %s ⇒ null', async (_l, dep) => {
     expect(await loadFreezablePaidSnapshot(dep, 'o1')).toBeNull();
   });

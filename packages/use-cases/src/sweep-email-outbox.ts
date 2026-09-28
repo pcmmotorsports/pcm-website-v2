@@ -2324,6 +2324,13 @@ export async function sweepEmailOutbox(
       // 🔴 **載不完 ⇒ 不寄**(`paid-email-html.ts` 的 `renderPaidEmailHtml` 檔頭逐字把這道
       //    fail-closed 推回呼叫端:「一封少了兩項的信,與一封正常的信,在這裡長得一模一樣」)。
       //    ⚠️ 空品項 port 說會走 `unavailable`,而那是**它的**保證不是我們的 ⇒ 一併擋。
+      // ⟦f3-RECIPIENTBIND1⟧ 2026-09-29:收件人是 outbox 這一列的(`job.recipientEmail`), 內容是另外撈的 ⇒
+      //    寄之前證明兩者是同一張單。今天兩邊鍵同一個 `job.orderId`, 不會錯配;這道比對守的是日後
+      //    內容來源換成快取 / 批次 / 別的來源的那一天。對不上 ⇒ 不寄、計 error(與 unavailable 同路, 應該吵)。
+      if (loadedPaid.orderId !== job.orderId) {
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
+        continue;
+      }
       if (loadedPaid.context.linesTruncated || loadedPaid.context.lines.length === 0) {
         await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;

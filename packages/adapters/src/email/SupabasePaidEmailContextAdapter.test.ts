@@ -19,6 +19,7 @@ const ORDER = 'ord-1';
 
 function head(over: Record<string, unknown> = {}) {
   return {
+    id: ORDER,
     display_id: 'PCM-2026-0001',
     subtotal: 31120,
     shipping_fee: 150,
@@ -131,9 +132,24 @@ describe('SupabasePaidEmailContextAdapter — 🔴 查詢形狀(送出去的條�
     //    ⛔ ~~'display_id, subtotal, shipping_fee, discount_total, total, cancelled_at'~~
     //    📌 **這一格紅過才是對的** —— 它就是為了「白名單被改動時有人看過」而存在;
     //       我改的是**期望值**, 不是把它放寬成包含式。
+    // 🔴 2026-09-29 七欄 ⇒ **八欄**:`id` 進來(⟦f3-RECIPIENTBIND1⟧)—— 回傳帶「撈到的是哪一張單」,
+    //    寄信前比對 `=== job.orderId`。它不進信裡。
     expect(queries[0]?.columns).toBe(
-      'display_id, subtotal, shipping_fee, discount_total, total, tax_total, cancelled_at',
+      'id, display_id, subtotal, shipping_fee, discount_total, total, tax_total, cancelled_at',
     );
+  });
+
+  // ⟦f3-RECIPIENTBIND1⟧:回傳的 orderId 取自【撈到的那一列】, 不是把參數原樣抄回去 ——
+  //  抄參數的話, 寄信端那道 `=== job.orderId` 斷言在任何世界都成立, 等於沒有。
+  it('🔴 ok 帶的 orderId 是撈到那一列的 id(不是參數回聲)', async () => {
+    const r = await load(client(ok([line()], { id: 'ord-OTHER' })));
+    expect(r.kind === 'ok' && r.orderId).toBe('ord-OTHER');
+  });
+
+  it('🔴 撈到的列沒有 id ⇒ unavailable(不知道是哪一張單就不寄)', async () => {
+    for (const bad of [undefined, null, '']) {
+      expect((await load(client(ok([line()], { id: bad })))).kind).toBe('unavailable');
+    }
   });
 
   it('🔴 ① 的 select 不得出現任何經銷價欄(白名單一旦被改寬,這格必紅)', async () => {
