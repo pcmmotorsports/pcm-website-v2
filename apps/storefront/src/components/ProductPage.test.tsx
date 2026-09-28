@@ -850,6 +850,31 @@ describe('加入購物車:一般價空的規格、沒有規格的商品都不能
     expect((cartItems()[0] as { qty: number }).qty).toBe(2);
   });
 
+  // Codex R1 建議:商品價有值、選中規格一般價空 ⇒ 仍要擋。上面 NO_PRICE 兩層都空,抓不到
+  //   「手機改回 `selectedVariant?.price ?? product.price`」那種退回商品價的錯。
+  it('🔴 手機:商品價有值、選中規格一般價空 ⇒ 印「—」、不進購物車、「立即購買」不跳購物車', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const mixed = { ...SELLABLE, price: 4400, variants: [{ ...SELLABLE.variants[0]!, price: null }] };
+    const { container } = render(<ProductPage product={mixed} tier="general" />);
+    expect(container.querySelector('.pd-mbb-price')?.textContent).toBe('—');
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(container.querySelector('.pd-mbb-notice')?.textContent).toBe(NO_PRICE_MSG);
+    mockPush.mockClear();
+    fireEvent.click(container.querySelector('.pd-mbb-buynow') as HTMLButtonElement);
+    expect(cartItems()).toEqual([]);
+    expect(mockPush).not.toHaveBeenCalledWith('/cart');
+  });
+
+  it('0 元規格(贈品)⇒ 手機與桌機都加得進去', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const free = { ...SELLABLE, price: 0, variants: [{ ...SELLABLE.variants[0]!, price: 0 }] };
+    const { container } = render(<ProductPage product={free} tier="general" />);
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    fireEvent.click(container.querySelector('.pd-add-btn') as HTMLButtonElement);
+    expect((cartItems()[0] as { qty: number }).qty).toBe(2);
+  });
+
   it('0 元是合法價(贈品),不當成空價', () => {
     expect(addToCartBlockedReason({ dealerPriceUnavailable: false, hasVariants: true, displayPrice: 0 })).toBeNull();
     expect(addToCartBlockedReason({ dealerPriceUnavailable: false, hasVariants: true, displayPrice: null })).toBe(NO_PRICE_MSG);
