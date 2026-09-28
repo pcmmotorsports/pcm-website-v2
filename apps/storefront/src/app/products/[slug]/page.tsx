@@ -31,7 +31,7 @@ import { SITE_NAME, SITE_TITLE_SUFFIX } from '@/lib/site-config';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { findProductRedirect } from '@/lib/product-redirect';
 import { productRedirectPath } from '@/lib/product-redirect-path';
-import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomy } from '@/lib/products';
+import { fetchProductByHandle, fetchProductIdsByHandles, tryVehicleTaxonomyBase, vehicleTreeForPage } from '@/lib/products';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import type { VehicleSelection } from '@/lib/recommendations';
@@ -258,8 +258,10 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   const [vehicleTax, garage] = await Promise.all([
     // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):帶 `failed` 那扇門, 理由同首頁。
     //   🛑 **不撈那一支時 `failed` 必須是 `false`** —— 「這一頁不需要車款樹」與「撈失敗」是兩件事。
+    // 🔵 2026-09-29 選車清單瘦身甲案:底盤清單(網址解析只用牌子、車款, 不用年份);
+    //   網址那台車與車庫相關的牌子在下面補年份, 其餘牌子由 `VehicleSelect` 在客人選到時補。
     hasVehicleParam || hasFitments
-      ? tryVehicleTaxonomy()
+      ? tryVehicleTaxonomyBase()
       : Promise.resolve({ motoBrands: [], failed: false }),
     hasFitments
       ? (async () => {
@@ -287,12 +289,16 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   ]);
   // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
   //   不是改寫每一個既有的 `taxonomy` 讀取點。
-  const taxonomy = vehicleTax.motoBrands;
-  const vehicleTaxonomyFailed = vehicleTax.failed;
   // :901(上游 plan §9-5 B):與列表頁、瀏覽器同一支判斷。只差空白 / 橫線 / 大小寫 ⇒ 那台車;
   //   認不得 ⇒ 當作沒有車(相關商品不按那台車推薦;畫面由 ProductFitmentCheck 提示重新選車)。
-  const resolution = hasVehicleParam ? resolveVehicleFromUrl({ get: spGet }, taxonomy) : null;
+  const resolution = hasVehicleParam ? resolveVehicleFromUrl({ get: spGet }, vehicleTax.motoBrands) : null;
   const parsedVehicle = resolution?.kind === 'ok' ? resolution.vehicle : null;
+  const vehicleTree = await vehicleTreeForPage(vehicleTax, {
+    selectedBrandName: parsedVehicle?.brand ?? null,
+    garage,
+  });
+  const taxonomy = vehicleTree.motoBrands;
+  const vehicleTaxonomyFailed = vehicleTree.failed;
   // Case A 反查需 motoBrand + modelCode 都有;只選了品牌沒選車型 → 當作沒車(Case B 同品牌)。
   const vehicle: VehicleSelection | undefined =
     parsedVehicle && parsedVehicle.model

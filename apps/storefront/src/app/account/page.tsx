@@ -107,7 +107,7 @@ import { AccountView } from '@/components/account/AccountView';
 //    拿到的是 client reference 不是陣列 ⇒ 執行期 500, 而**單元測試全綠**(vitest 沒有 RSC 邊界)。
 import { ACCOUNT_TAB_IDS, NAV, type AccountTabId } from '@/components/account/account-nav';
 import type { Metadata } from 'next';
-import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
+import { fetchFeaturedProducts, tryVehicleTaxonomyBase } from '@/lib/products';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { dealerPricesFor, withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
@@ -415,7 +415,9 @@ export default async function AccountPage(
     favoriteDealerPrices = Object.fromEntries(favorites.map((f) => [f.product.id, got.get(f.product.id) ?? null]));
   }
 
-  const vehicleBrands = await fetchVehicleTaxonomy();
+  // 🔵 2026-09-29 選車清單瘦身甲案:愛車表單只有牌子、車款下拉(年份是自由輸入)⇒ 底盤清單。
+  //   讀不到仍是空陣列(與舊的 `fetchVehicleTaxonomy` 同一個結果), 表單退回自行輸入。
+  const vehicleBrands = (await tryVehicleTaxonomyBase()).motoBrands;
 
   return (
     <AccountView

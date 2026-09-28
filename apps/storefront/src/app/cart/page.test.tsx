@@ -40,7 +40,9 @@ vi.mock('@/components/CartView', () => ({
     );
   },
 }));
-vi.mock('@/lib/products', () => ({ tryVehicleTaxonomy }));
+// 2026-09-29 選車清單瘦身甲案:route 改呼叫底盤那支 + `vehicleTreeForPage`;變數名沿用, 各格意思不變。
+const vehicleTreeForPage = vi.fn((base: unknown) => Promise.resolve(base));
+vi.mock('@/lib/products', () => ({ tryVehicleTaxonomyBase: tryVehicleTaxonomy, vehicleTreeForPage }));
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: () =>
     Promise.resolve({ auth: { getUser: () => Promise.resolve({ data: { user: null } }) } }),
@@ -97,4 +99,21 @@ describe('/cart 的車款清單', () => {
     expect(html).toContain('data-failed="false"');
   });
 
+});
+
+// 2026-09-29 選車清單瘦身甲案:購物車送到瀏覽器的是 `vehicleTreeForPage` 的結果(底盤 + 車庫牌子補年份),
+//   不是底盤原樣 —— 否則車庫帶入的那台車在首繪時讀不到年份(`garage-chip.ts` 用年份比對)。
+describe('/cart 的車款清單 = 底盤 + 車庫牌子補年份', () => {
+  it('🔴 送進 CartView 的是 vehicleTreeForPage 的回傳, 而且車庫有交給它', async () => {
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: BRANDS, failed: false });
+    vehicleTreeForPage.mockImplementationOnce(() =>
+      Promise.resolve({ motoBrands: [...BRANDS, { id: 'bmw', name: 'BMW', models: [] }], failed: false }),
+    );
+    const html = renderToStaticMarkup(await CartRoute());
+    expect(html).toContain('data-moto-brands="3"');
+    expect(vehicleTreeForPage).toHaveBeenLastCalledWith(
+      { motoBrands: BRANDS, failed: false },
+      { selectedBrandName: null, garage: [] },
+    );
+  });
 });

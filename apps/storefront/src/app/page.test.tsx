@@ -30,7 +30,10 @@ vi.mock('@/components/Header', () => ({
 //    這正是 memory `feedback_fixture-value-makes-guard-vacuous` 那一族。
 // 🔴 2026-09-06 R1 must-fix:改成可控的 `vi.fn` —— 原本寫死 `failed: false`,
 //   ⇒ route 把那個旗標寫死 `false` 也照樣全綠, 那條接線等於沒有守門。
-const tryVehicleTaxonomy = vi.fn(() => Promise.resolve({ motoBrands: [], failed: false }));
+const tryVehicleTaxonomy = vi.fn(() =>
+  Promise.resolve<{ motoBrands: { id: string; name: string; models: unknown[] }[]; failed: boolean }>({ motoBrands: [], failed: false }),
+);
+const vehicleTreeForPage = vi.fn((base: unknown) => Promise.resolve(base));
 const tryCategories = vi.fn(() =>
   Promise.resolve({
     categories: [
@@ -45,7 +48,10 @@ vi.mock('@/lib/products', () => ({
   // 🔴 2026-09-06:route 改呼叫 tryVehicleTaxonomy(帶 failed)⇒ mock 要有它,
   //   而 fetchVehicleTaxonomy 留著(本檔其他地方仍可能用到, 拿掉是另一件事)。
   fetchVehicleTaxonomy: () => Promise.resolve([]),
-  tryVehicleTaxonomy,
+  // 2026-09-29 選車清單瘦身甲案:route 改呼叫底盤那支 + `vehicleTreeForPage` 補車庫牌子的年份。
+  //   變數名沿用, 下面各格的意思不變;`vehicleTreeForPage` 原樣傳回(它自己的行為在 lib 的測試裡)。
+  tryVehicleTaxonomyBase: tryVehicleTaxonomy,
+  vehicleTreeForPage,
   // 🔴 2026-09-06 ⟦search-SILENTDOORS2⟧:route 改呼叫 tryCategories(帶 failed)。
   //   與上面那支同一個理由:寫死的 mock ⇒ route 把旗標寫死也全綠 ⇒ 那條接線零守門。
   tryCategories,
@@ -464,6 +470,17 @@ describe('首頁的 vehicleTaxonomyFailed 接線(⟦search-TAXONOMYTIMEOUT⟧)',
   it('🔵 負對照:沒失敗 ⇒ 傳下去的是 false, 不是恆真', async () => {
     tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: false });
     expect(findProp(await HomePage({ searchParams: Promise.resolve({}) }), 'vehicleTaxonomyFailed')).toBe(false);
+  });
+
+  // 2026-09-29 選車清單瘦身甲案:送進 VehicleFinder 的是 `vehicleTreeForPage` 的回傳(底盤 + 車庫牌子補年份)。
+  it('🔴 送下去的車款清單是 vehicleTreeForPage 的回傳, 而且車庫有交給它', async () => {
+    const base = { motoBrands: [{ id: 'honda', name: 'HONDA', models: [] }], failed: false };
+    const withYears = { motoBrands: [{ id: 'honda', name: 'HONDA', models: [], yearsLoaded: true }], failed: false };
+    tryVehicleTaxonomy.mockReset().mockResolvedValue(base);
+    vehicleTreeForPage.mockImplementationOnce(() => Promise.resolve(withYears));
+    const tree = await HomePage({ searchParams: Promise.resolve({}) });
+    expect(findProp(tree, 'motoBrands')).toBe(withYears.motoBrands);
+    expect(vehicleTreeForPage).toHaveBeenLastCalledWith(base, { selectedBrandName: null, garage: [] });
   });
 
   it('🟢 正對照:那把尺找得到東西 —— 現造的 prop 名必須回 undefined', async () => {

@@ -19,7 +19,7 @@ import { VehicleInput } from '@pcm/schemas';
 import { getVehicleRepo } from '@/lib/auth/composition';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
-import { fetchVehicleTaxonomy } from '@/lib/products';
+import { tryVehicleTaxonomyBase } from '@/lib/products';
 
 // 逐欄 fieldErrors(僅 name;VehicleInput 只 name 必填、其餘選填無格式驗證、無巢狀 → 比 address invoice 簡單)。
 export type VehicleFieldErrors = {
@@ -36,13 +36,15 @@ export type AddVehicleActionResult = {
 /**
  * V-1d server fail-closed 字典驗證(值班台 REQUIRED:client 選單只是便利、不可信):
  * dict 對有值 → 逐字驗 brand.name 存在於 taxonomy 且 model.name 屬該 brand;查無=拒寫。
- * taxonomy 載入失敗(fetchVehicleTaxonomy 內部 catch 回 [])→ dict 路徑一律拒(fail-closed)、
+ * taxonomy 載入失敗(tryVehicleTaxonomyBase 回 failed)→ dict 路徑一律拒(fail-closed)、
  * 自由輸入路徑(dict 雙 null)不受影響。成對性已由 schema refine+DB CHECK 雙層守、此處不重驗。
  */
 async function validateDictPair(data: VehicleInput): Promise<AddVehicleActionResult | null> {
   if (data.dictBrandName === null) return null;
-  const taxonomy = await fetchVehicleTaxonomy();
-  if (taxonomy.length === 0) {
+  // 🔵 2026-09-29 選車清單瘦身甲案:只比牌子與車款名稱、不用年份 ⇒ 底盤清單。
+  //   用帶 `failed` 的那支:底盤的 `fetchVehicleTaxonomyBase` 讀不到會 throw, 直接換會讓這支 action 變 500。
+  const { motoBrands: taxonomy, failed } = await tryVehicleTaxonomyBase();
+  if (failed || taxonomy.length === 0) {
     return { formError: VEHICLE_TAXONOMY_UNAVAILABLE };
   }
   const brand = taxonomy.find((b) => b.name === data.dictBrandName);

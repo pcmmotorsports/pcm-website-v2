@@ -29,7 +29,7 @@ import {
   CATEGORY_TAXONOMY_UNAVAILABLE,
   TaxonomyNotice,
 } from '@/components/products-message-state';
-import { fetchFeaturedProducts, tryVehicleTaxonomy, tryCategories } from '@/lib/products';
+import { fetchFeaturedProducts, tryVehicleTaxonomyBase, tryCategories, vehicleTreeForPage } from '@/lib/products';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
 import { fetchLiveHomeBanners } from '@/lib/home-banners';
 import { BRAND_CONTENT } from '@/data/brand-content';
@@ -148,7 +148,9 @@ export default async function HomePage({
     // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):改走【帶 `failed` 的那扇門】。
     //   `tryVehicleTaxonomy` 一直都在, 而在本片之前它【一個外部消費端都沒有】——
     //   `fetchVehicleTaxonomy` 逐字「刻意丟掉 failed」⇒ 讀不到與真的沒有印同一個空陣列。
-    mark('tax', tryVehicleTaxonomy()),
+    // 🔵 2026-09-29 選車清單瘦身甲案:改讀底盤清單(沒有年份, 168 KB 而不是 577 KB);
+    //   車庫相關的牌子在下面補年份, 其餘牌子由 `VehicleSelect` 在客人選到時補。
+    mark('tax', tryVehicleTaxonomyBase()),
     // 🔴 2026-09-06(⟦search-SILENTDOORS2⟧, plan `docs/plans/2026-09-06-silent-doors-2-plan.md`):
     //   與車款那一扇同一個形狀 —— 走【帶 `failed` 的那扇門】, 讓「讀不到」與「真的沒有」分開。
     mark('cats', tryCategories()),
@@ -183,8 +185,9 @@ export default async function HomePage({
   ]);
   // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
   //   不是改寫每一個既有的 `motoBrands` 讀取點。
-  const motoBrands = vehicleTax.motoBrands;
-  const vehicleTaxonomyFailed = vehicleTax.failed;
+  const vehicleTree = await vehicleTreeForPage(vehicleTax, { selectedBrandName: null, garage });
+  const motoBrands = vehicleTree.motoBrands;
+  const vehicleTaxonomyFailed = vehicleTree.failed;
   const categories = categoryTax.categories;
   const categoryTaxonomyFailed = categoryTax.failed;
 

@@ -74,6 +74,7 @@ import {
   fetchVehicleTaxonomy,
   fetchVehicleTaxonomyBase,
   fetchVehicleYearsForBrand,
+  vehicleTreeForPage,
 } from '@/lib/products';
 
 function row(b: string | null, m: string | null, ys: number | null, ye: number | null) {
@@ -322,5 +323,59 @@ describe('⟦db-TAXONOMYVIEW⟧ 接線片 —— fetchModelsWithYearsOrFull(年�
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(fetchModelsWithYearsOrFull(baseHonda)).rejects.toThrow(/K=1 < 底盤車款 M=2/);
     spy.mockRestore();
+  });
+});
+
+// 2026-09-29 選車清單瘦身甲案:首頁、購物車、商品頁用的 `vehicleTreeForPage`。
+describe('vehicleTreeForPage:底盤 + 只補網址與車庫的牌子', () => {
+  const baseRows = [row('Honda', 'CBR1000RR', null, null), row('Yamaha', 'MT-07', null, null)];
+
+  it('🔴 車庫有 Honda ⇒ 只補 Honda 的年份, Yamaha 留給瀏覽器(yearsLoaded: false)', async () => {
+    rpcRouter = (fn, args) =>
+      fn === 'get_vehicle_model_years' && (args as { p_brand?: string } | null)?.p_brand === 'Honda'
+        ? payload([row('Honda', 'CBR1000RR', 2020, 2021)])
+        : fn === 'get_vehicle_taxonomy_base'
+          ? payload(baseRows)
+          : undefined;
+    const base = { motoBrands: await fetchVehicleTaxonomyBase(), failed: false };
+    rpcCalls = [];
+
+    const out = await vehicleTreeForPage(base, {
+      selectedBrandName: null,
+      garage: [{ name: 'Honda CBR1000RR', year: '2020', dictBrandName: 'Honda', dictModelName: 'CBR1000RR' }],
+    });
+
+    expect(out.failed).toBe(false);
+    const honda = out.motoBrands.find((b) => b.name === 'Honda');
+    const yamaha = out.motoBrands.find((b) => b.name === 'Yamaha');
+    expect(honda?.yearsLoaded).toBe(true);
+    expect(honda?.models[0]?.years).toEqual([2020, 2021]);
+    expect(yamaha?.yearsLoaded).toBe(false);
+    expect(yamaha?.models[0]?.years).toEqual([]);
+    // 🔴 沒有去拿完整清單(577 KB 那支)
+    expect(rpcCalls.map((c) => c.fn)).not.toContain('get_vehicle_taxonomy');
+    // 年份只打 Honda 一發;底盤那支會再讀一次, 是因為本檔把快取換成直通(正式站那一層有快取)。
+    expect(rpcCalls.filter((c) => c.fn === 'get_vehicle_model_years').map((c) => c.args)).toEqual([{ p_brand: 'Honda' }]);
+  });
+
+  it('🔴 網址指定的牌子也要補', async () => {
+    rpcRouter = (fn, args) =>
+      fn === 'get_vehicle_model_years' && (args as { p_brand?: string } | null)?.p_brand === 'Yamaha'
+        ? payload([row('Yamaha', 'MT-07', 2018, 2019)])
+        : fn === 'get_vehicle_taxonomy_base'
+          ? payload(baseRows)
+          : undefined;
+    const base = { motoBrands: await fetchVehicleTaxonomyBase(), failed: false };
+
+    const out = await vehicleTreeForPage(base, { selectedBrandName: 'Yamaha', garage: [] });
+
+    expect(out.motoBrands.find((b) => b.name === 'Yamaha')?.models[0]?.years).toEqual([2018, 2019]);
+    expect(out.motoBrands.find((b) => b.name === 'Honda')?.yearsLoaded).toBe(false);
+  });
+
+  it('🔵 底盤讀不到 ⇒ 原樣回 failed, 不去補任何牌子', async () => {
+    const out = await vehicleTreeForPage({ motoBrands: [], failed: true }, { selectedBrandName: 'Honda', garage: [] });
+    expect(out).toEqual({ motoBrands: [], failed: true });
+    expect(rpcCalls).toEqual([]);
   });
 });

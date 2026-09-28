@@ -22,7 +22,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { ProductCard } from '@/components/ProductCard';
 import { searchProducts, SEARCH_PAGE_LIMIT } from '@/lib/search';
-import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomyBase } from '@/lib/products';
 import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { fetchBrandSynonymFallback } from '@/lib/search-brand-synonym-fallback';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
@@ -73,7 +73,8 @@ export default async function SearchRoute({ searchParams }: Props) {
     const [brandTax, categoryTax, vehicleTax] = await Promise.all([
       tryCatalogBrandTaxonomy(),
       tryCategories(),
-      tryVehicleTaxonomy(),
+      // 🔵 2026-09-29 選車清單瘦身甲案:`parseSearchFacets` 只比牌子與車款、不用年份 ⇒ 底盤清單就夠。
+      tryVehicleTaxonomyBase(),
     ]);
     const parsed = parseSearchFacets(q, {
       motoBrands: vehicleTax.motoBrands,
