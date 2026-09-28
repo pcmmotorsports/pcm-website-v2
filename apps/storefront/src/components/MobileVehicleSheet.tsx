@@ -164,7 +164,11 @@ export function MobileVehicleSheet({
   //   一直是「選一層就當場套用」(實測 `?vehicle=yamaha` → 2349 件);`products/page.tsx:57-59`
   //   逐字記載「品牌-only 車輛選擇由 client 同步寫短版 ?vehicle=brandId(單段)」= 早就支援。
   //   之前手機要求三欄全填,是我照預覽 mock 的 `canApplyVehicle` 抄來的、比正式站能力更嚴。
-  const canApply = draft.brand !== null;
+  // 🔴 2026-09-29(Fable 建議①):選了車型而年份還在補 ⇒ 先不給套用。否則客人看到「年份載入中…」
+  //   按下去, 會被靜靜地套成「不限年份」。補失敗就放行(年份欄已講失敗, 不讓客人卡在面板裡);
+  //   只選到廠牌時年份不相干, 照舊可以套用。
+  const waitingForYears = draft.model !== null && yearsPending && !yearsFailed;
+  const canApply = draft.brand !== null && !waitingForYears;
 
   const pickModelOption = (picked: string) => {
     const resolved = resolveModelPick(motoBrands, draft.brand, picked);
@@ -319,7 +323,7 @@ export function MobileVehicleSheet({
               server 依 `?vehicle=` 重查後才知道。核准預覽裡的 161 之所以看起來合理,是因為
               那頁的假資料讓兩個數字剛好一致。寧可不給數字,也不給一個一按就被推翻的數字。 */}
           <button type="button" className="mvs-apply" disabled={!canApply} onClick={applyDraft}>
-            查看適用商品
+            {waitingForYears ? YEARS_LOADING_TEXT : '查看適用商品'}
           </button>
         </footer>
       </section>
