@@ -16,6 +16,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { HomeHero } from './HomeHero';
+// HomeHero 在模組頂層呼叫 next/font(首頁大標字型, 2026-09-28 從 layout 搬來);那是建置期轉換, vitest 裡不是函式。
+vi.mock('next/font/google', () => ({
+  Noto_Sans_TC: () => ({ className: '', variable: '', style: { fontFamily: '' } }),
+}));
 
 const DWELL_MS = 6500;
 

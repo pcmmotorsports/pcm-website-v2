@@ -65,6 +65,10 @@ vi.mock('@/lib/tier', () => ({
 // 🆕 2026-09-16 新品大圖(片 3):**不 mock `@/lib/home-banners` 本身** —— 要驗的正是「那支真的讀失敗時首頁照舊」。
 //   只把它往下碰到的三樣換掉:client(可控成功 / 失敗)、`unstable_cache`(直通)、`server-only`(node 環境載不了)。
 const bannerClientRef = vi.hoisted(() => ({ current: 'empty' as 'empty' | 'throw' | 'error' | 'row' }));
+// HomeHero 在模組頂層呼叫 next/font(首頁大標字型, 2026-09-28 從 layout 搬來);那是建置期轉換, vitest 裡不是函式。
+vi.mock('next/font/google', () => ({
+  Noto_Sans_TC: () => ({ className: '', variable: '', style: { fontFamily: '' } }),
+}));
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 vi.mock('@/lib/catalog-anon-client', () => ({

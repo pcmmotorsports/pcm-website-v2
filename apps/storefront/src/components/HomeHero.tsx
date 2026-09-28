@@ -50,9 +50,18 @@
 'use client';
 
 import Link from 'next/link';
+import { Noto_Sans_TC } from 'next/font/google';
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { HOME_BANNER_MOTION_MS, splitHomeBannerTitle } from '@pcm/domain';
 import type { LiveHomeBanner } from '@/lib/home-banners';
+
+// 🔴 2026-09-15 Sean 乙(逐字「大標題保留原本的粗中文字(只給大標題載一種粗細,會慢一點點),其他照新的」):
+//    輪播大標(`.b-hero-title--cjk`,home.css)用 Noto Sans TC 700。只宣告這一個字重、不 preload;
+//    CJK 沒有 subsets 選項,字檔按 unicode-range 切片 ⇒ 只有畫面上真的出現的字會下載。
+// 🔵 2026-09-28 從 app/layout.tsx 搬來(計畫 ~/pcm-mailbox/計畫-CSS拆分-20260928.md §三):
+//    next/font 的 @font-face CSS 跟著呼叫它的模組走 —— 在 layout 裡每一頁都要先下載那份 35 KB 的宣告,
+//    搬到這裡只剩首頁。變數掛在下面的 section 上(大標的祖先),home.css 的 var(--font-hero-cjk) 照樣讀得到。
+const heroCjk = Noto_Sans_TC({ weight: '700', variable: '--font-hero-cjk', preload: false });
 
 /**
  * 四張輪播。**文案順序是對著圖排的,不要單獨調動其中一邊**(OD :1298-1301 逐字):
@@ -171,7 +180,7 @@ export function HomeHero({ children, banners = [] }: { children?: ReactNode; ban
     //    `/#vehicle-finder` **一個字都不用改**就還是對的(有測試釘住)。
     <section
       id="vehicle-finder"
-      className={stage ? 'b-hero b-hero--stage' : 'b-hero'}
+      className={[stage ? 'b-hero b-hero--stage' : 'b-hero', heroCjk.variable].filter(Boolean).join(' ')}
       style={MOTION_STYLE}
       onPointerEnter={() => setHovered(true)}
       onPointerMove={(e) => {
