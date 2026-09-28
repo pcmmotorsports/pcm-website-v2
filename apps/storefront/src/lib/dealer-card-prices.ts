@@ -7,7 +7,7 @@
 //   結帳收的是經銷價,畫面印一般價就是「看到的與被收的不同」(cac121efb 同一條規矩)。整段失敗也一樣全部 null。
 // - 快取的物件不能就地改(會把經銷價留在共用快取裡給下一個人):一律回新物件。
 import type { MemberTier } from '@pcm/domain';
-import { withoutSaleMarks, type CatalogCardProduct } from '@/lib/catalog-page';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { fetchProductIdsByHandles } from '@/lib/products';
 import { fetchEffectivePrices, priceKey, type EffectivePriceRow } from '@/lib/tier-prices';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -34,10 +34,8 @@ export async function dealerPricesFor(productIds: readonly string[]): Promise<Ma
 }
 
 export async function withDealerCardPrices(items: readonly CatalogCardProduct[], tier: MemberTier): Promise<CatalogCardProduct[]> {
-  if (tier === 'general' || items.length === 0) return [...items];
-  // 商品頁乙 P12(Fable R2 必修):P價會員不換價,但也不吃特價(Q-P2 乙)。首頁最新商品、會員中心推薦、
-  //   /search、商品頁相關商品都是先撈一般會員那一份再進這裡 ⇒ 在這一個入口清掉,四條路一起。
-  if (tier !== 'store') return withoutSaleMarks(items);
+  // 商品頁乙 P12:P價會員不換價,特價照一般會員看(Sean 2026-09-28 Q1 甲);經銷會員在下面換價時清掉特價(Q-P2 乙)。
+  if (tier !== 'store' || items.length === 0) return [...items];
   let priced = new Map<string, number>(); // product uuid ⇒ 經銷價
   let idOf = new Map<string, string>(); // slug ⇒ product uuid
   try {
