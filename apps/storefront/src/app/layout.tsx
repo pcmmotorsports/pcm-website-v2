@@ -33,7 +33,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { cookies, headers } from 'next/headers';
 import { Antonio, Cormorant_Garamond, Inter, JetBrains_Mono, Noto_Sans_TC } from 'next/font/google';
-import { Analytics } from '@vercel/analytics/next';
+import { SiteAnalytics } from '@/components/SiteAnalytics';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { resolveSiteMode } from '@/lib/site-mode';
 import { CartProvider } from '@/contexts/CartContext';
@@ -242,8 +242,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             </FavoritesProvider>
           </CartProvider>
         </MobileProvider>
-        {/* Vercel Web Analytics(2026-09-15 Sean Q10)。要 Vercel 專案那邊按 Enable 才會收資料。 */}
-        <Analytics />
+        {/* Vercel Web Analytics(2026-09-15 Sean Q10)。要 Vercel 專案那邊按 Enable 才會收資料。
+            經銷站那個專案沒開,SiteAnalytics 在經銷站不輸出(否則每頁 404)。 */}
+        <SiteAnalytics />
       </body>
     </html>
   );
