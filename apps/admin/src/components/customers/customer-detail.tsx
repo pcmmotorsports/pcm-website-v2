@@ -46,6 +46,7 @@ const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
 const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-medium';
 const ROW = 'flex justify-between gap-4 py-1 text-sm';
 const ROW_LABEL = 'text-muted-foreground shrink-0';
+const MEMBER_DISABLED_NOTE = '帳號已停用，恢復後才能操作。';
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -141,6 +142,7 @@ export function CustomerDetail({
   emailVerification,
   emailAuthProviders,
   line,
+  memberDisabled = false,
 }: {
   customer: Customer;
   walletEntries: WalletLedgerEntry[];
@@ -195,6 +197,8 @@ export function CustomerDetail({
    * 🔴 不傳 / `unknown` = **讀不到**(欄位還沒貼或讀失敗)⇒ 印「讀不到…不代表他沒綁」,不得顯示成「沒用 LINE」。
    */
   line?: LineStatus;
+  /** Sean 2026-09-29 Q2 甲:帳號已停用 ⇒ 加值／扣款與變更等級不能按。讀不到狀態時不傳(server action 仍會擋)。 */
+  memberDisabled?: boolean;
 }) {
   const lineStatus: LineStatus = line ?? { kind: 'unknown' };
   const eligibility = emailChangeEligibility(
@@ -225,13 +229,24 @@ export function CustomerDetail({
           <h4 className='pcm-card-h'>儲值金 目前餘額</h4>
           <div className='pcm-big'>{formatWalletBalance(customer.walletBalance)}</div>
           <div className='pcm-sub2'>累積儲值 {formatWalletBalance(customer.totalDeposit)}</div>
-          {!readOnly && <WalletAdjustForm customerId={customer.id} />}
+          {!readOnly && (
+            // Sean 2026-09-29 Q2 甲:帳號停用 ⇒ 整組鎖住(fieldset disabled 會停用裡面每一顆按鈕與欄位);server action 另外再擋一次。
+            <fieldset disabled={memberDisabled} className='m-0 min-w-0 border-0 p-0'>
+              {memberDisabled && <p className='pcm-sub2'>{MEMBER_DISABLED_NOTE}</p>}
+              <WalletAdjustForm customerId={customer.id} />
+            </fieldset>
+          )}
         </section>
         <section className='pcm-card'>
           <h4 className='pcm-card-h'>會員等級</h4>
           <div className='pcm-big'>{TIER_LABEL[customer.tier]}</div>
           <div className='pcm-sub2'>改這裡只影響以後的新單</div>
-          {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
+          {!readOnly && (
+            <fieldset disabled={memberDisabled} className='m-0 min-w-0 border-0 p-0'>
+              {memberDisabled && <p className='pcm-sub2'>{MEMBER_DISABLED_NOTE}</p>}
+              <TierEditForm customerId={customer.id} currentTier={customer.tier} />
+            </fieldset>
+          )}
           {/* B2B 計畫 §10.4 片 E3:品牌折扣只給車行(經銷價那一級)。頁面所有員工都看得到, 儲存限管理者。 */}
           {customer.tier === 'store' && (
             <p className='mt-3 border-t pt-3 text-sm'>

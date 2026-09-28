@@ -230,6 +230,12 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   },
   // 20260926100000 刪除會員成功後導回列表(列表預設不列已停用, 人不見了要有一句話)
   customer_deleted: { text: '已刪除會員。', tone: 'ok' },
+  // Sean 2026-09-29 Q2 甲:帳號停用後不能變更會員等級(tier-actions.ts)。
+  customer_member_disabled: { text: '帳號已停用，恢復後才能變更會員等級。這次沒有變更。', tone: 'warn' },
+  customer_member_check_failed: {
+    text: '無法確認這位客人的帳號狀態，會員等級沒有變更。請重新整理後再試；若仍無法處理，請聯絡系統管理員。',
+    tone: 'error',
+  },
   customer_pwreset_stale: {
     text: '這位客人的 Email 在你打開頁面之後改過，沒有寄信。請重新整理頁面，確認新的 Email 後再寄。',
     tone: 'warn',

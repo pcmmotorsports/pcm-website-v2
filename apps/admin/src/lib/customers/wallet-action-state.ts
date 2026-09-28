@@ -40,7 +40,11 @@ export type WalletFailureCode =
   /** 🔴 同一把 token 帶著**不同內容**回來 —— 不是重送, 是「同一把鑰匙去開別的門」。 */
   | 'mismatch'
   /** 🔴 RPC 可能已 commit、只是回應斷在路上 —— **這一格就是本片存在的理由**。 */
-  | 'error';
+  | 'error'
+  /** Sean 2026-09-29 Q2 甲:帳號已停用, 沒有送出。 */
+  | 'member_disabled'
+  /** 讀不到帳號是否停用, 沒有送出(不當成沒停用)。 */
+  | 'member_check_failed';
 
 /**
  * 🔴🔴 **訊息要讓員工做出【正確的下一個動作】, 而 `mismatch` 與 `error` 的動作是【相反】的。**
@@ -67,6 +71,9 @@ export const WALLET_FAILURE_MESSAGE: Readonly<Record<WalletFailureCode, string>>
   // 🔴 而這一句要他**放心再按一次** —— 因為同一把鑰匙會被認出來, 不會重複扣款。
   error:
     '送出時連線出了問題,而這一筆可能已經處理好了。可以直接再按一次:系統認得出是同一筆,不會重複扣款。',
+  member_disabled: '帳號已停用，恢復後才能加值或扣款。這次沒有送出。',
+  member_check_failed:
+    '無法確認這位客人的帳號狀態，這次沒有送出。請重新整理後再試；若仍無法處理，請聯絡系統管理員。',
 };
 
 export type WalletAdjustActionState =

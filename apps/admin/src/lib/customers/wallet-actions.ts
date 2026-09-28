@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { authorizeAdminMutation } from '../session/authorize';
 import { getRequestId } from '../audit/context';
 import { adjustCustomerWallet } from './customer-repository';
+import { isCustomerDisabled } from './member-status';
 import { parseWalletAdjustForm } from './wallet-form';
 import {
   WALLET_DUPLICATE_RESULT_CODE,
@@ -76,6 +77,23 @@ export async function adjustWalletAction(
     amount: String(Math.abs(parsed.signedAmount)),
     note: parsed.note,
   };
+
+  // Sean 2026-09-29 Q2 甲:帳號停用後不能加值或扣款。讀不到狀態 ⇒ 不送出(不當成沒停用)。
+  let memberDisabled: boolean;
+  try {
+    memberDisabled = await isCustomerDisabled(parsed.customerId);
+  } catch (err) {
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[admin/customers] 讀帳號停用狀態失敗(儲值金)', {
+      customer_id: parsed.customerId,
+      code: typeof e.code === 'string' ? e.code : undefined,
+      message: String(e.message ?? '').slice(0, 200),
+    });
+    return walletFailure('member_check_failed', keep);
+  }
+  if (memberDisabled) {
+    return walletFailure('member_disabled', keep);
+  }
 
   // 🔴 **兩個 id, 不是一個**(⟦b4-WALLETDEDUPE⟧):
   //   · `httpRequestId` = middleware 每個 HTTP request 戳的 correlation id ⇒ **每次都不同**

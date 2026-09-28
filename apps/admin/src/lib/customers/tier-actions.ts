@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { authorizeAdminMutation } from '../session/authorize';
 import { getRequestId } from '../audit/context';
 import { setCustomerTier } from './customer-repository';
+import { isCustomerDisabled } from './member-status';
 import { parseTierEditForm } from './tier-form';
 
 // M-4a tier 編輯 server action(🔴 高風險件#3;plan 關卡1 R1 PASS+Sean Q1=A/Q2=A 拍板後實作、
@@ -20,7 +21,17 @@ import { parseTierEditForm } from './tier-form';
 //   ④ PRG:結果碼 → revalidate + redirect 帶固定 query(?r=saved/noop/not_found/invalid/denied/error);
 //      DB error 不外洩瀏覽器、server log 只留識別欄位(原因備註不進 log=verdict N3)。
 
-type ResultCode = 'saved' | 'noop' | 'not_found' | 'tier_stale' | 'invalid' | 'denied' | 'error';
+type ResultCode =
+  | 'saved'
+  | 'noop'
+  | 'not_found'
+  | 'tier_stale'
+  | 'invalid'
+  | 'denied'
+  | 'error'
+  // Sean 2026-09-29 Q2 甲:帳號停用後不能變更等級(碼帶 customer_ 前綴, 理由見 result-banner.tsx 那張共用表)。
+  | 'customer_member_disabled'
+  | 'customer_member_check_failed';
 
 /** 結果碼 → returnTo?r=<code>(PRG;returnTo 已由 parse 限定站內 /customers 路徑)。 */
 function redirectWith(returnTo: string, code: ResultCode): never {
@@ -39,6 +50,23 @@ export async function setTierAction(formData: FormData): Promise<void> {
   const parsed = parseTierEditForm(formData);
   if (!parsed.ok) {
     redirectWith('/customers', 'invalid');
+  }
+
+  // 帳號停用 ⇒ 不送出。讀不到狀態 ⇒ 也不送出(不當成沒停用)。
+  let memberDisabled: boolean;
+  try {
+    memberDisabled = await isCustomerDisabled(parsed.customerId);
+  } catch (err) {
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[admin/customers] 讀帳號停用狀態失敗(會員等級)', {
+      customer_id: parsed.customerId,
+      code: typeof e.code === 'string' ? e.code : undefined,
+      message: String(e.message ?? '').slice(0, 200),
+    });
+    redirectWith(parsed.returnTo, 'customer_member_check_failed');
+  }
+  if (memberDisabled) {
+    redirectWith(parsed.returnTo, 'customer_member_disabled');
   }
 
   const requestId = await getRequestId();

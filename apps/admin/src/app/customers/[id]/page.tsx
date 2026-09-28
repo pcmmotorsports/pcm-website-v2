@@ -100,6 +100,7 @@ export default async function CustomerDetailPage({
           )}
           <CustomerDetail
             customer={data.customer}
+            memberDisabled={memberStatus.kind === 'loaded' && memberStatus.disabledAt !== null}
             walletEntries={data.walletEntries}
             walletLoadFailed={data.walletLoadFailed}
             walletTotal={data.walletTotal}
