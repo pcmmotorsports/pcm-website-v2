@@ -1,16 +1,19 @@
+// 🔒 測試用的舊版推薦引擎(凍結副本,只給 rule-based-engine.parity.test.ts 用,正式程式不 import)。
+// 內容是 origin/dev cc4ef16d7 的 rule-based-engine.ts 原封不動,只改了 class 名稱與 './types' 路徑。
+// 用途:同品牌推薦瘦身(2026-09-28)要證明新舊引擎在同一份資料上推薦結果逐件相同。
+// 不要修改這支檔;新引擎再改版時,比對的基準仍是瘦身前的行為。
 import 'server-only';
 
-import type { BrandPoolKey, IProductRepository } from '@pcm/ports';
+import type { IProductRepository } from '@pcm/ports';
 import type { Product, FitmentSpec } from '@pcm/domain';
 import { toUIProduct } from '@/lib/products';
-import { type BrandPoolCache, brandPoolKey } from './brand-pool-cache';
 import type {
   IRecommendationEngine,
   RecommendationRequest,
   RecommendationResult,
   RecommendationReason,
   VehicleSelection,
-} from './types';
+} from '../types';
 
 /**
  * 規則式(rule-based / content-based)推薦引擎 — Phase 1 `pdp-related` 策略。
@@ -18,8 +21,8 @@ import type {
  * 對齊 docs/specs/2026-07-08-recommendation-engine-related-products-plan.md §4:
  * - **Case A(有選車 context.vehicle)**:池 = 反查「選定的那台車」能裝的其他部品
  *   (listByFitment,非商品自身 fitment)→ 同分類×同車 → 其他×同車 亂數 → 不足補同分類 → 通用款。
- * - **Case B(沒選車)**:池 = 同品牌候選名單(listBrandPoolKeys,記憶體快取;挑到的再 listByIds 補完整資料)
- *   → 同品牌×同分類 → 同品牌其他 亂數 → 不足補同分類 → 通用款。
+ * - **Case B(沒選車)**:池 = 同品牌(listByBrand(product.brand.id))→ 同品牌×同分類 →
+ *   同品牌其他 亂數 → 不足補同分類 → 通用款。
  *
  * 研究背書(不自己發明):規則式 content-based = 無行為資料小站標準冷啟動解
  * (協同過濾需 1,000+ 互動;plan §1)。未來換 AI 只加 VectorRecommendationEngine adapter、
@@ -70,21 +73,8 @@ import type {
  */
 const RECOMMENDATION_POOL_SIZE = 800;
 
-/**
- * 候選名單補完整資料時,每一層比「還需要的件數」多取幾件。
- * 名單有快取,期間內下架的商品補不回來 ⇒ 後面的候選往前補;一層缺超過這個數才會少卡或交給下一層。
- */
-const HYDRATE_EXTRA = 4;
-
-export class RuleBasedRecommendationEngine implements IRecommendationEngine {
-  /**
-   * 🔴 `brandPools` 刻意不給預設值:正式程式傳模組層那一份(`fetch-recommendations.ts`),
-   *    測試每個案例傳新的一份;給預設值的話,沒傳的測試會靜靜共用同一份而互相汙染。
-   */
-  constructor(
-    private readonly repo: IProductRepository,
-    private readonly brandPools: BrandPoolCache,
-  ) {}
+export class LegacyRuleBasedRecommendationEngine implements IRecommendationEngine {
+  constructor(private readonly repo: IProductRepository) {}
 
   async recommend(req: RecommendationRequest): Promise<RecommendationResult> {
     const { placement, context, limit } = req;
@@ -108,17 +98,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
     // 收集器:tier 優先序串接 → 去重(seen)→ 排自身(excludes)→ 上限 limit+1(控成本 + hasMore 準)。
     const collected: { product: Product; score: number; reason: RecommendationReason }[] = [];
     const seen = new Set<string>();
-    // 🔴 身分同時看 handle 與 id:候選名單有快取,商品改過網址時名單裡是舊 handle,只比 handle 會漏排自己或重複。
-    const seenIds = new Set<string>();
     const cap = limit + 1;
-
-    const isTaken = (handle: string, id: string): boolean =>
-      excludes.has(handle) || seen.has(handle) || id === product.id || seenIds.has(id);
-    const take = (p: Product, score: number, reason: RecommendationReason): void => {
-      seen.add(p.handle);
-      seenIds.add(p.id);
-      collected.push({ product: p, score, reason });
-    };
 
     const addTier = (
       pool: Product[],
@@ -130,38 +110,9 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
       const ordered = shuffle ? seededOrder(pool, seed) : byHandleAsc(pool);
       for (const p of ordered) {
         if (collected.length >= cap) break;
-        if (isTaken(p.handle, p.id)) continue;
-        take(p, score, reason);
-      }
-    };
-
-    /**
-     * 候選名單版的 addTier:先照同樣的順序挑出「還需要的件數 + HYDRATE_EXTRA」件,
-     * 一次 `listByIds` 補完整資料,再照原順序放進結果。
-     * - 沒有缺件時,放進結果的與 addTier 對完整池做的逐件相同。
-     * - 補回來但沒放進結果的不記為已出現(後面的補位層仍可能選到它們,與現在相同)。
-     * - 補回來的品牌已經不是目前商品的品牌(快取期間改過品牌)就丟掉。
-     */
-    const addKeyTier = async (
-      keys: BrandPoolKey[],
-      score: number,
-      reason: RecommendationReason,
-      shuffle: boolean,
-    ): Promise<void> => {
-      if (collected.length >= cap) return;
-      const ordered = shuffle ? seededOrder(keys, seed) : byHandleAsc(keys);
-      const want = cap - collected.length + HYDRATE_EXTRA;
-      const picks: string[] = [];
-      for (const k of ordered) {
-        if (picks.length >= want) break;
-        if (isTaken(k.handle, k.id)) continue;
-        picks.push(k.id);
-      }
-      if (picks.length === 0) return;
-      for (const p of await this.repo.listByIds(picks)) {
-        if (collected.length >= cap) break;
-        if (p.brand.id !== product.brand.id || isTaken(p.handle, p.id)) continue;
-        take(p, score, reason);
+        if (excludes.has(p.handle) || seen.has(p.handle)) continue;
+        seen.add(p.handle);
+        collected.push({ product: p, score, reason });
       }
     };
 
@@ -208,24 +159,19 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
         //    高分層(`score 100`，同分類)不允許 ⇒ 所以只有它下推查詢。
         //    📎 我原本的措辭讓一個【有偏】的取樣聽起來像【無偏】——
         //       與同日記進 traps 的「用詞的方向不會自己報錯」是同一族。
-        // 🔵 2026-09-28 同品牌推薦瘦身(計畫 `~/pcm-mailbox/計畫-同品牌推薦瘦身-20260928.md`):
-        //    池改成只有 id / handle / 分類的候選名單,放記憶體快取;挑到的幾件再用 `listByIds` 補完整資料。
-        //    品牌池沒撈滿時,整個品牌都在池裡 ⇒ 同分類直接從池裡篩,與另外查一次的結果相同,省一次查詢。
-        //    撈滿時照上面的理由另外查(下推分類)。
-        const brandId = product.brand.id;
-        const pool = (categoryRaw?: string): Promise<BrandPoolKey[]> =>
-          this.brandPools.get(brandPoolKey(brandId, categoryRaw, RECOMMENDATION_POOL_SIZE), () =>
-            this.repo.listBrandPoolKeys(brandId, RECOMMENDATION_POOL_SIZE, categoryRaw),
-          );
-        const brandPool = await pool();
+        const [brandPool, sameCat] = await Promise.all([
+          this.repo.listByBrand(product.brand.id, RECOMMENDATION_POOL_SIZE),
+          this.repo.listByBrand(
+            product.brand.id,
+            RECOMMENDATION_POOL_SIZE,
+            sameCategoryRaw,
+          ),
+        ]);
+        primaryPoolCount = countDistinctEligible(brandPool, excludes); // CTA=/products?brand=
         primaryPoolSaturated = brandPool.length >= RECOMMENDATION_POOL_SIZE;
-        const sameCat = primaryPoolSaturated
-          ? await pool(sameCategoryRaw)
-          : brandPool.filter((k) => k.categoryRaw === sameCategoryRaw);
-        primaryPoolCount = countDistinctEligible(brandPool, excludes, product.id); // CTA=/products?brand=
-        const otherCat = brandPool.filter((k) => k.categoryRaw !== sameCategoryRaw);
-        await addKeyTier(sameCat, 100, 'same-brand', false); // 同品牌×同分類:決定性排序
-        await addKeyTier(otherCat, 80, 'same-brand', true); // 同品牌其他:亂數
+        const otherCat = brandPool.filter((p) => p.category.raw !== sameCategoryRaw);
+        addTier(sameCat, 100, 'same-brand', false); // 同品牌×同分類:決定性排序
+        addTier(otherCat, 80, 'same-brand', true); // 同品牌其他:亂數
         if (!enough()) {
           const catPool = await this.repo.listByCategory(product.category, RECOMMENDATION_POOL_SIZE);
           addTier(catPool, 50, 'fallback-category', true); // 不足 → 同分類(不限品牌)
@@ -275,23 +221,18 @@ function vehicleToSpec(vehicle: VehicleSelection): FitmentSpec {
 /**
  * 主池去重(by handle)+ 排除 excludes(含自身)後的 distinct 數。
  * hasMore 用之:主池(CTA 目標 filter)去重排自身 > limit 才顯「查看全部」(codex R3 F1)。
- * `excludeId`:候選名單有快取,目前商品改過網址時名單裡是舊 handle ⇒ 也用 id 排掉自己。
  */
-function countDistinctEligible(
-  pool: readonly { handle: string; id: string }[],
-  excludes: Set<string>,
-  excludeId?: string,
-): number {
+function countDistinctEligible(pool: Product[], excludes: Set<string>): number {
   const seen = new Set<string>();
   for (const p of pool) {
-    if (excludes.has(p.handle) || seen.has(p.handle) || p.id === excludeId) continue;
+    if (excludes.has(p.handle) || seen.has(p.handle)) continue;
     seen.add(p.handle);
   }
   return seen.size;
 }
 
 /** 決定性排序(同分類 tier 用):handle 升冪、穩定不跳(對齊 fetchRelatedProducts)。 */
-function byHandleAsc<T extends { handle: string }>(products: readonly T[]): T[] {
+function byHandleAsc(products: Product[]): Product[] {
   return products.slice().sort((a, b) => a.handle.localeCompare(b.handle, 'en'));
 }
 
@@ -299,7 +240,7 @@ function byHandleAsc<T extends { handle: string }>(products: readonly T[]): T[] 
  * 決定性「亂數」排序:以 seed+handle 雜湊當排序鍵、tie-break handle 升冪。
  * 同 seed(同情境)→ 同序;不同情境(不同 product/vehicle)→ 不同序;禁 Math.random(SSR 一致)。
  */
-function seededOrder<T extends { handle: string }>(products: readonly T[], seed: string): T[] {
+function seededOrder(products: Product[], seed: string): Product[] {
   return products
     .map((p) => ({ p, key: hashString(`${seed}|${p.handle}`) }))
     .sort((a, b) => a.key - b.key || a.p.handle.localeCompare(b.p.handle, 'en'))

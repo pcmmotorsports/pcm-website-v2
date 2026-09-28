@@ -8,6 +8,13 @@ import type {
   Paginated,
 } from '@pcm/domain';
 
+/** 推薦候選名單的一列(`listBrandPoolKeys` 回傳);只放挑選要用的欄位。 */
+export interface BrandPoolKey {
+  id: string;
+  handle: string;
+  categoryRaw: string | null;
+}
+
 /**
  * IProductRepository: 商品查詢 port。
  *
@@ -157,6 +164,24 @@ export interface IProductRepository {
      */
     categoryRaw?: string,
   ): Promise<Product[]>;
+  /**
+   * 同 `listByBrand` 的篩選、排序(handle 升冪)與筆數上限,**只回挑選要用的三個欄位**。
+   *
+   * 推薦引擎用它建「候選名單」並放進記憶體快取;挑完再用 `listByIds` 補完整資料。
+   * 為什麼不直接縮 `listByBrand`:完整資料裡的 `fitments` 最大品牌 800 筆就約 4.9 MB,
+   * 候選名單只要 id / handle / 分類(計畫 `~/pcm-mailbox/計畫-同品牌推薦瘦身-20260928.md` §2)。
+   * 分類找不到時回 `[]`(同 `listByBrand`)。商品沒有分類時 `categoryRaw` 為 null。
+   */
+  listBrandPoolKeys(
+    brandId: string,
+    poolLimit: number,
+    categoryRaw?: string,
+  ): Promise<BrandPoolKey[]>;
+  /**
+   * 依 id 撈完整商品。查不到的 id 不回;回傳順序照傳入順序。呼叫端要傳不重複的 id(重複的會回兩份)。
+   * 實作可以分批查(Supabase 每批 100 個 id),任何一批失敗就整個丟錯,不回半份。
+   */
+  listByIds(ids: readonly string[]): Promise<Product[]>;
   /**
    * 依 fitment spec 列出 product(motoBrand + modelCode 配對),**最多 `poolLimit` 筆**。
    *

@@ -6,7 +6,15 @@ import { CATALOG_REVALIDATE_SECONDS } from '@/lib/products';
 import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { RuleBasedRecommendationEngine } from './rule-based-engine';
+import { BrandPoolCache } from './brand-pool-cache';
 import type { VehicleSelection } from './types';
+
+/**
+ * 同品牌候選名單的記憶體快取,1 小時(Sean 2026-09-28 Q2 甲;計畫 `~/pcm-mailbox/計畫-同品牌推薦瘦身-20260928.md`)。
+ * 模組層一份,每台伺服器實例各自持有。鍵不含站別與會員等級:兩站的推薦查詢都用匿名連線,可見範圍相同;
+ * 經銷價在快取外換(`ProductRelatedServer.tsx`)。
+ */
+const brandPoolCache = new BrandPoolCache(60 * 60 * 1000);
 
 /**
  * N°03 相關商品推薦 server 端接線(R3、對齊 plan §5 資料流)。
@@ -105,7 +113,7 @@ async function fetchRecommendedProductsUncached(
       };
     }
 
-    const engine = new RuleBasedRecommendationEngine(adapter);
+    const engine = new RuleBasedRecommendationEngine(adapter, brandPoolCache);
     const result = await engine.recommend({
       placement: 'pdp-related',
       context: { product, vehicle, excludeHandles: [handle] },

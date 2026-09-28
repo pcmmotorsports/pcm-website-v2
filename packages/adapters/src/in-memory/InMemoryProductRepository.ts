@@ -1,4 +1,4 @@
-import type { IProductRepository } from '@pcm/ports';
+import type { BrandPoolKey, IProductRepository } from '@pcm/ports';
 import {
   resolveEnd,
   type Product,
@@ -217,6 +217,26 @@ export class InMemoryProductRepository implements IProductRepository {
       ),
       poolLimit
     );
+  }
+
+  /** 同 `listByBrand` 的篩選與筆數,只回候選名單三個欄位。 */
+  async listBrandPoolKeys(
+    brandId: string,
+    poolLimit: number,
+    categoryRaw?: string
+  ): Promise<BrandPoolKey[]> {
+    return (await this.listByBrand(brandId, poolLimit, categoryRaw)).map((p) => ({
+      id: p.id,
+      handle: p.handle,
+      categoryRaw: p.category.raw,
+    }));
+  }
+
+  /** 依 id 撈商品,照傳入順序;查不到的不回。 */
+  async listByIds(ids: readonly string[]): Promise<Product[]> {
+    return ids
+      .map((id) => this.products.get(id as ProductId))
+      .filter((p): p is Product => p !== undefined);
   }
 
   /**
