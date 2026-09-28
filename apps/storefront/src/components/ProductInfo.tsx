@@ -55,6 +55,26 @@ export type ProductInfoProps = {
   isRpmCarbon?: boolean;
 };
 
+/**
+ * 按「加入購物車」/「立即購買」時擋不擋、擋的話給客人看哪一句。桌機(本檔)與手機購買列(ProductPage)共用,
+ * 兩邊不能各寫一套(2026-09-28 Codex 抓到手機那顆沒擋空一般價、沒擋零規格)。
+ * 按鈕照 #161 拍板永遠可按、不變灰;擋的是「點下去發生什麼」。結帳那一道(購物車停用結帳、create_order)仍是最後底線。
+ * 順序:經銷價拿不到 → 沒有任何規格 → 選到的規格(或商品)一般價空(商品頁乙 P12b「一般價空不能賣」)。
+ */
+export function addToCartBlockedReason(o: {
+  dealerPriceUnavailable: boolean;
+  hasVariants: boolean;
+  displayPrice: number | null;
+}): string | null {
+  // B2B 5d(Sean Q3 甲「沒有經銷價就不能買」)
+  if (o.dealerPriceUnavailable) return '這件商品暫時無法取得價格，無法加入購物車。若需要這件商品，請聯絡 PCM 業務。';
+  // 板 ⟦b4-NOVARIANT1⟧(Sean 2026-08-31 拍「不賣」);「客服 LINE」沿用付款那條路的既有字面
+  if (!o.hasVariants) return '這件商品目前不能單獨購買,請聯繫客服 LINE 協助訂購。';
+  // 商品頁乙 P12b:價格印「—」的規格不能賣;先在這裡講,不要等到購物車才發現結帳按不了
+  if (o.displayPrice === null) return '這個規格目前沒有售價，無法加入購物車。請改選其他規格，或聯繫客服 LINE 詢問。';
+  return null;
+}
+
 export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, isRpmCarbon = false }: ProductInfoProps) {
   const variants = product.variants ?? [];
   const hasVariants = variants.length > 0;
@@ -255,8 +275,9 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   // 回傳有沒有加進去(Codex 5d R1 必修:沒加進去就不能讓「立即購買」跳購物車,說明會跟著頁面消失)。
   const addToCart = (): boolean => {
     // B2B 5d(Sean Q3 甲「沒有經銷價就不能買」):按鈕照 #161 永遠可按、不變灰;按下去不加入,說明原因。
-    if (dealerPriceUnavailable) {
-      setCannotBuyAloneNotice('這件商品暫時無法取得價格，無法加入購物車。若需要這件商品，請聯絡 PCM 業務。');
+    const blocked = addToCartBlockedReason({ dealerPriceUnavailable, hasVariants, displayPrice });
+    if (blocked) {
+      setCannotBuyAloneNotice(blocked);
       setAddedToCart(false);
       return false;
     }
@@ -280,11 +301,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     //    前面加了不代表可以拆後面(測試釘住它還在)。
     // 🔵 而「客服 LINE」是**沿用既有字面**(付款那條路四處都這樣寫)——
     //    自己發明一種說法會讓它變成第六種。
-    if (!hasVariants) {
-      setCannotBuyAloneNotice('這件商品目前不能單獨購買,請聯繫客服 LINE 協助訂購。');
-      setAddedToCart(false);
-      return false;
-    }
+    //    ⇒ 2026-09-28 起這一條與經銷價、空一般價一起收進 `addToCartBlockedReason`(上面那一行),手機購買列共用。
     const vehicle = readSearchVehicle();
     // 🔴 N4(2026-08-24):`addItem` 現在**自己回傳「因為上限而被夾掉幾件」** ——
     //   算法與「這一列現在幾件」都住共用層(`CartContext.tsx`),這裡只負責【怎麼顯示】。
