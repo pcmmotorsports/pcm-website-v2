@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from 'next/constants';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 // 測自己這個 app 的根 `next.config`(同 admin 那支)。
 // 🔴 **2026-08-29 codex must-fix:原寫的理由是錯的** —— 實跑訊息逐字是
 //    「apps/storefront → apps/storefront 沒有一條規則允許」⇒ **成因是「app 讀自己」,不是型別。**
@@ -179,5 +181,52 @@ describe('BotID 改寫規則', () => {
       'https://api.vercel.com/bot-protection/v1/challenge',
       'https://api.vercel.com/bot-protection/v1/proxy/:path*',
     ]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 安全標頭(2026-09-29;計畫 ~/pcm-mailbox/計畫-安全標頭-20260928.md)
+describe('安全標頭', () => {
+  const globalHeaders = async () => {
+    const rules = (await nextConfig(PHASE_PRODUCTION_BUILD).headers?.()) ?? [];
+    // withBotId 會在後面替自己的路徑再補一條 ⇒ 只看 /:path* 那條,不斷言陣列長度。
+    return rules.find((r) => r.source === '/:path*')?.headers ?? [];
+  };
+  const valueOf = async (key: string) => (await globalHeaders()).find((h) => h.key === key)?.value;
+
+  it('全站有 nosniff、防嵌入、權限、Referrer-Policy 與 CSP Report-Only', async () => {
+    const keys = (await globalHeaders()).map((h) => h.key);
+    expect(keys).toEqual(expect.arrayContaining([
+      'X-Content-Type-Options', 'X-Frame-Options', 'Content-Security-Policy',
+      'Referrer-Policy', 'Permissions-Policy', 'Content-Security-Policy-Report-Only',
+    ]));
+  });
+
+  it("🔴 防嵌入是 'self' 不是 'none'(BotID 用同網域框架,設 'none' 註冊頁可能壞掉)", async () => {
+    expect(await valueOf('Content-Security-Policy')).toBe("frame-ancestors 'self'");
+    expect(await valueOf('X-Frame-Options')).toBe('SAMEORIGIN');
+  });
+
+  it('🔴 直接生效的 CSP 只有 frame-ancestors;其他規則只在 Report-Only(不擋客人)', async () => {
+    expect(await valueOf('Content-Security-Policy')).not.toMatch(/script-src|img-src|default-src/);
+    expect(await valueOf('Content-Security-Policy-Report-Only')).toContain('report-uri https://www.pcmmotorsports.com/api/csp-report');
+  });
+
+  it('不送 X-Powered-By', () => {
+    expect(nextConfig(PHASE_PRODUCTION_BUILD).poweredByHeader).toBe(false);
+  });
+
+  // 🔴 路由自己 set 過的標頭,next.config 不能再設同名的:Next 會以 next.config 為準、把路由的丟掉。
+  //    只掃 apps/storefront/src;packages/ 今天 0 處自己設標頭。
+  it('🔴 沒有任何路由自己設了 next.config 也在設的標頭', async () => {
+    const keys = (await globalHeaders()).map((h) => h.key.toLowerCase());
+    const files = readdirSync(join(__dirname, 'src'), { recursive: true })
+      .filter((p): p is string => typeof p === 'string' && /\.(ts|tsx)$/.test(p) && !p.includes('.test.'));
+    const clash = files.flatMap((p) => {
+      const code = readFileSync(join(__dirname, 'src', p), 'utf8').toLowerCase();
+      return keys.filter((k) => code.includes(`'${k}'`) || code.includes(`"${k}"`)).map((k) => `${p}: ${k}`);
+    });
+    expect(files.length).toBeGreaterThan(100);
+    expect(clash).toEqual([]);
   });
 });

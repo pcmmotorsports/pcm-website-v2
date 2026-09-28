@@ -37,7 +37,46 @@ const withBundleAnalyzer = bundleAnalyzer({
  *       那些檔算進來 —— 而**那把尺不是 Vercel 實際打包的東西**(射程寫在
  *       `docs/plans/2026-08-31-statement-pdf-slice-c-plan.md` §2b)。
  *       真的要答, 要量目標 `.func`(`vercel build` 的 Build Output)。 */
+/* 安全標頭(2026-09-29 Sean 批准;計畫 ~/pcm-mailbox/計畫-安全標頭-20260928.md)。經銷站與前台同一份。
+ * · 直接生效的只有:防嵌入(frame-ancestors 'self' + X-Frame-Options)、nosniff、關掉三個全站沒用到的權限。
+ *   🔴 防嵌入只能 'self' 不能 'none':BotID 替自己的路徑也設 'self'(推論它用同網域框架),設 'none' 可能讓註冊頁壞掉。
+ * · CSP 其他規則只回報不擋(Report-Only),回報送到 www 的 /api/csp-report,跑 7 天照回報補清單。
+ *   'unsafe-inline' 先留著:Next 的內嵌初始化腳本與 JSON-LD 要 nonce 才能拿掉,那是下一期。
+ * · HSTS 不加:Vercel 已送 max-age=63072000,再送會重複。
+ * · 🔴 路由自己 set 過的標頭,這裡不要再設同名的 —— Next 會以這裡為準、把路由的丟掉
+ *   (後台 SSO 的 no-referrer 就是這樣差點被蓋掉)。`next.config.test.ts` 有一格掃這件事。 */
+const SUPABASE_ORIGIN = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin : '';
+// Vercel 上拿不到就讓建置失敗:少了它,每一個 Supabase 連線都會變成一則回報,很快撞到單日 5,000 的停損。
+if (process.env.VERCEL && !SUPABASE_ORIGIN) throw new Error('NEXT_PUBLIC_SUPABASE_URL 未設,CSP connect-src 會漏掉 Supabase');
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://js.tappaysdk.com https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  ["connect-src 'self'", SUPABASE_ORIGIN, 'https://*.tappaysdk.com https://challenges.cloudflare.com'].filter(Boolean).join(' '),
+  "frame-src 'self' https://*.tappaysdk.com https://challenges.cloudflare.com https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com",
+  "media-src 'self' https:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+  'report-uri https://www.pcmmotorsports.com/api/csp-report',
+].join('; ');
+const SECURITY_HEADERS = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  { key: 'Content-Security-Policy-Report-Only', value: CSP_REPORT_ONLY },
+];
+
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: '/:path*', headers: SECURITY_HEADERS }];
+  },
   outputFileTracingIncludes: {
     // 🔴🔴 **這個 key 是【glob】,不是路徑字面。**Next 動態區段的方括號 `[displayId]`
     //    在 glob 裡是**字元類別** ⇒ 寫 `/account/orders/[displayId]/statement.pdf`
