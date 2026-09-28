@@ -67,7 +67,7 @@ import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import { singleFlightStale } from '@/lib/single-flight-stale';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
-import { catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
+import { catalogRowToUIProduct, pickFeatured, withoutSaleMarks, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -915,7 +915,7 @@ export async function fetchCatalogPage(
     //   P價會員不吃特價(Q-P2 乙,同 toUIProduct 只在 general 帶 saleOriginalPrice)⇒ 拿掉特價標記。
     //   🔴 回新物件、不動快取本體:那一份是跨使用者共用的(Codex P12 R1 必修)。
     if (tier === 'general') return page;
-    return { ...page, products: page.products.map((p) => ({ ...p, origPrice: null, originalPrice: null, isSale: false })) };
+    return { ...page, products: withoutSaleMarks(page.products) };
   } catch (err) {
     console.error('[fetchCatalogPage] search_catalog_by_vehicle failed:', err);
     return { products: [], total: 0, error: true };

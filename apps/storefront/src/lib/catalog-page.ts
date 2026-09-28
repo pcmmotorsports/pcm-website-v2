@@ -104,6 +104,15 @@ export type CatalogCardProduct = Omit<MockProduct, 'price'> & {
   dealerPriceMissing?: true;
 };
 
+/**
+ * 商品頁乙 P12:經銷 / P價會員不吃特價(Q-P2 乙)⇒ 卡片的特價三欄清掉。
+ * 回新物件、不動傳進來的陣列(它常常是跨使用者共用的快取那一份)。
+ * 呼叫端:products.ts 的目錄頁那支(公開那條的非 general)、dealer-card-prices.ts 的換價那支(非 general 的每一條卡片路)。
+ */
+export function withoutSaleMarks<T extends Pick<CatalogCardProduct, 'origPrice' | 'originalPrice' | 'isSale'>>(items: readonly T[]): T[] {
+  return items.map((p) => ({ ...p, origPrice: null, originalPrice: null, isSale: false }));
+}
+
 /** List view → ProductCard 的最小公開 UI shape；不接觸 detail 或 tier price。 */
 export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
   // 商品頁乙 P12:特價的劃線原價。規則同 domain mapper(mappers/product.ts saleOriginalPrice):
@@ -190,7 +199,7 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
       row.card_image && hasNoRealImage(row.card_image)
         ? undefined
         : parseImageTrim(row.card_image_trim) ?? undefined,
-    // 一般會員的劃線(同 toUIProduct 一般會員那一半);經銷換價(withDealerCardPrices)會再清成 null
+    // 一般會員的劃線(同 toUIProduct 一般會員那一半);經銷與 P價會員由 withDealerCardPrices / fetchCatalogPage 清掉
     originalPrice: saleOrig,
     tierLabel: null,
   };

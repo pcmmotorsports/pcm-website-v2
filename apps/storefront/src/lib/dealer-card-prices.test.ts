@@ -32,7 +32,17 @@ beforeEach(() => {
 });
 
 describe('withDealerCardPrices', () => {
-  it('不是 store ⇒ 原樣(新陣列),不查任何東西', async () => {
+  // 商品頁乙 P12(Fable R2 必修):P價會員不換價、也不吃特價 ⇒ 特價三欄清掉,價格照舊;不動原物件。
+  //   首頁最新商品、會員中心推薦、/search、商品頁相關商品都靠這一道。
+  it('🔴 premiumStore ⇒ 價格照舊、特價標記拿掉,不查經銷價,不動原物件', async () => {
+    const items = [card('a')];
+    const out = await withDealerCardPrices(items, 'premiumStore');
+    expect(out[0]).toMatchObject({ price: 1000, origPrice: null, originalPrice: null, isSale: false });
+    expect(items[0]).toMatchObject({ origPrice: 1200, originalPrice: 1200, isSale: true });
+    expect(h.prices).not.toHaveBeenCalled();
+  });
+
+  it('一般會員 ⇒ 原樣(新陣列、特價標記留著),不查任何東西', async () => {
     const items = [card('a')];
     const out = await withDealerCardPrices(items, 'general');
     expect(out).toEqual(items);
