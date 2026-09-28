@@ -624,7 +624,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //      每日同步帶 --confirm-write 但沒帶 --expect-groups ⇒ 群數指紋檢查(rpm-preflight.ts / rpm-import.ts)擋下商品寫入、
     //      留同步紀錄並告警 —— 不會自己灌,但每天會紅一次。
     //      ⚠️ 那道檢查只認「上架數是 0」:首灌只成功一部分的話,之後就不再強制群數 ⇒ 不能拿它保證首灌完整。
-    //      ⇒ 合併條件:首灌由 Sean 授權的人跑完、而且驗收(1,045 群)之後,才把這一顆合進 dev。
+    //      ⇒ 合併條件:首灌由 Sean 授權的人跑完、而且驗收之後,才把這一顆合進 dev。
+    //   🔴 2026-09-28 晚 Öhlins 重做(報價單 7f:群鍵改成原廠料號 / OHLINS-{前綴}、彈簧改一家族多磅數):
+    //      上面「1,045 群 / 內容未補齊 0」是重做【之前】量的。首灌前要照上線手冊第 10.3 步重跑乾跑,
+    //      --expect-groups 用那次乾跑印的來源群數;新增的彈簧磅數沒有中文說明,這一格會先擋下它們。
     writeAllowed: true,
   },
   // Arrow。2026-09-25 登記;2026-09-26 Sean Q15 甲批首灌 ⇒ `writeAllowed: true`。
