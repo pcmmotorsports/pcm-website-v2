@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 
 import { VehicleSelect } from './VehicleSelect';
+import { YEARS_FETCH_TIMEOUT_MS } from './use-lazy-brand-years';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
 const SLIM: MockMotoBrand[] = [
@@ -108,5 +109,62 @@ describe('VehicleSelect 自己補目前牌子的年份', () => {
     await act(async () => {});
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(year().disabled).toBe(false);
+  });
+});
+
+// 2026-09-29:補年份那一發一直不回 ⇒ 8 秒後當失敗(否則手機面板套用鈕會一直停在「年份載入中…」)。
+describe('補年份逾時', () => {
+  /** 一直不回、但會照 signal 放棄的假 fetch(真的 fetch 被 abort 時就是這樣 reject)。 */
+  function hangingFetch() {
+    return vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }),
+    );
+  }
+
+  it('🔴 8 秒(YEARS_FETCH_TIMEOUT_MS)內沒回 ⇒ 改寫失敗;門檻前 0.1 秒還是載入中', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', hangingFetch());
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      render(<Select brands={SLIM} vehicle={{ brand: 'Yamaha', model: 'R6' }} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(YEARS_FETCH_TIMEOUT_MS - 100);
+      });
+      expect(year().placeholder).toBe('年份載入中…');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(year().placeholder).toBe('年份讀取失敗，請清除廠牌再選');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('🔴 逾時之後清除廠牌再選 ⇒ 重打一次, 這次回了就可以選年份', async () => {
+    vi.useFakeTimers();
+    try {
+      const hang = hangingFetch();
+      vi.stubGlobal('fetch', hang);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { rerender } = render(<Select brands={SLIM} vehicle={{ brand: 'Yamaha', model: 'R6' }} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(YEARS_FETCH_TIMEOUT_MS + 100);
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => okResponse({ brandId: 'yamaha', models: [{ id: 'r6', name: 'R6', years: [2016] }] })),
+      );
+      rerender(<Select brands={SLIM} vehicle={null} />);
+      rerender(<Select brands={SLIM} vehicle={{ brand: 'Yamaha', model: 'R6' }} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(year().disabled).toBe(false);
+      expect(hang).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

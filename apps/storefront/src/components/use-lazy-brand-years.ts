@@ -27,6 +27,9 @@ type VehicleModelsResponse = { brandId: string; models: MockMotoModel[] };
 export const YEARS_LOADING_TEXT = '年份載入中…';
 /** 補年份失敗時年份欄的字。390 寬首頁那一格放得下的長度;重選同一個牌子不會觸發重打, 所以要「清除」再選。 */
 export const YEARS_FAILED_TEXT = '年份讀取失敗，請清除廠牌再選';
+/** 補年份那一發最多等多久(含讀回應內容)。超過就當失敗, 走上面那句與「清除再選」重試。
+ *  🔴 為什麼要有:沒有上限時 API 一直不回, 手機面板的套用鈕會停在「年份載入中…」到瀏覽器自己放棄為止。 */
+export const YEARS_FETCH_TIMEOUT_MS = 8000;
 
 export function useLazyBrandYears(
   motoBrands: MockMotoBrand[],
@@ -43,7 +46,10 @@ export function useLazyBrandYears(
     if (needId === null || inflight.current.has(needId)) return;
     inflight.current.add(needId);
     setFailed((prev) => withoutId(prev, needId));
-    void fetch(`/api/catalog/vehicle-models?brand=${encodeURIComponent(needId)}`)
+    // 用 AbortController + setTimeout 而不是 `AbortSignal.timeout()`:後者 Safari / iOS 16 才有(iOS 15 及更早沒有), 呼叫就直接丟錯。
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), YEARS_FETCH_TIMEOUT_MS);
+    void fetch(`/api/catalog/vehicle-models?brand=${encodeURIComponent(needId)}`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`vehicle-models ${res.status}`);
         const body = (await res.json()) as VehicleModelsResponse;
@@ -57,6 +63,7 @@ export function useLazyBrandYears(
         setFailed((prev) => new Set(prev).add(needId));
       })
       .finally(() => {
+        clearTimeout(timer);
         inflight.current.delete(needId);
       });
   }, [needId]);
