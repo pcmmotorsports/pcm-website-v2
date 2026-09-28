@@ -94,6 +94,44 @@ describe('手機選車面板 MobileVehicleSheet', () => {
   });
 });
 
+describe('手機選車面板「查看適用商品」在年份載入中', () => {
+  const sheet = (dispatch = vi.fn()) => {
+    render(
+      <MobileVehicleSheet open onClose={() => {}} motoBrands={SLIM} cascade={withVehicle('Yamaha', 'R6')} dispatch={dispatch} />,
+    );
+    return dispatch;
+  };
+
+  it('🔴 選了車型而年份還在補 ⇒ 套用鈕停用、寫「年份載入中…」;補到後恢復「查看適用商品」', async () => {
+    const { release } = gatedFetch();
+    const dispatch = sheet();
+    const apply = screen.getByRole('button', { name: '年份載入中…' }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    fireEvent.click(apply);
+    expect(dispatch).not.toHaveBeenCalled();
+    await act(async () => {
+      release();
+    });
+    expect((screen.getByRole('button', { name: '查看適用商品' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('🔵 補失敗 ⇒ 放行套用(年份欄已講失敗, 不讓客人卡在面板裡)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 }) as Response));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    sheet();
+    await act(async () => {});
+    expect((screen.getByRole('button', { name: '查看適用商品' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('🔵 年份本來就在的牌子 ⇒ 套用鈕照常可按', () => {
+    vi.stubGlobal('fetch', vi.fn());
+    render(
+      <MobileVehicleSheet open onClose={() => {}} motoBrands={SLIM} cascade={withVehicle('Ducati', 'Monster')} dispatch={() => {}} />,
+    );
+    expect((screen.getByRole('button', { name: '查看適用商品' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe('篩選抽屜 FilterDrawerVehicleTab', () => {
   function Drawer() {
     const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
