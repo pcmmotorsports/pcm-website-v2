@@ -72,9 +72,8 @@ export async function createServerSupabaseClient() {
 //    否則那個 client 會在背景把舊登入換發回來。
 // 🔴 只給 server action / route handler 用。頁面(Server Component)的 cookies 唯讀, 刪不掉;這裡吞掉錯誤不讓整頁壞,
 //    但那樣就沒有防到競態(Fable R1 consider 1)。
-// 🔵 假設:Supabase 的 access token 有效期 > 12 分鐘(預設 3600 秒;設定在 Supabase 後台, repo 查不到)。
-//    /auth/confirm「同一個連結 10 分鐘內開第二次仍顯示成功」靠第一次建立的登入那時還沒進入 120 秒門檻;
-//    有效期若設到 12 分鐘以下, 第二次開會把新登入當成快過期而刪掉(Fable R1 consider 2)。
+// (2026-09-28 拿掉 /auth/confirm「同一個連結 10 分鐘內開第二次仍顯示成功」那條捷徑, 原本寫在這裡的
+//  「access token 有效期要 > 12 分鐘」假設已不需要。)
 
 /** auth-js 剩 90 秒就背景換發;多 30 秒蓋過兩邊判斷時間的差距。 */
 const STALE_LOGIN_MS = 120_000;
