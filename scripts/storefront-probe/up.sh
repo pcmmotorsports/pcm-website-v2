@@ -143,7 +143,17 @@ rm -rf "$S" && mkdir -p "$S"   # 🔴 引號:`${STOREFRONT_PROBE_DIR:-…}` 只�
   echo "HEAD   : $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 } > $S/owner.txt
 initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.log 2>&1
-pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
+# 🔴 pg_cron 要在起 server 之前掛上(shared_preload_libraries);dump 模式的 bootstrap.sql 要它。
+#    理由與失敗形狀全文在 scripts/admin-probe/up.sh 同一段(2026-09-29 照抄過來)。
+_pglib=$(pg_config --pkglibdir 2>/dev/null || echo /nonexistent)
+_pgopt="-p $PG -k /tmp"
+if [ -f "$_pglib/pg_cron.dylib" ] || [ -f "$_pglib/pg_cron.so" ]; then
+  _pgopt="$_pgopt -c shared_preload_libraries=pg_cron -c cron.database_name=postgres"
+  PGCRON=1
+else
+  PGCRON=0
+fi
+pg_ctl -D $S/pg -o "$_pgopt" -l $S/pg.log start > $S/pgctl.log 2>&1
 sleep 2
 
 # 🔴 **驗「我連上的那顆, 真的是我剛起的那顆」**(2026-08-30 線【客人帳戶區】`-08` 補;
@@ -168,6 +178,13 @@ if [ "$_want" != "$_got" ]; then
 fi
 echo "✅ pg 身分核對:$PG ⇒ $_got"
 
+# ── 起庫:正式庫 schema dump(與後台鑽機同一份, 2026-09-29 起)或退回從空庫重播 ──────────
+#    共用段在 scripts/probe-prod-schema.sh。🔴 dump 模式底下, 本檔下面那些【重播專用】的修補一律不跑:
+#    它們會把舊版 migration 再套一次(把函式改回舊版)、或把整個 public 的 SELECT 開給 anon / authenticated
+#    (比正式庫寬, 例:order_item_quantity_summary 那道牆), 在 dump 上只會把鑽機弄得比正式庫還不像正式庫。
+source "$REPO/scripts/probe-prod-schema.sh"
+probe_pick_mode
+if [ "$MODE" = replay ]; then
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticator LOGIN NOINHERIT;
@@ -205,6 +222,11 @@ for f in "$REPO"/supabase/migrations/*.sql; do   # 🔴 引號包在 glob 外:�
   then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在)"
+else
+  probe_restore_dump
+fi
+
+if [ "$MODE" = replay ]; then
 
 # ── ⟦front-PROBEREPLAYGAP⟧ 2026-09-07:replay 缺件補丁 ─────────────────────────
 # 🔴🔴 **它跑在【套完 migration 之後】, 而 plan 原本寫「之前」—— 我改了, 理由在這裡。**
@@ -361,6 +383,7 @@ GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.jwt() TO authenticated, 
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON customers, customer_addresses, customer_vehicles TO authenticated;
 SQL
+fi  # ← 重播專用段結束(replay-gap 補丁、重放修補 1/2、放寬 GRANT)
 
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$SP/seed.sql"
 echo "seed 完成: $(psql -h 127.0.0.1 -p $PG -U postgres -t -c 'select count(*) from products' | tr -d ' ') 件商品"
@@ -371,6 +394,7 @@ echo "seed 完成: $(psql -h 127.0.0.1 -p $PG -U postgres -t -c 'select count(*)
 #    在【種子之前】跑 ⇒ 商品數必然是 0 ⇒ 斷言必然失敗 ⇒ 那支的新多載【從來沒被建起來】。
 # 🛑 而它失敗得很安靜:apply 迴圈只記 fail 數, 而下一個人看到的是顧客站「件數未能載入」
 #    + log 裡的 PGRST202 ⇒ **他會以為是碼壞了**(2026-09-04 我自己就這樣誤判過一次)。
+if [ "$MODE" = replay ]; then
 for M in 20260904160000_m4b_search_catalog_multi_category; do
   psql -h 127.0.0.1 -p $PG -U postgres -q -f "$REPO/supabase/migrations/$M.sql" >> $S/apply.log 2>&1 || true
 done
@@ -398,6 +422,10 @@ else
     exit 4
   fi
   echo "   🔵 而鑽機【照常起】—— 其他用途(結帳 / 後台 / 版面)不受這一格影響。"
+fi
+else
+  # dump 模式:補套仍失敗的那幾支函式換上正式庫現行本體(理由在 scripts/probe-prod-schema.sh)。
+  probe_apply_parity_fixture
 fi
 
 
