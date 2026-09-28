@@ -12,16 +12,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // vi.mock 的 factory 會被 hoist 到檔頂 ⇒ 它引用的 mock 必須用 vi.hoisted 一起提上去。
-const { fetchFacetCounts, fetchVehicleTaxonomy, fetchCategories, fetchCatalogBrandTaxonomy } =
+// 2026-09-29 選車清單瘦身甲案:route 改讀底盤清單 `fetchVehicleTaxonomyBase`, 年份白名單只補那個牌子
+//   (`fetchModelsWithYearsOrFull`)。變數名沿用 `fetchVehicleTaxonomy` 讓下面各格不用改字, mock 的是底盤那支。
+const { fetchFacetCounts, fetchVehicleTaxonomy, fetchModelsWithYearsOrFull, fetchCategories, fetchCatalogBrandTaxonomy } =
   vi.hoisted(() => ({
     fetchFacetCounts: vi.fn(),
     fetchVehicleTaxonomy: vi.fn(),
+    fetchModelsWithYearsOrFull: vi.fn(),
     fetchCategories: vi.fn(),
     fetchCatalogBrandTaxonomy: vi.fn(),
   }));
 
 vi.mock('@/lib/products', () => ({
-  fetchVehicleTaxonomy,
+  fetchVehicleTaxonomyBase: fetchVehicleTaxonomy,
+  fetchModelsWithYearsOrFull,
   fetchCategories,
   fetchCatalogBrandTaxonomy,
 }));
@@ -58,6 +62,9 @@ beforeEach(() => {
   fetchFacetCounts.mockReset();
   fetchFacetCounts.mockResolvedValue(OK_COUNTS);
   fetchVehicleTaxonomy.mockReset().mockResolvedValue(TAXONOMY);
+  fetchModelsWithYearsOrFull
+    .mockReset()
+    .mockImplementation(async (b: { id: string }) => TAXONOMY.find((x) => x.id === b.id)?.models ?? []);
   fetchCategories.mockReset().mockResolvedValue(CATEGORIES);
   fetchCatalogBrandTaxonomy.mockReset().mockResolvedValue(BRANDS);
 });
@@ -186,5 +193,34 @@ describe('categoryFacetKeys', () => {
         { id: 'b', name: 'B', count: 2, children: [] },
       ]),
     ).toEqual(['A', 'A · A1', 'B']);
+  });
+});
+
+// 2026-09-29 選車清單瘦身甲案:車輛白名單讀底盤清單(沒有年份), 年份白名單只補網址上那個牌子。
+describe('facet-counts 讀底盤清單 + 只補那個牌子的年份', () => {
+  const BASE = TAXONOMY.map((b) => ({ ...b, models: b.models.map((m) => ({ ...m, years: [] as number[] })) }));
+
+  it('🔴 底盤清單沒有年份, 年份從那個牌子補 ⇒ 合法年份照樣 200', async () => {
+    fetchVehicleTaxonomy.mockResolvedValue(BASE);
+    const res = await get('?vehicle=kawasaki:zx10r:2024');
+    expect(res.status).toBe(200);
+    expect(fetchModelsWithYearsOrFull).toHaveBeenCalledTimes(1);
+    expect(fetchModelsWithYearsOrFull.mock.calls[0]?.[0]).toMatchObject({ id: 'kawasaki' });
+  });
+
+  it('🔴 那個牌子的年份讀不到 ⇒ 503, 不是 400 unknown_year(那是永久錯誤, client 不會重試)', async () => {
+    fetchVehicleTaxonomy.mockResolvedValue(BASE);
+    fetchModelsWithYearsOrFull.mockRejectedValue(new Error('boom'));
+    const res = await get('?vehicle=kawasaki:zx10r:2024');
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: 'taxonomy_unavailable' });
+    expect(fetchFacetCounts).not.toHaveBeenCalled();
+  });
+
+  it('🔵 網址沒帶年份 ⇒ 不補年份(只選廠牌、車型不需要)', async () => {
+    fetchVehicleTaxonomy.mockResolvedValue(BASE);
+    const res = await get('?vehicle=kawasaki:zx10r');
+    expect(res.status).toBe(200);
+    expect(fetchModelsWithYearsOrFull).not.toHaveBeenCalled();
   });
 });

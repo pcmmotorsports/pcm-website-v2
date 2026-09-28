@@ -41,7 +41,8 @@ const fetchCatalogPage = vi.fn();
 vi.mock('@/lib/products', () => ({
   tryCatalogBrandTaxonomy,
   tryCategories,
-  tryVehicleTaxonomy,
+  // 2026-09-29 選車清單瘦身甲案:route 改呼叫底盤那支;變數名沿用, 下面各格的意思不變(車款那一腿)。
+  tryVehicleTaxonomyBase: tryVehicleTaxonomy,
   fetchCatalogPage,
 }));
 

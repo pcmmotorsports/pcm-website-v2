@@ -28,7 +28,12 @@ import { NextResponse } from 'next/server';
 
 import { parseCatalogQuery, isSafeCategoryValue } from '@/lib/catalog-query';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
-import { fetchCategories, fetchCatalogBrandTaxonomy, fetchVehicleTaxonomy } from '@/lib/products';
+import {
+  fetchCategories,
+  fetchCatalogBrandTaxonomy,
+  fetchModelsWithYearsOrFull,
+  fetchVehicleTaxonomyBase,
+} from '@/lib/products';
 import { fetchFacetCounts, type FacetVehicle } from '@/lib/vehicle-facet-counts';
 import { CATEGORY_PATH_SEP } from '@/components/products-filter-logic';
 import type { MockCategory } from '@/data/mock-categories';
@@ -76,9 +81,11 @@ export async function GET(request: Request) {
     // 🔴 這幾支「看起來」都自己 catch 掉了,但它們的 `createSupabaseAnonClient()` 寫在 try **外面**
     //    (`products.ts`)⇒ 環境變數缺漏時是**未捕捉的 throw**、直接 500、繞過 503 守門
     //    (2026-07-31 在沒有憑證的 worktree 實跑到 `NEXT_PUBLIC_SUPABASE_URL not set`)。
-    let motoBrands: Awaited<ReturnType<typeof fetchVehicleTaxonomy>>;
+    // 🔵 2026-09-29 選車清單瘦身甲案:廠牌、車型白名單用底盤清單(沒有年份);年份白名單在下面只補那一個牌子。
+    //   底盤那支讀不到是 throw(不是回 `[]`)⇒ 由這個 catch 回 503, 與舊行為同一個結果。
+    let motoBrands: Awaited<ReturnType<typeof fetchVehicleTaxonomyBase>>;
     try {
-      motoBrands = await fetchVehicleTaxonomy();
+      motoBrands = await fetchVehicleTaxonomyBase();
     } catch (err) {
       console.error('[facet-counts] 車輛字典讀取 throw:', err);
       return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
@@ -107,8 +114,17 @@ export async function GET(request: Request) {
     // ③ 年份白名單:必須是該車型字典裡真的有的年份(擋年份枚舉放大)
     if (yearRaw) {
       // 用 slug 的 id 查(與 parseVehicleFromUrl 同一組鍵);名稱可能重複、id 才是唯一鍵。
-      const years =
-        motoBrands.find((b) => b.id === brandId)?.models?.find((m) => m.id === modelId)?.years ?? [];
+      const brand = motoBrands.find((b) => b.id === brandId);
+      let models: Awaited<ReturnType<typeof fetchModelsWithYearsOrFull>> = [];
+      if (brand) {
+        try {
+          models = await fetchModelsWithYearsOrFull(brand);
+        } catch (err) {
+          console.error('[facet-counts] 牌子年份讀取 throw:', err);
+          return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
+        }
+      }
+      const years = models.find((m) => m.id === modelId)?.years ?? [];
       if (parsed.year === undefined || !years.includes(parsed.year)) {
         return NextResponse.json({ error: 'unknown_year' }, { status: 400, headers: NO_STORE });
       }

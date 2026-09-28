@@ -57,7 +57,8 @@ import type { MockCategory } from '@/data/mock-categories';
 import { MOCK_BRANDS, type MockBrand } from '@/data/mock-brands';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 import { normalizeVehicleQuery } from '@/lib/vehicle-match';
-import { reconcileModelYears } from '@/lib/vehicle-tree-payload';
+import { reconcileModelYears, vehicleTreeWithYearsForProductsPage } from '@/lib/vehicle-tree-payload';
+import type { GarageVehicleInput } from '@/lib/garage-chip';
 import { buildCategoryTree } from '@/lib/category-taxonomy';
 // 🔴 ⟦front-CATALOGPRICEGENERALONLY⟧ 經銷目錄 RPC 的身分閘讀 `auth.uid()`
 //    ⇒ **anon client 打它一定 RAISE** ⇒ 只有這條路要帶 session 的 client。
@@ -1561,6 +1562,24 @@ export async function fetchModelsWithYearsOrFull(brand: MockMotoBrand): Promise<
     const full = (await fetchVehicleTaxonomy()).find((b) => normalizeVehicleQuery(b.name) === key);
     return reconcileModelYears(brand, full?.models ?? []);
   }
+}
+
+/**
+ * 頁面送給瀏覽器的車款樹(2026-09-29 選車清單瘦身甲案, ~/pcm-mailbox/計畫-選車清單瘦身-20260929.md):
+ * 底盤清單(沒有年份) + 網址那台車與車庫相關的牌子先補年份;其餘牌子 `yearsLoaded: false`,
+ * 由 `VehicleSelect` 在客人選到那個牌子時打 `/api/catalog/vehicle-models` 補。
+ * 🔴 `failed` 只在底盤讀不到時為真;某個牌子補不到年份只會留著 `yearsLoaded: false`(瀏覽器再補), 不算失敗。
+ * 吃 `tryVehicleTaxonomyBase()` 的結果而不是自己再讀:頁面讓底盤與車庫併行讀, 車庫到了才知道要補哪幾個牌子。
+ */
+export async function vehicleTreeForPage(
+  base: { motoBrands: MockMotoBrand[]; failed: boolean },
+  opts: { selectedBrandName: string | null; garage: readonly GarageVehicleInput[] },
+): Promise<{ motoBrands: MockMotoBrand[]; failed: boolean }> {
+  if (base.failed) return base;
+  return {
+    motoBrands: await vehicleTreeWithYearsForProductsPage(base.motoBrands, opts, fetchModelsWithYearsOrFull),
+    failed: false,
+  };
 }
 
 /**

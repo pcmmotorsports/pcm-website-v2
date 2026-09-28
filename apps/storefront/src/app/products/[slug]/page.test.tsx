@@ -59,9 +59,13 @@ vi.mock('@/components/ProductPage', () => ({
     );
   },
 }));
+// 2026-09-29 選車清單瘦身甲案:route 改呼叫底盤那支 + `vehicleTreeForPage`(網址那台車與車庫牌子補年份);
+//   變數名沿用, 下面各格的意思不變;`vehicleTreeForPage` 預設原樣傳回(它自己的行為在 lib 的測試裡)。
+const vehicleTreeForPage = vi.fn((base: unknown) => Promise.resolve(base));
 vi.mock('@/lib/products', () => ({
   fetchProductByHandle,
-  tryVehicleTaxonomy,
+  tryVehicleTaxonomyBase: tryVehicleTaxonomy,
+  vehicleTreeForPage,
   // ⟦b4-DEALERSIGNUPUNSEEN⟧ M-2-08:route 現在也要 uuid(UI 型別的 `id` 是 number 不是 uuid)。
   fetchProductIdsByHandles,
 }));
@@ -420,5 +424,34 @@ describe('商品舊網址轉址(Ilmberger 合卡配套)', () => {
     fetchProductByHandle.mockResolvedValueOnce(product([], [{ id: 'v-1', price: 8400 }]));
     await ProductSlugRoute({ params: Promise.resolve({ slug: 'any' }), searchParams: Promise.resolve({}) });
     expect(findProductRedirect).not.toHaveBeenCalled();
+  });
+});
+
+// 2026-09-29 選車清單瘦身甲案:網址那台車的牌子要由伺服器先補年份(其餘牌子交給瀏覽器)。
+describe('PDP 的車款清單 = 底盤 + 網址那台車的牌子補年份', () => {
+  it('🔴 網址帶了車 ⇒ vehicleTreeForPage 收到那個牌子的名稱, 送下去的是它的回傳', async () => {
+    fetchProductByHandle.mockReset().mockResolvedValue(product([{ motoBrand: 'YAMAHA' }]));
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: BRANDS, failed: false });
+    vehicleTreeForPage.mockClear();
+    vehicleTreeForPage.mockImplementationOnce(() =>
+      Promise.resolve({ motoBrands: [BRANDS[0]], failed: false }),
+    );
+    const html = renderToStaticMarkup(await call([{ motoBrand: 'YAMAHA' }], { vehicle: 'yamaha' }));
+    expect(vehicleTreeForPage).toHaveBeenCalledWith(
+      { motoBrands: BRANDS, failed: false },
+      { selectedBrandName: 'YAMAHA', garage: [] },
+    );
+    expect(html).toContain('data-moto-brands="1"');
+  });
+
+  it('🔵 網址沒帶車 ⇒ 沒有指定牌子(只補車庫的)', async () => {
+    fetchProductByHandle.mockReset().mockResolvedValue(product([{ motoBrand: 'YAMAHA' }]));
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: BRANDS, failed: false });
+    vehicleTreeForPage.mockClear();
+    await call([{ motoBrand: 'YAMAHA' }]);
+    expect(vehicleTreeForPage).toHaveBeenCalledWith(
+      { motoBrands: BRANDS, failed: false },
+      { selectedBrandName: null, garage: [] },
+    );
   });
 });

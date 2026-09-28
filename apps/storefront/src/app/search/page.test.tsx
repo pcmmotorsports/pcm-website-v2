@@ -28,7 +28,7 @@ const fetchCatalogPage = vi.fn();
 vi.mock('@/lib/products', () => ({
   tryCatalogBrandTaxonomy: vi.fn(async () => ({ brands: [{ id: 'akrapovic', name: 'Akrapovic' }], failed: false })),
   tryCategories: vi.fn(async () => ({ categories: [], failed: false })),
-  tryVehicleTaxonomy: vi.fn(async () => ({ motoBrands: [], failed: false })),
+  tryVehicleTaxonomyBase: vi.fn(async () => ({ motoBrands: [], failed: false })),
   fetchCatalogPage,
 }));
 vi.mock('server-only', () => ({}));

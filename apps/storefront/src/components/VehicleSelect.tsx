@@ -23,6 +23,7 @@ import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { VehicleDraftField } from '@/lib/vehicle-draft-notice';
 import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
 import { modelFieldOptions, resolveModelPick } from '@/lib/vehicle-options';
+import { useLazyBrandYears } from './use-lazy-brand-years';
 
 /** 🔴 零命中提示四句 —— **全站選車欄位的單一真相**。
  *  Sean 2026-08-07 拍板 Q6=A:Q4=B 之後「打了查無的字、blur 也不清掉」,但重新 focus 時
@@ -306,7 +307,7 @@ function Combo({
 }
 
 export function VehicleSelect({
-  motoBrands,
+  motoBrands: motoBrandsProp,
   vehicle,
   onPickBrand,
   onPickModel,
@@ -340,12 +341,29 @@ export function VehicleSelect({
    *  不傳=行為零變動(`VehicleFinder` 就不傳)。 */
   onDraftTextChange?: (field: VehicleDraftField, text: string) => void;
 }) {
+  // 2026-09-29 選車清單瘦身甲案:收到的可能是底盤清單(`yearsLoaded: false` 的牌子沒有年份),
+  //   目前這個牌子的年份由這支補(`use-lazy-brand-years.ts`)。整棵都有年份時它什麼都不做。
+  const { motoBrands: motoBrandsWithYears, yearsPending, yearsFailed } = useLazyBrandYears(
+    motoBrandsProp,
+    vehicle?.brand,
+  );
+  const motoBrands = motoBrandsWithYears;
   const curBrand = vehicle ? motoBrands.find((b) => b.name === vehicle.brand) : undefined;
   const models = curBrand?.models ?? [];
   const curModel =
     vehicle?.model != null ? models.find((m) => m.name === vehicle.model) : undefined;
   const years = curModel?.years ?? [];
-  const modelNoYears = curModel !== undefined && years.length === 0;
+  // 🔴 年份還沒補到時 `years` 也是空的 —— 那不是「不限年份」, 要分開(否則客人以為這台車不分年份)。
+  const modelNoYears = !yearsPending && curModel !== undefined && years.length === 0;
+  const yearPlaceholder = yearsPending
+    ? yearsFailed
+      ? // 390 寬首頁那一格放得下的長度(原本那句「…後再選一次」在手機上被切掉)。
+        //   重選同一個牌子不會觸發(`Combo` 值沒變不送出), 所以要「清除」再選。
+        '年份讀取失敗，請清除廠牌再選'
+      : '年份載入中…'
+    : modelNoYears
+      ? '不限年份'
+      : '選擇或輸入年份';
   // 未選廠牌時車型欄跨層搜尋(打 r6 直達車款),選定同時補上廠牌 —— 與 CascadeFilterTop
   // 共用同一顆 lib/vehicle-options(A5,不建立第二套車款比對邏輯)。
   // ⚠️ 申報一個順帶的行為變動(R1 nit):`brand 有值但不在字典`(字典改名/下架後,購物車
@@ -415,8 +433,8 @@ export function VehicleSelect({
         label="選擇年份"
         value={vehicle?.year != null ? String(vehicle.year) : null}
         options={years.map((y) => String(y))}
-        disabled={!vehicle || vehicle.model == null || modelNoYears}
-        placeholder={modelNoYears ? '不限年份' : '選擇或輸入年份'}
+        disabled={!vehicle || vehicle.model == null || modelNoYears || yearsPending}
+        placeholder={yearPlaceholder}
         onPick={(name) => onPickYear(Number(name))}
         onClear={onClearYear}
         variant={variant}

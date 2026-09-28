@@ -42,7 +42,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomyBase } from '@/lib/products';
 import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { suggestBrand } from '@/lib/brand-suggestion';
 import { filterFacets } from '@/lib/search-facets';
@@ -136,7 +136,8 @@ export async function GET(request: Request) {
     //     ① 新判準沒有 `R6` → `CBR600` 那個病(第一段折疊後**完全相等** + 同廠牌才帶)
     //     ② `a5f0cce12`(09-06)把那條腿從 13 次往返改成一發 RPC
     //   ⚠️ 而 ② 的實際代價**這次是量的**, 不是引註解 —— 讀數寫在本片 commit body。
-    tryVehicleTaxonomy().then((r) => ((msVeh = lap()), r)),
+    // 🔵 2026-09-29 選車清單瘦身甲案:解析與車款膠囊只用牌子、車款名稱與 id, 不用年份 ⇒ 底盤清單。
+    tryVehicleTaxonomyBase().then((r) => ((msVeh = lap()), r)),
   ]);
   // 🔵 那個欄位【刻意一直留著】—— 直接刪掉的話,下一個讀 log 的人分不出「這一腿很快」與
   //    「這一腿根本沒跑」。⛔ ~~`vehicles=skipped`~~ ⇒ 2026-09-09 那一腿加回來了, 印真的毫秒數。

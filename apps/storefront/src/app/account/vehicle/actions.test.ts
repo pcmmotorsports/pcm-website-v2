@@ -30,11 +30,11 @@ vi.mock('@/lib/auth/composition', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: () => mockCreateServerSupabaseClient(),
 }));
-// V-1d:actions 引用 fetchVehicleTaxonomy(@/lib/products 檔頭 import 'server-only' → node 測試環境炸)
+// V-1d:actions 引用 tryVehicleTaxonomyBase(2026-09-29 起;原 fetchVehicleTaxonomy)(@/lib/products 檔頭 import 'server-only' → node 測試環境炸)
 // → mock 整檔只給 taxonomy;預設含 YAMAHA/YZF-R6(validInput dict 案可過)、個案覆寫驗 fail-closed。
 const mockFetchVehicleTaxonomy = vi.fn();
 vi.mock('@/lib/products', () => ({
-  fetchVehicleTaxonomy: () => mockFetchVehicleTaxonomy(),
+  tryVehicleTaxonomyBase: async () => ({ motoBrands: await mockFetchVehicleTaxonomy(), failed: false }),
 }));
 const TAXONOMY = [
   { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'r6', name: 'YZF-R6', years: [2020] }] },
