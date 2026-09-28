@@ -111,7 +111,7 @@ import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 import { isCatalogPending } from './catalog-pending';
 import type { GarageChipItem } from './GarageChips';
-import { useBrandYears } from './use-brand-years';
+import { useLazyBrandYears } from './use-lazy-brand-years';
 
 
 export type ProductsPageProps = {
@@ -224,10 +224,9 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   //    URL 已選的牌子 + 車庫相關的牌子上;`lib/vehicle-tree-payload.ts`)。這裡把它換成 state,
   //    客人選到哪個牌子就補抓那個牌子的年份 —— **下面每一個 `motoBrands` 讀取點一個字都沒改**。
   //    抓失敗 ⇒ `yearsFailed` 併進 `VehicleTaxonomyNotice` 那扇門(「這次讀不到」要講,不靜默)。
-  const { motoBrands, ensureYearsFor, yearsFailed } = useBrandYears(serverMotoBrands);
-  useEffect(() => {
-    ensureYearsFor(cascade.vehicle?.brand);
-  }, [cascade.vehicle?.brand, ensureYearsFor]);
+  // 🔵 2026-09-29 起換成 `use-lazy-brand-years.ts`(選車元件共用那支):失敗記在那個牌子上、補到就消失,
+  //    不再是全站一個永遠不歸零的布林;各選車元件也用同一支依自己的草稿牌子補(面板裡換牌子還沒套用時)。
+  const { motoBrands, yearsFailed } = useLazyBrandYears(serverMotoBrands, cascade.vehicle?.brand);
   const [extras, setExtrasRaw] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams, searchKeyword !== undefined);
   // Sean 2026-07-31:篩選動作確認後一律回頁首,排序同辦(拍板 A;詳 products-scroll-top.tsx;

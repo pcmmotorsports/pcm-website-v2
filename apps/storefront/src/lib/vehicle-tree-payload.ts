@@ -11,7 +11,7 @@
 //   · `years` 只在 `keepYearsFor` 那幾個牌子上保留(URL 已選的牌子、車庫那幾台的牌子 ——
 //     server 在 render 當下就知道的),其餘牌子 `years: []` + `yearsLoaded: false`。
 //   · 其餘牌子的年份由 client 在選了牌子時打 `/api/catalog/vehicle-models?brand=` 補
-//     (`use-brand-years.ts`)。
+//     (`use-lazy-brand-years.ts`)。
 //
 // 🔴 這支只做投影,不 fetch、不快取:資料源與 TTL 一個字沒動(0911 Q1 乙 / Q2 甲不受影響)。
 
@@ -90,7 +90,7 @@ export function vehicleTreeForProductsPage(
  * ⟦db-TAXONOMYVIEW⟧ 接線片(2026-09-22):輸入是【底盤樹】(沒有年份), 要保留年份的那幾個牌子
  * 由 `loadModels` 各補一次年份(一個牌子一發), 其餘牌子照舊 `yearsLoaded: false`。
  * 🔴 **某個牌子補失敗 ⇒ 那個牌子當成「沒保留」**(`yearsLoaded: false`), 頁面照常出來,
- *   瀏覽器選到那個牌子時會自己打 `/api/catalog/vehicle-models` 再補一次(`use-brand-years.ts`)。
+ *   瀏覽器選到那個牌子時會自己打 `/api/catalog/vehicle-models` 再補一次(`use-lazy-brand-years.ts`)。
  *   ⚠️ 商品頁傳進來的 `loadModels` 是 `fetchModelsWithYearsOrFull`(年份失敗先退回舊完整樹)⇒ 走到這裡
  *   代表【新舊兩條都拿不到完整年份】。Codex 接線片 R2 MF 指出:此時送出 `years: []`, 客人點「我的愛車」
  *   會丟掉存好的年份 ⇒ 這個極少數情況【仍未解】(2026-09-22 R2 後修改, 尚未再審;要 Sean 決定處理方式)。
