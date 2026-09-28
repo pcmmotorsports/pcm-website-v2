@@ -39,11 +39,21 @@ export interface SupplierText {
   readonly highlights: readonly string[];
 }
 
-function Badge({ ours }: { ours: boolean }) {
+/**
+ * 左欄「原本的內容」叫什麼。一般商品是供應商每天同步的;網站自己新增的商品(supplier_slug='pcm')沒有供應商,
+ * 左欄是新增時填的內容(09-29 網站A 走一遍發現舊字面寫成「供應商提供（每天同步）」)。
+ */
+const SOURCE_COPY = {
+  supplier: { badge: '網站顯示：供應商的', column: '供應商提供（每天同步）', restore: '還原成供應商的', empty: '（供應商沒有提供）', placeholder: '沒填就顯示供應商的' },
+  manual: { badge: '網站顯示：新增時填的', column: '新增商品時填的內容', restore: '還原成新增時填的', empty: '（新增時沒有填）', placeholder: '沒填就顯示新增時填的' },
+} as const;
+type SourceCopy = (typeof SOURCE_COPY)[keyof typeof SOURCE_COPY];
+
+function Badge({ ours, copy }: { ours: boolean; copy: SourceCopy }) {
   return ours ? (
     <span className='rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800'>網站顯示：我們的版本</span>
   ) : (
-    <span className='bg-muted text-muted-foreground rounded-md px-2 py-0.5 text-xs font-medium'>網站顯示：供應商的</span>
+    <span className='bg-muted text-muted-foreground rounded-md px-2 py-0.5 text-xs font-medium'>{copy.badge}</span>
   );
 }
 
@@ -55,6 +65,7 @@ function OverrideCard({
   supplier,
   editor,
   onRestore,
+  copy,
 }: {
   field: OverrideField;
   label: string;
@@ -63,21 +74,22 @@ function OverrideCard({
   supplier: ReactNode;
   editor: ReactNode;
   onRestore: () => void;
+  copy: SourceCopy;
 }) {
   return (
     <section data-override-field={field} className='rounded-lg border p-4'>
       <div className='mb-3 flex items-center gap-2'>
         <h3 className='text-sm font-medium'>{label}</h3>
-        <Badge ours={ours} />
+        <Badge ours={ours} copy={copy} />
         {ours && (
           <button type='button' onClick={onRestore} className={`${LINK_BTN} ml-auto`}>
-            還原成供應商的
+            {copy.restore}
           </button>
         )}
       </div>
       <div className='grid gap-4 sm:grid-cols-2'>
         <div>
-          <p className='text-muted-foreground mb-1 text-xs'>供應商提供（每天同步）</p>
+          <p className='text-muted-foreground mb-1 text-xs'>{copy.column}</p>
           <div className='bg-muted min-h-9 rounded-md border px-3 py-2 text-sm break-words'>{supplier}</div>
         </div>
         <div>{editor}</div>
@@ -91,11 +103,15 @@ export function ProductOverridesEditor({
   productId,
   supplier,
   overrides,
+  manual = false,
 }: {
   productId: string;
   supplier: SupplierText;
   overrides: ProductOverrides;
+  /** 網站自己新增的商品(supplier_slug='pcm'):左欄不是供應商, 是新增時填的內容。 */
+  manual?: boolean;
 }) {
+  const copy = manual ? SOURCE_COPY.manual : SOURCE_COPY.supplier;
   const [state, formAction, pending] = useActionState(saveProductTextAction, IDLE);
   const formRef = useRef<HTMLFormElement>(null);
   const clear = (name: string) => {
@@ -106,12 +122,13 @@ export function ProductOverridesEditor({
   const textField = (field: 'title' | 'subtitle', label: string, supplierValue: string | null, ours: string | null) => (
     <OverrideCard
       field={field}
+      copy={copy}
       label={label}
       ours={ours !== null}
       onRestore={() => clear(field === 'title' ? OVERRIDE_TITLE_FIELD : OVERRIDE_SUBTITLE_FIELD)}
       // 審查建議:搜尋(storefront_search_product_ids)還比對供應商原字,要先講清楚(計畫片 10 會修)。
       hint={`${ours !== null ? '存檔後網站約 1 分鐘內更新；清空再儲存等於還原。' : '目前沒有我們的版本。'}客人用新標題搜尋，要等之後搜尋功能更新才找得到。`}
-      supplier={supplierValue ?? <span className='text-muted-foreground'>（供應商沒有提供）</span>}
+      supplier={supplierValue ?? <span className='text-muted-foreground'>{copy.empty}</span>}
       editor={
         <label className='block'>
           <span className='text-muted-foreground mb-1 block text-xs'>我們的版本</span>
@@ -122,7 +139,7 @@ export function ProductOverridesEditor({
             name={field === 'title' ? OVERRIDE_TITLE_FIELD : OVERRIDE_SUBTITLE_FIELD}
             defaultValue={ours ?? ''}
             maxLength={OVERRIDE_TEXT_MAX[field]}
-            placeholder='沒填就顯示供應商的'
+            placeholder={copy.placeholder}
             className={`${ADMIN_INPUT_CLASS} w-full`}
           />
         </label>
@@ -162,6 +179,7 @@ export function ProductOverridesEditor({
       {textField('subtitle', '副標', supplier.subtitle, overrides.subtitle)}
       <OverrideCard
         field='highlights'
+        copy={copy}
         label='賣點'
         ours={overrides.highlights !== null}
         onRestore={() => clear(OVERRIDE_HIGHLIGHT_FIELD)}
@@ -174,7 +192,7 @@ export function ProductOverridesEditor({
               ))}
             </ul>
           ) : (
-            <span className='text-muted-foreground'>（供應商沒有提供）</span>
+            <span className='text-muted-foreground'>{copy.empty}</span>
           )
         }
         editor={

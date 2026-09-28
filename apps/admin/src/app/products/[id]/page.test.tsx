@@ -267,7 +267,8 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     //    上下架接上之後**它變成假的** —— 而留著假的自述,正是本格要防的那件事的反面。
     //    ⇒ 現行字面必須同時說出【能改什麼】與【不能改什麼】,兩半都釘住:
     //    🔁 丙方案片 2(2026-09-27)同理再改一次:能改的多了標題、副標、賣點 ⇒ 舊句「只能改上架狀態」變成假的。
-    expect(text, '沒說出「現在能改什麼」= 本頁在說謊的另一半').toContain('能改標題、副標、賣點與上架狀態');
+    //    🔁 09-29 網站A 走一遍:分類(C4)也能改了, 舊句漏了分類 ⇒ 再補一次。
+    expect(text, '沒說出「現在能改什麼」= 本頁在說謊的另一半').toContain('能改標題、副標、賣點、分類與上架狀態');
     expect({ 只能改上架狀態: text.includes('只能改上架狀態') }).toEqual({ 只能改上架狀態: false });
     expect(text, '沒說出「其餘不能改」= 員工會以為每一欄都能編').toContain('其餘欄位仍不能修改');
     // 🔴 而反向釘住:那句已經作廢的自述不得回來
@@ -496,7 +497,7 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
 
   it('🔴 那句誠實話留著 —— 稿明寫它是這一頁自己的話', async () => {
     const { container } = await renderPage();
-    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點與上架狀態,其餘欄位仍不能修改。');
+    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點、分類與上架狀態，其餘欄位仍不能修改。');
     // 🛑 而稿【刻意不寫】「之後可以再調整這筆訂單的特價」:
     //    訂單金額只在建單時寫一次, 事後補等於改一筆已經發生的收款紀錄。
     //    ⇒ 這一格就是稿說的「驗收有一發專門查這句話 0 命中」。
@@ -597,7 +598,7 @@ describe('共用圖庫 G5:照片', () => {
     const { container } = await renderPage();
     expect(container.querySelector('[data-gallery-unavailable]')!.textContent).toContain('圖庫尚未啟用。');
     expect(container.querySelector('[data-gallery-panel]')).toBeNull();
-    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點與上架狀態');
+    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點、分類與上架狀態');
   });
 
   it('🔴 讀不到 ⇒ 顯示原因, 不顯示成「還沒有照片」', async () => {
@@ -617,7 +618,7 @@ describe('共用圖庫 G5:照片', () => {
     const { container } = await renderPage();
     expect(container.querySelector('[data-gallery-panel]')!.textContent).toBe('照片面板 2 張');
     expect(container.querySelector('[data-gallery-unavailable]')).toBeNull();
-    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點、照片與上架狀態');
+    expect(container.textContent).toContain('這一頁目前能改標題、副標、賣點、照片、分類與上架狀態');
   });
 });
 

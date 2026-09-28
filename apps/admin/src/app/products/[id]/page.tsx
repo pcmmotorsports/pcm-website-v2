@@ -284,6 +284,7 @@ export default async function ProductDetailPage({
                   highlights: toProductMedia(product).highlights,
                 }}
                 overrides={overrides}
+                manual={product.supplier_slug === 'pcm'}
               />
               {/* 商品頁乙 C4:分類區(文字下面、價格上面)。 */}
               {categoryChoices ? (
@@ -408,10 +409,11 @@ export default async function ProductDetailPage({
               🛑 而稿明寫**這一句要留著** —— 它是這一頁自己的誠實話。 */}
           {/* 丙方案片 2 之後:能改的多了標題、副標、賣點 ⇒ 這句跟著改(改的是事實,不是期望值)。 */}
           {/* 共用圖庫 G5:圖庫真的讀得到時才把「照片」算進能改的(沒啟用 / 讀不到時那句不成立)。 */}
+          {/* 09-29 網站A 走一遍:分類(C4)已能改, 舊句漏了分類 ⇒ 補上。 */}
           <p className='text-muted-foreground text-sm'>
             {gallery?.state === 'ok'
-              ? '這一頁目前能改標題、副標、賣點、照片與上架狀態,其餘欄位仍不能修改。'
-              : '這一頁目前能改標題、副標、賣點與上架狀態,其餘欄位仍不能修改。'}
+              ? '這一頁目前能改標題、副標、賣點、照片、分類與上架狀態，其餘欄位仍不能修改。'
+              : '這一頁目前能改標題、副標、賣點、分類與上架狀態，其餘欄位仍不能修改。'}
           </p>
         </>
       )}
