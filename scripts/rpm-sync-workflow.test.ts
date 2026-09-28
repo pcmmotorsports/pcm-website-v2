@@ -15,11 +15,11 @@ function jobBlock(name: string): string {
 }
 
 describe('rpm-sync.yml 手動 supplier / dry_run', () => {
-  it('排程本身沒動:cron 與 matrix 21 家仍在', () => {
+  it('排程本身沒動:cron 與 matrix 22 家仍在', () => {
     // 2026-09-24 Sean 批准:每日那一輪改由 Mac mini 07:45 手動觸發(daily), 排程降為備援、表訂台灣 11:17(UTC 03:17)。
     expect(yml).toContain("- cron: '17 3 * * *'");
     const m = /supplier:\s*\[([^\]]*)\]/.exec(yml);
-    expect(m![1]!.split(',').map((s) => s.trim())).toHaveLength(21); // 2026-09-27 ilmberger 首灌準備時加入(圖已轉存 R2);⛔ ~~20~~ 2026-09-26 arrow 首灌後加入(Sean Q15 甲)
+    expect(m![1]!.split(',').map((s) => s.trim())).toHaveLength(22); // 2026-09-28 ohlins 翻 writeAllowed 時加入;⛔ ~~21~~ 2026-09-27 ilmberger 首灌準備時加入(圖已轉存 R2);⛔ ~~20~~ 2026-09-26 arrow 首灌後加入(Sean Q15 甲)
   });
 
   it('🔴 sync 的每一步都掛同一個 if(少一步 ⇒ 只跑一家時那一步會在 21 個 job 裡都跑)', () => {

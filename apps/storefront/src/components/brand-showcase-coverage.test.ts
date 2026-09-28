@@ -184,7 +184,9 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
       notWriteAllowed,
       '這一群變了 ⇒ 要嘛有人登記了新供應商還沒開寫(那它歸本格管), ' +
         '要嘛守門靶被動過。兩種都要有人看一眼, 不要直接改期望值。',
-    ).toEqual(['__gated_canary__', 'ohlins']);
+    ).toEqual(['__gated_canary__']);
+    // ⛔ ~~`['__gated_canary__', 'ohlins']`~~ ⇒ 2026-09-28 Öhlins 說明補齊(Sean 09-17 乙的條件)、翻 writeAllowed: true ⇒ 移出本格
+    //   (它現在歸主閘管,而品牌頁內容 09-15 已做 ⇒ 主閘不紅)。事實變了, 不是為了過關。
     // ⛔ ~~`['__gated_canary__', 'ilmberger', 'ohlins']`~~ ⇒ 2026-09-27 Ilmberger 圖轉存 R2 完成(報價單 359530e3), 準備首灌、翻 writeAllowed: true ⇒ 移出本格。
     // ⛔ ~~`['__gated_canary__', 'ohlins']`~~ ⇒ 2026-09-27 `ilmberger` 登記進 SUPPLIER_CONFIGS(writeAllowed: false,
     //   等圖轉存 R2 與首灌那一發;Sean D1 甲 / D3 甲)⇒ 它現在歸本格管。事實變了, 不是為了過關。

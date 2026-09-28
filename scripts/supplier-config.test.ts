@@ -288,11 +288,13 @@ describe('requireListingContent / hasListingContent', () => {
   } as SourceProductRow;
 
   // 2026-09-27 Ilmberger 比照 Arrow(Sean D1 甲:缺說明的 7 件先擋, 補好下次同步自動上架)。
-  it('Arrow 與 Ilmberger 開啟、其他家都沒開', () => {
+  // 2026-09-28 Öhlins 也開(Sean 09-17 乙「先補完描述再上」:首灌之後報價單新增、還沒補完的列照樣先擋)。
+  it('Arrow、Ilmberger、Öhlins 開啟,其他家都沒開', () => {
     expect(getSupplierConfig('arrow').requireListingContent).toBe(true);
     expect(getSupplierConfig('ilmberger').requireListingContent).toBe(true);
+    expect(getSupplierConfig('ohlins').requireListingContent).toBe(true);
     const others = Object.values(SUPPLIER_CONFIGS)
-      .filter((c) => c.requireListingContent && !['arrow', 'ilmberger'].includes(c.supplierSlug));
+      .filter((c) => c.requireListingContent && !['arrow', 'ilmberger', 'ohlins'].includes(c.supplierSlug));
     expect(others).toEqual([]);
   });
 

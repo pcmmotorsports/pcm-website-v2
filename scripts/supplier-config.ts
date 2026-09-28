@@ -560,7 +560,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     variantImages: 'per-variant', // 397 個多變體群裡 394 群每變體都有自己的圖
     writeAllowed: true, // ✅ 2026-09-08 Sean 拍板「開」;⛔ ~~false ← Sean 對 WRS 沒有拍過上架~~(見上方授權那段)
   },
-  // Öhlins。2026-09-17 登記，**停在乾跑**：`writeAllowed: false`，一個位元組也不寫。
+  // Öhlins。2026-09-17 登記，停在乾跑(`writeAllowed: false`);⛔ 2026-09-28 兩個條件都滿足、翻成 `true`(見本區塊尾端)。
   //
   // 🔴🔴 **首灌被【兩個】條件損住，而它們是同一天拍的，不要只讀到第一個**：
   //   ① Sean 2026-09-17 拍【乙】= 三家一家一家來、**先 ohlins**（arrow / ilmberger 這一輪不做）。
@@ -610,8 +610,25 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     // 來源 `images` 是**純字串陣列、每列一張自己的圖**（實查樣本）⇒ per-variant。
     // 🔵 圖在 `pub-267d5f9578a344cc92267571caab1743.r2.dev` —— **不是新 host**，ebc 已經在用同一個。
     variantImages: 'per-variant',
-    // 🛑 **一個位元組也不寫** —— 翻這一格要兩個條件同時滿足，見上方。
-    writeAllowed: false,
+    // 🔵 2026-09-28 加:缺說明 / 分類 / 中文品名的新列先不上架(同 Arrow)。今天 1,045 列全齊,這一格擋不到任何一列;
+    //   它守的是之後報價單新增、還沒補完內容的 Öhlins 商品 —— 讓 Sean ② 那個條件在首灌之後也成立。
+    requireListingContent: true,
+    // 🔵 2026-09-28 翻開(商品頁乙空檔,主視窗派「只準備、只乾跑」):上方兩個條件的現況 ——
+    //   ① Sean 09-17 乙「先 ohlins」:這一家就是 ohlins。
+    //   ② Sean 09-17 乙「先補完描述再上」:報價單 7f 窗 09-28 補完最後 7 件;本窗同日唯讀實查 storefront_catalog_v
+    //      1,045 列:缺說明 0 · 缺中文名 0 · 缺分類 0 · 缺價 0(PCM 自家無圖卡 1 列,同 09-17)。
+    //   乾跑(同日):1,045 群 / 1,045 變體;分類全對上、品名全有中文、handle 全合法且與網站零撞、離群價 0。
+    //   既有 ohlins 品牌 5 件(dbk 改掛:DU 468 / OH01–OH04)與本家料號、handle 交集都是 0(同日重查)。
+    //   🛑 翻這一格 ≠ 首灌:首灌(--confirm-write --expect-groups)由誰跑、何時跑,主視窗問 Sean(Arrow 09-26 是 Sean 自己跑)。
+    //      ⛔ ~~合進 dev 之後每日同步會隔天自己灌進去~~(Codex R1 更正):網站上 ohlins 上架數是 0 時,
+    //      每日同步帶 --confirm-write 但沒帶 --expect-groups ⇒ 群數指紋檢查(rpm-preflight.ts / rpm-import.ts)擋下商品寫入、
+    //      留同步紀錄並告警 —— 不會自己灌,但每天會紅一次。
+    //      ⚠️ 那道檢查只認「上架數是 0」:首灌只成功一部分的話,之後就不再強制群數 ⇒ 不能拿它保證首灌完整。
+    //      ⇒ 合併條件:首灌由 Sean 授權的人跑完、而且驗收之後,才把這一顆合進 dev。
+    //   🔴 2026-09-28 晚 Öhlins 重做(報價單 7f:群鍵改成原廠料號 / OHLINS-{前綴}、彈簧改一家族多磅數):
+    //      上面「1,045 群 / 內容未補齊 0」是重做【之前】量的。首灌前要照上線手冊第 10.3 步重跑乾跑,
+    //      --expect-groups 用那次乾跑印的來源群數;新增的彈簧磅數沒有中文說明,這一格會先擋下它們。
+    writeAllowed: true,
   },
   // Arrow。2026-09-25 登記;2026-09-26 Sean Q15 甲批首灌 ⇒ `writeAllowed: true`。
   //   Sean 2026-09-25 Q6 甲:有說明的先上,其餘等分類、中文品名、說明都補好再上
