@@ -27,10 +27,18 @@ FN	public.admin_cancel_order(p_order_id uuid, p_idempotency_key uuid, p_actor te
 FN	public.admin_cancel_order(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_items jsonb)	authenticated	-|DEF
 FN	public.admin_cancel_order(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_items jsonb)	payment_confirmer	-|DEF
 FN	public.admin_cancel_order(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_items jsonb)	service_role	X|DEF
+FN	public.admin_card_image_missing(p products)	anon	-|INV
+FN	public.admin_card_image_missing(p products)	authenticated	-|INV
+FN	public.admin_card_image_missing(p products)	payment_confirmer	-|INV
+FN	public.admin_card_image_missing(p products)	service_role	X|INV
 FN	public.admin_claim_hct_dispatch(p_shipment_reference text, p_edelno text)	anon	-|DEF
 FN	public.admin_claim_hct_dispatch(p_shipment_reference text, p_edelno text)	authenticated	-|DEF
 FN	public.admin_claim_hct_dispatch(p_shipment_reference text, p_edelno text)	payment_confirmer	-|DEF
 FN	public.admin_claim_hct_dispatch(p_shipment_reference text, p_edelno text)	service_role	X|DEF
+FN	public.admin_claim_hct_redispatch(p_shipment_reference text, p_edelno text, p_expected_attempt_no integer, p_actor text)	anon	-|DEF
+FN	public.admin_claim_hct_redispatch(p_shipment_reference text, p_edelno text, p_expected_attempt_no integer, p_actor text)	authenticated	-|DEF
+FN	public.admin_claim_hct_redispatch(p_shipment_reference text, p_edelno text, p_expected_attempt_no integer, p_actor text)	payment_confirmer	-|DEF
+FN	public.admin_claim_hct_redispatch(p_shipment_reference text, p_edelno text, p_expected_attempt_no integer, p_actor text)	service_role	X|DEF
 FN	public.admin_compute_order_settlement(p_order_id uuid)	anon	-|DEF
 FN	public.admin_compute_order_settlement(p_order_id uuid)	authenticated	-|DEF
 FN	public.admin_compute_order_settlement(p_order_id uuid)	payment_confirmer	-|DEF
@@ -55,6 +63,10 @@ FN	public.admin_create_manual_order(p_customer_user_id uuid, p_manual_request_id
 FN	public.admin_create_manual_order(p_customer_user_id uuid, p_manual_request_id uuid, p_actor text, p_order_source text, p_payment_channel text, p_shipping_method text, p_ship_to jsonb, p_invoice jsonb, p_shipping_fee integer, p_lines jsonb, p_notification_email text, p_tier text, p_vehicle jsonb)	authenticated	-|DEF
 FN	public.admin_create_manual_order(p_customer_user_id uuid, p_manual_request_id uuid, p_actor text, p_order_source text, p_payment_channel text, p_shipping_method text, p_ship_to jsonb, p_invoice jsonb, p_shipping_fee integer, p_lines jsonb, p_notification_email text, p_tier text, p_vehicle jsonb)	payment_confirmer	-|DEF
 FN	public.admin_create_manual_order(p_customer_user_id uuid, p_manual_request_id uuid, p_actor text, p_order_source text, p_payment_channel text, p_shipping_method text, p_ship_to jsonb, p_invoice jsonb, p_shipping_fee integer, p_lines jsonb, p_notification_email text, p_tier text, p_vehicle jsonb)	service_role	X|DEF
+FN	public.admin_create_manual_product(p_brand_id uuid, p_category_id uuid, p_title text, p_subtitle text, p_description text, p_variants jsonb, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_create_manual_product(p_brand_id uuid, p_category_id uuid, p_title text, p_subtitle text, p_description text, p_variants jsonb, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_create_manual_product(p_brand_id uuid, p_category_id uuid, p_title text, p_subtitle text, p_description text, p_variants jsonb, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_create_manual_product(p_brand_id uuid, p_category_id uuid, p_title text, p_subtitle text, p_description text, p_variants jsonb, p_actor text, p_request_id text)	service_role	X|DEF
 FN	public.admin_create_saved_order_view(p_actor text, p_label text, p_query text, p_date_preset text, p_is_shared boolean, p_idempotency_key text, p_request_id text)	anon	-|DEF
 FN	public.admin_create_saved_order_view(p_actor text, p_label text, p_query text, p_date_preset text, p_is_shared boolean, p_idempotency_key text, p_request_id text)	authenticated	-|DEF
 FN	public.admin_create_saved_order_view(p_actor text, p_label text, p_query text, p_date_preset text, p_is_shared boolean, p_idempotency_key text, p_request_id text)	payment_confirmer	-|DEF
@@ -63,6 +75,26 @@ FN	public.admin_create_shipment(p_idempotency_key text, p_customer_user_id uuid,
 FN	public.admin_create_shipment(p_idempotency_key text, p_customer_user_id uuid, p_recipient_snapshot jsonb, p_carrier_code text, p_actor text, p_request_id text, p_carrier_note text)	authenticated	-|DEF
 FN	public.admin_create_shipment(p_idempotency_key text, p_customer_user_id uuid, p_recipient_snapshot jsonb, p_carrier_code text, p_actor text, p_request_id text, p_carrier_note text)	payment_confirmer	-|DEF
 FN	public.admin_create_shipment(p_idempotency_key text, p_customer_user_id uuid, p_recipient_snapshot jsonb, p_carrier_code text, p_actor text, p_request_id text, p_carrier_note text)	service_role	X|DEF
+FN	public.admin_customer_delete_eligibility(p_customer_user_id uuid)	anon	-|DEF
+FN	public.admin_customer_delete_eligibility(p_customer_user_id uuid)	authenticated	-|DEF
+FN	public.admin_customer_delete_eligibility(p_customer_user_id uuid)	payment_confirmer	-|DEF
+FN	public.admin_customer_delete_eligibility(p_customer_user_id uuid)	service_role	X|DEF
+FN	public.admin_dealer_account_create(p_user_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_dealer_account_create(p_user_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_dealer_account_create(p_user_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_dealer_account_create(p_user_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text, p_actor text, p_request_id text)	service_role	X|DEF
+FN	public.admin_dealer_application_decide(p_application_id uuid, p_decision text, p_note text, p_actor text, p_request_id text, p_expected_tier text, p_expected_updated_at timestamp with time zone)	anon	-|DEF
+FN	public.admin_dealer_application_decide(p_application_id uuid, p_decision text, p_note text, p_actor text, p_request_id text, p_expected_tier text, p_expected_updated_at timestamp with time zone)	authenticated	-|DEF
+FN	public.admin_dealer_application_decide(p_application_id uuid, p_decision text, p_note text, p_actor text, p_request_id text, p_expected_tier text, p_expected_updated_at timestamp with time zone)	payment_confirmer	-|DEF
+FN	public.admin_dealer_application_decide(p_application_id uuid, p_decision text, p_note text, p_actor text, p_request_id text, p_expected_tier text, p_expected_updated_at timestamp with time zone)	service_role	X|DEF
+FN	public.admin_dealer_brand_discounts_save(p_customer uuid, p_changes jsonb, p_expected jsonb, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_dealer_brand_discounts_save(p_customer uuid, p_changes jsonb, p_expected jsonb, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_dealer_brand_discounts_save(p_customer uuid, p_changes jsonb, p_expected jsonb, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_dealer_brand_discounts_save(p_customer uuid, p_changes jsonb, p_expected jsonb, p_actor text, p_request_id text)	service_role	X|DEF
+FN	public.admin_delete_customer(p_actor text, p_customer_user_id uuid, p_reason text, p_request_id text)	anon	-|DEF
+FN	public.admin_delete_customer(p_actor text, p_customer_user_id uuid, p_reason text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_delete_customer(p_actor text, p_customer_user_id uuid, p_reason text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_delete_customer(p_actor text, p_customer_user_id uuid, p_reason text, p_request_id text)	service_role	X|DEF
 FN	public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text, p_reason text)	anon	-|DEF
 FN	public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text, p_reason text)	authenticated	-|DEF
 FN	public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text, p_reason text)	payment_confirmer	-|DEF
@@ -71,6 +103,14 @@ FN	public.admin_delete_saved_order_view(p_actor text, p_view_id bigint, p_reques
 FN	public.admin_delete_saved_order_view(p_actor text, p_view_id bigint, p_request_id text)	authenticated	-|DEF
 FN	public.admin_delete_saved_order_view(p_actor text, p_view_id bigint, p_request_id text)	payment_confirmer	-|DEF
 FN	public.admin_delete_saved_order_view(p_actor text, p_view_id bigint, p_request_id text)	service_role	X|DEF
+FN	public.admin_disable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	anon	-|DEF
+FN	public.admin_disable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_disable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_disable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	service_role	X|DEF
+FN	public.admin_enable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	anon	-|DEF
+FN	public.admin_enable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_enable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_enable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	service_role	X|DEF
 FN	public.admin_finalize_order_refund(p_refund_id uuid, p_outcome text, p_tappay_refund_id text, p_refund_amount_wire bigint, p_failed_detail text, p_actor text, p_request_id text)	anon	-|DEF
 FN	public.admin_finalize_order_refund(p_refund_id uuid, p_outcome text, p_tappay_refund_id text, p_refund_amount_wire bigint, p_failed_detail text, p_actor text, p_request_id text)	authenticated	-|DEF
 FN	public.admin_finalize_order_refund(p_refund_id uuid, p_outcome text, p_tappay_refund_id text, p_refund_amount_wire bigint, p_failed_detail text, p_actor text, p_request_id text)	payment_confirmer	-|DEF
@@ -123,6 +163,18 @@ FN	public.admin_mark_shipment_shipped(p_idempotency_key text, p_shipment_id uuid
 FN	public.admin_mark_shipment_shipped(p_idempotency_key text, p_shipment_id uuid, p_actor text, p_request_id text, p_tracking_number text)	authenticated	-|DEF
 FN	public.admin_mark_shipment_shipped(p_idempotency_key text, p_shipment_id uuid, p_actor text, p_request_id text, p_tracking_number text)	payment_confirmer	-|DEF
 FN	public.admin_mark_shipment_shipped(p_idempotency_key text, p_shipment_id uuid, p_actor text, p_request_id text, p_tracking_number text)	service_role	X|DEF
+FN	public.admin_password_reset_claim(p_customer uuid, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_password_reset_claim(p_customer uuid, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_password_reset_claim(p_customer uuid, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_password_reset_claim(p_customer uuid, p_actor text, p_request_id text)	service_role	X|DEF
+FN	public.admin_products_by_keyword(p_term text)	anon	-|INV
+FN	public.admin_products_by_keyword(p_term text)	authenticated	-|INV
+FN	public.admin_products_by_keyword(p_term text)	payment_confirmer	-|INV
+FN	public.admin_products_by_keyword(p_term text)	service_role	X|INV
+FN	public.admin_receive_return(p_return_id uuid, p_request_id uuid, p_actor text, p_items jsonb, p_note text)	anon	-|DEF
+FN	public.admin_receive_return(p_return_id uuid, p_request_id uuid, p_actor text, p_items jsonb, p_note text)	authenticated	-|DEF
+FN	public.admin_receive_return(p_return_id uuid, p_request_id uuid, p_actor text, p_items jsonb, p_note text)	payment_confirmer	-|DEF
+FN	public.admin_receive_return(p_return_id uuid, p_request_id uuid, p_actor text, p_items jsonb, p_note text)	service_role	X|DEF
 FN	public.admin_record_hct_dispatch(p_shipment_reference text, p_edelno text)	anon	-|DEF
 FN	public.admin_record_hct_dispatch(p_shipment_reference text, p_edelno text)	authenticated	-|DEF
 FN	public.admin_record_hct_dispatch(p_shipment_reference text, p_edelno text)	payment_confirmer	-|DEF
@@ -131,6 +183,10 @@ FN	public.admin_record_hct_label_raw(p_shipment_reference text, p_edelno text, p
 FN	public.admin_record_hct_label_raw(p_shipment_reference text, p_edelno text, p_raw jsonb)	authenticated	-|DEF
 FN	public.admin_record_hct_label_raw(p_shipment_reference text, p_edelno text, p_raw jsonb)	payment_confirmer	-|DEF
 FN	public.admin_record_hct_label_raw(p_shipment_reference text, p_edelno text, p_raw jsonb)	service_role	X|DEF
+FN	public.admin_record_hct_redispatch(p_attempt_id uuid, p_edelno text)	anon	-|DEF
+FN	public.admin_record_hct_redispatch(p_attempt_id uuid, p_edelno text)	authenticated	-|DEF
+FN	public.admin_record_hct_redispatch(p_attempt_id uuid, p_edelno text)	payment_confirmer	-|DEF
+FN	public.admin_record_hct_redispatch(p_attempt_id uuid, p_edelno text)	service_role	X|DEF
 FN	public.admin_record_hct_submit(p_shipment_reference text, p_status text, p_request_id text, p_raw jsonb)	anon	-|DEF
 FN	public.admin_record_hct_submit(p_shipment_reference text, p_status text, p_request_id text, p_raw jsonb)	authenticated	-|DEF
 FN	public.admin_record_hct_submit(p_shipment_reference text, p_status text, p_request_id text, p_raw jsonb)	payment_confirmer	-|DEF
@@ -151,6 +207,10 @@ FN	public.admin_record_manual_refund(p_order_id uuid, p_request_id uuid, p_actor
 FN	public.admin_record_manual_refund(p_order_id uuid, p_request_id uuid, p_actor text, p_rail text, p_refund_amount integer, p_reason text, p_occurred_at timestamp with time zone, p_confirm_card_not_refunded boolean)	authenticated	-|DEF
 FN	public.admin_record_manual_refund(p_order_id uuid, p_request_id uuid, p_actor text, p_rail text, p_refund_amount integer, p_reason text, p_occurred_at timestamp with time zone, p_confirm_card_not_refunded boolean)	payment_confirmer	-|DEF
 FN	public.admin_record_manual_refund(p_order_id uuid, p_request_id uuid, p_actor text, p_rail text, p_refund_amount integer, p_reason text, p_occurred_at timestamp with time zone, p_confirm_card_not_refunded boolean)	service_role	X|DEF
+FN	public.admin_register_return(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_note text, p_tracking_number text, p_items jsonb)	anon	-|DEF
+FN	public.admin_register_return(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_note text, p_tracking_number text, p_items jsonb)	authenticated	-|DEF
+FN	public.admin_register_return(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_note text, p_tracking_number text, p_items jsonb)	payment_confirmer	-|DEF
+FN	public.admin_register_return(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_note text, p_tracking_number text, p_items jsonb)	service_role	X|DEF
 FN	public.admin_reopen_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_reason text)	anon	-|DEF
 FN	public.admin_reopen_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_reason text)	authenticated	-|DEF
 FN	public.admin_reopen_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_reason text)	payment_confirmer	-|DEF
@@ -175,14 +235,18 @@ FN	public.admin_review_order_item_amount(p_request_row_id uuid, p_decision text,
 FN	public.admin_review_order_item_amount(p_request_row_id uuid, p_decision text, p_review_note text, p_actor text, p_request_id text)	authenticated	-|DEF
 FN	public.admin_review_order_item_amount(p_request_row_id uuid, p_decision text, p_review_note text, p_actor text, p_request_id text)	payment_confirmer	-|DEF
 FN	public.admin_review_order_item_amount(p_request_row_id uuid, p_decision text, p_review_note text, p_actor text, p_request_id text)	service_role	X|DEF
+FN	public.admin_save_manual_order_address(p_order_id uuid, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_save_manual_order_address(p_order_id uuid, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_save_manual_order_address(p_order_id uuid, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_save_manual_order_address(p_order_id uuid, p_actor text, p_request_id text)	service_role	X|DEF
 FN	public.admin_saved_order_views_touch_updated_at()	anon	-|INV
 FN	public.admin_saved_order_views_touch_updated_at()	authenticated	-|INV
 FN	public.admin_saved_order_views_touch_updated_at()	payment_confirmer	-|INV
 FN	public.admin_saved_order_views_touch_updated_at()	service_role	-|INV
-FN	public.admin_search_customers(p_query text, p_limit integer)	anon	-|DEF
-FN	public.admin_search_customers(p_query text, p_limit integer)	authenticated	-|DEF
-FN	public.admin_search_customers(p_query text, p_limit integer)	payment_confirmer	-|DEF
-FN	public.admin_search_customers(p_query text, p_limit integer)	service_role	X|DEF
+FN	public.admin_search_customers(p_query text, p_limit integer, p_status text)	anon	-|DEF
+FN	public.admin_search_customers(p_query text, p_limit integer, p_status text)	authenticated	-|DEF
+FN	public.admin_search_customers(p_query text, p_limit integer, p_status text)	payment_confirmer	-|DEF
+FN	public.admin_search_customers(p_query text, p_limit integer, p_status text)	service_role	X|DEF
 FN	public.admin_search_orders(p_query text, p_limit integer, p_from timestamp with time zone, p_to timestamp with time zone)	anon	-|DEF
 FN	public.admin_search_orders(p_query text, p_limit integer, p_from timestamp with time zone, p_to timestamp with time zone)	authenticated	-|DEF
 FN	public.admin_search_orders(p_query text, p_limit integer, p_from timestamp with time zone, p_to timestamp with time zone)	payment_confirmer	-|DEF
@@ -195,10 +259,22 @@ FN	public.admin_set_order_item_costs(p_actor text, p_rows jsonb, p_request_id te
 FN	public.admin_set_order_item_costs(p_actor text, p_rows jsonb, p_request_id text)	authenticated	-|DEF
 FN	public.admin_set_order_item_costs(p_actor text, p_rows jsonb, p_request_id text)	payment_confirmer	-|DEF
 FN	public.admin_set_order_item_costs(p_actor text, p_rows jsonb, p_request_id text)	service_role	X|DEF
+FN	public.admin_set_product_category(p_product_ids uuid[], p_category_id uuid, p_unlock boolean, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_set_product_category(p_product_ids uuid[], p_category_id uuid, p_unlock boolean, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_set_product_category(p_product_ids uuid[], p_category_id uuid, p_unlock boolean, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_set_product_category(p_product_ids uuid[], p_category_id uuid, p_unlock boolean, p_actor text, p_request_id text)	service_role	X|DEF
 FN	public.admin_set_product_listing(p_product_id uuid, p_delisted boolean, p_note text, p_actor text, p_request_id text)	anon	-|DEF
 FN	public.admin_set_product_listing(p_product_id uuid, p_delisted boolean, p_note text, p_actor text, p_request_id text)	authenticated	-|DEF
 FN	public.admin_set_product_listing(p_product_id uuid, p_delisted boolean, p_note text, p_actor text, p_request_id text)	payment_confirmer	-|DEF
 FN	public.admin_set_product_listing(p_product_id uuid, p_delisted boolean, p_note text, p_actor text, p_request_id text)	service_role	X|DEF
+FN	public.admin_set_product_override(p_product_id uuid, p_field text, p_value jsonb, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_set_product_override(p_product_id uuid, p_field text, p_value jsonb, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_set_product_override(p_product_id uuid, p_field text, p_value jsonb, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_set_product_override(p_product_id uuid, p_field text, p_value jsonb, p_actor text, p_request_id text)	service_role	X|DEF
+FN	public.admin_set_variant_prices(p_product_id uuid, p_changes jsonb, p_actor text, p_request_id text)	anon	-|DEF
+FN	public.admin_set_variant_prices(p_product_id uuid, p_changes jsonb, p_actor text, p_request_id text)	authenticated	-|DEF
+FN	public.admin_set_variant_prices(p_product_id uuid, p_changes jsonb, p_actor text, p_request_id text)	payment_confirmer	-|DEF
+FN	public.admin_set_variant_prices(p_product_id uuid, p_changes jsonb, p_actor text, p_request_id text)	service_role	X|DEF
 FN	public.admin_soft_delete_order_note(p_order_id uuid, p_note_id uuid, p_reason text, p_actor text, p_request_id text)	anon	-|DEF
 FN	public.admin_soft_delete_order_note(p_order_id uuid, p_note_id uuid, p_reason text, p_actor text, p_request_id text)	authenticated	-|DEF
 FN	public.admin_soft_delete_order_note(p_order_id uuid, p_note_id uuid, p_reason text, p_actor text, p_request_id text)	payment_confirmer	-|DEF
@@ -219,6 +295,14 @@ FN	public.admin_staff_update_profile(p_actor text, p_id text, p_label text, p_is
 FN	public.admin_staff_update_profile(p_actor text, p_id text, p_label text, p_is_manager boolean, p_request_id text)	authenticated	-|DEF
 FN	public.admin_staff_update_profile(p_actor text, p_id text, p_label text, p_is_manager boolean, p_request_id text)	payment_confirmer	-|DEF
 FN	public.admin_staff_update_profile(p_actor text, p_id text, p_label text, p_is_manager boolean, p_request_id text)	service_role	X|DEF
+FN	public.admin_swap_order_item(p_actor text, p_request_id text, p_order_id uuid, p_item_id uuid, p_expected_order_version integer, p_new_variant_id uuid)	anon	-|DEF
+FN	public.admin_swap_order_item(p_actor text, p_request_id text, p_order_id uuid, p_item_id uuid, p_expected_order_version integer, p_new_variant_id uuid)	authenticated	-|DEF
+FN	public.admin_swap_order_item(p_actor text, p_request_id text, p_order_id uuid, p_item_id uuid, p_expected_order_version integer, p_new_variant_id uuid)	payment_confirmer	-|DEF
+FN	public.admin_swap_order_item(p_actor text, p_request_id text, p_order_id uuid, p_item_id uuid, p_expected_order_version integer, p_new_variant_id uuid)	service_role	X|DEF
+FN	public.admin_title_lacks_cjk(p products)	anon	-|INV
+FN	public.admin_title_lacks_cjk(p products)	authenticated	-|INV
+FN	public.admin_title_lacks_cjk(p products)	payment_confirmer	-|INV
+FN	public.admin_title_lacks_cjk(p products)	service_role	X|INV
 FN	public.admin_today_payment_total(p_from timestamp with time zone, p_to timestamp with time zone)	anon	-|DEF
 FN	public.admin_today_payment_total(p_from timestamp with time zone, p_to timestamp with time zone)	authenticated	-|DEF
 FN	public.admin_today_payment_total(p_from timestamp with time zone, p_to timestamp with time zone)	payment_confirmer	-|DEF
@@ -267,10 +351,26 @@ FN	public.admin_void_manual_refund(p_refund_id uuid, p_void_reason text, p_actor
 FN	public.admin_void_manual_refund(p_refund_id uuid, p_void_reason text, p_actor text)	authenticated	-|DEF
 FN	public.admin_void_manual_refund(p_refund_id uuid, p_void_reason text, p_actor text)	payment_confirmer	-|DEF
 FN	public.admin_void_manual_refund(p_refund_id uuid, p_void_reason text, p_actor text)	service_role	X|DEF
+FN	public.admin_void_return(p_return_id uuid, p_request_id uuid, p_actor text, p_void_reason text)	anon	-|DEF
+FN	public.admin_void_return(p_return_id uuid, p_request_id uuid, p_actor text, p_void_reason text)	authenticated	-|DEF
+FN	public.admin_void_return(p_return_id uuid, p_request_id uuid, p_actor text, p_void_reason text)	payment_confirmer	-|DEF
+FN	public.admin_void_return(p_return_id uuid, p_request_id uuid, p_actor text, p_void_reason text)	service_role	X|DEF
 FN	public.admin_void_shipment(p_idempotency_key text, p_shipment_id uuid, p_void_reason text, p_actor text, p_request_id text)	anon	-|DEF
 FN	public.admin_void_shipment(p_idempotency_key text, p_shipment_id uuid, p_void_reason text, p_actor text, p_request_id text)	authenticated	-|DEF
 FN	public.admin_void_shipment(p_idempotency_key text, p_shipment_id uuid, p_void_reason text, p_actor text, p_request_id text)	payment_confirmer	-|DEF
 FN	public.admin_void_shipment(p_idempotency_key text, p_shipment_id uuid, p_void_reason text, p_actor text, p_request_id text)	service_role	X|DEF
+FN	public.auth_login_attempt_clear(p_email text)	anon	-|DEF
+FN	public.auth_login_attempt_clear(p_email text)	authenticated	-|DEF
+FN	public.auth_login_attempt_clear(p_email text)	payment_confirmer	-|DEF
+FN	public.auth_login_attempt_clear(p_email text)	service_role	X|DEF
+FN	public.auth_login_attempt_reserve(p_email text)	anon	-|DEF
+FN	public.auth_login_attempt_reserve(p_email text)	authenticated	-|DEF
+FN	public.auth_login_attempt_reserve(p_email text)	payment_confirmer	-|DEF
+FN	public.auth_login_attempt_reserve(p_email text)	service_role	X|DEF
+FN	public.auth_login_attempt_settle(p_id uuid, p_outcome text)	anon	-|DEF
+FN	public.auth_login_attempt_settle(p_id uuid, p_outcome text)	authenticated	-|DEF
+FN	public.auth_login_attempt_settle(p_id uuid, p_outcome text)	payment_confirmer	-|DEF
+FN	public.auth_login_attempt_settle(p_id uuid, p_outcome text)	service_role	X|DEF
 FN	public.begin_charge_attempt(p_order_id uuid)	anon	-|DEF
 FN	public.begin_charge_attempt(p_order_id uuid)	authenticated	-|DEF
 FN	public.begin_charge_attempt(p_order_id uuid)	payment_confirmer	X|DEF
@@ -335,6 +435,26 @@ FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text,
 FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	authenticated	X|DEF
 FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	payment_confirmer	-|DEF
 FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	service_role	-|DEF
+FN	public.dealer_application_mine()	anon	-|DEF
+FN	public.dealer_application_mine()	authenticated	X|DEF
+FN	public.dealer_application_mine()	payment_confirmer	-|DEF
+FN	public.dealer_application_mine()	service_role	-|DEF
+FN	public.dealer_application_submit(p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	anon	-|DEF
+FN	public.dealer_application_submit(p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	authenticated	X|DEF
+FN	public.dealer_application_submit(p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	payment_confirmer	-|DEF
+FN	public.dealer_application_submit(p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	service_role	-|DEF
+FN	public.dealer_application_update_mine(p_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	anon	-|DEF
+FN	public.dealer_application_update_mine(p_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	authenticated	X|DEF
+FN	public.dealer_application_update_mine(p_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	payment_confirmer	-|DEF
+FN	public.dealer_application_update_mine(p_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	service_role	-|DEF
+FN	public.dealer_discount_apply(p_amount integer, p_percent numeric)	anon	-|INV
+FN	public.dealer_discount_apply(p_amount integer, p_percent numeric)	authenticated	-|INV
+FN	public.dealer_discount_apply(p_amount integer, p_percent numeric)	payment_confirmer	-|INV
+FN	public.dealer_discount_apply(p_amount integer, p_percent numeric)	service_role	-|INV
+FN	public.dealer_discounted_amount(p_user uuid, p_brand uuid, p_amount integer)	anon	-|INV
+FN	public.dealer_discounted_amount(p_user uuid, p_brand uuid, p_amount integer)	authenticated	-|INV
+FN	public.dealer_discounted_amount(p_user uuid, p_brand uuid, p_amount integer)	payment_confirmer	-|INV
+FN	public.dealer_discounted_amount(p_user uuid, p_brand uuid, p_amount integer)	service_role	-|INV
 FN	public.expire_stuck_attempts_at_ceiling()	anon	-|DEF
 FN	public.expire_stuck_attempts_at_ceiling()	authenticated	-|DEF
 FN	public.expire_stuck_attempts_at_ceiling()	payment_confirmer	X|DEF
@@ -451,10 +571,22 @@ FN	public.get_tracking_corrected_gap_counts()	anon	-|DEF
 FN	public.get_tracking_corrected_gap_counts()	authenticated	-|DEF
 FN	public.get_tracking_corrected_gap_counts()	payment_confirmer	X|DEF
 FN	public.get_tracking_corrected_gap_counts()	service_role	-|DEF
+FN	public.get_vehicle_model_years(p_brand text)	anon	X|INV
+FN	public.get_vehicle_model_years(p_brand text)	authenticated	X|INV
+FN	public.get_vehicle_model_years(p_brand text)	payment_confirmer	-|INV
+FN	public.get_vehicle_model_years(p_brand text)	service_role	-|INV
 FN	public.get_vehicle_taxonomy()	anon	X|INV
 FN	public.get_vehicle_taxonomy()	authenticated	X|INV
 FN	public.get_vehicle_taxonomy()	payment_confirmer	-|INV
 FN	public.get_vehicle_taxonomy()	service_role	-|INV
+FN	public.get_vehicle_taxonomy_base()	anon	X|INV
+FN	public.get_vehicle_taxonomy_base()	authenticated	X|INV
+FN	public.get_vehicle_taxonomy_base()	payment_confirmer	-|INV
+FN	public.get_vehicle_taxonomy_base()	service_role	-|INV
+FN	public.get_webhook_manual_review_health()	anon	-|DEF
+FN	public.get_webhook_manual_review_health()	authenticated	-|DEF
+FN	public.get_webhook_manual_review_health()	payment_confirmer	X|DEF
+FN	public.get_webhook_manual_review_health()	service_role	X|DEF
 FN	public.handle_new_auth_user()	anon	-|DEF
 FN	public.handle_new_auth_user()	authenticated	-|DEF
 FN	public.handle_new_auth_user()	payment_confirmer	-|DEF
@@ -699,10 +831,22 @@ FN	public.pcm_card_image_is_placeholder(p_url text)	anon	X|INV
 FN	public.pcm_card_image_is_placeholder(p_url text)	authenticated	X|INV
 FN	public.pcm_card_image_is_placeholder(p_url text)	payment_confirmer	-|INV
 FN	public.pcm_card_image_is_placeholder(p_url text)	service_role	X|INV
+FN	public.pcm_cjk_grams(p_title text, p_subtitle text, p_description text, p_external_id text)	anon	-|INV
+FN	public.pcm_cjk_grams(p_title text, p_subtitle text, p_description text, p_external_id text)	authenticated	-|INV
+FN	public.pcm_cjk_grams(p_title text, p_subtitle text, p_description text, p_external_id text)	payment_confirmer	-|INV
+FN	public.pcm_cjk_grams(p_title text, p_subtitle text, p_description text, p_external_id text)	service_role	X|INV
 FN	public.pcm_count_new_email_events(p_event_type text, p_keys text[])	anon	-|INV
 FN	public.pcm_count_new_email_events(p_event_type text, p_keys text[])	authenticated	-|INV
 FN	public.pcm_count_new_email_events(p_event_type text, p_keys text[])	payment_confirmer	-|INV
 FN	public.pcm_count_new_email_events(p_event_type text, p_keys text[])	service_role	X|INV
+FN	public.pcm_cron_run_log_purge()	anon	-|DEF
+FN	public.pcm_cron_run_log_purge()	authenticated	-|DEF
+FN	public.pcm_cron_run_log_purge()	payment_confirmer	-|DEF
+FN	public.pcm_cron_run_log_purge()	service_role	-|DEF
+FN	public.pcm_customer_delete_blockers(p_customer_user_id uuid)	anon	-|INV
+FN	public.pcm_customer_delete_blockers(p_customer_user_id uuid)	authenticated	-|INV
+FN	public.pcm_customer_delete_blockers(p_customer_user_id uuid)	payment_confirmer	-|INV
+FN	public.pcm_customer_delete_blockers(p_customer_user_id uuid)	service_role	-|INV
 FN	public.pcm_d3d_manual_refund_immutable()	anon	-|INV
 FN	public.pcm_d3d_manual_refund_immutable()	authenticated	-|INV
 FN	public.pcm_d3d_manual_refund_immutable()	payment_confirmer	-|INV
@@ -719,6 +863,10 @@ FN	public.pcm_e13_subtotal_guard()	anon	-|DEF
 FN	public.pcm_e13_subtotal_guard()	authenticated	-|DEF
 FN	public.pcm_e13_subtotal_guard()	payment_confirmer	-|DEF
 FN	public.pcm_e13_subtotal_guard()	service_role	-|DEF
+FN	public.pcm_effective_general_price(p_price_general integer, p_sale_price_general integer)	anon	X|INV
+FN	public.pcm_effective_general_price(p_price_general integer, p_sale_price_general integer)	authenticated	X|INV
+FN	public.pcm_effective_general_price(p_price_general integer, p_sale_price_general integer)	payment_confirmer	-|INV
+FN	public.pcm_effective_general_price(p_price_general integer, p_sale_price_general integer)	service_role	X|INV
 FN	public.pcm_email_outbox_stamp_sent_seq()	anon	-|INV
 FN	public.pcm_email_outbox_stamp_sent_seq()	authenticated	-|INV
 FN	public.pcm_email_outbox_stamp_sent_seq()	payment_confirmer	-|INV
@@ -731,6 +879,10 @@ FN	public.pcm_generate_display_id()	anon	-|DEF
 FN	public.pcm_generate_display_id()	authenticated	-|DEF
 FN	public.pcm_generate_display_id()	payment_confirmer	-|DEF
 FN	public.pcm_generate_display_id()	service_role	-|DEF
+FN	public.pcm_hct_dispatch_attempts_guard()	anon	-|INV
+FN	public.pcm_hct_dispatch_attempts_guard()	authenticated	-|INV
+FN	public.pcm_hct_dispatch_attempts_guard()	payment_confirmer	-|INV
+FN	public.pcm_hct_dispatch_attempts_guard()	service_role	-|INV
 FN	public.pcm_incident_log(p_kind text, p_subject_id uuid, p_detail text)	anon	-|DEF
 FN	public.pcm_incident_log(p_kind text, p_subject_id uuid, p_detail text)	authenticated	-|DEF
 FN	public.pcm_incident_log(p_kind text, p_subject_id uuid, p_detail text)	payment_confirmer	-|DEF
@@ -879,6 +1031,10 @@ FN	public.pcm_refund_ledger_block_truncate()	anon	-|INV
 FN	public.pcm_refund_ledger_block_truncate()	authenticated	-|INV
 FN	public.pcm_refund_ledger_block_truncate()	payment_confirmer	-|INV
 FN	public.pcm_refund_ledger_block_truncate()	service_role	-|INV
+FN	public.pcm_return_received_email_dedup_key(p_return_id uuid, p_order_id uuid)	anon	-|INV
+FN	public.pcm_return_received_email_dedup_key(p_return_id uuid, p_order_id uuid)	authenticated	-|INV
+FN	public.pcm_return_received_email_dedup_key(p_return_id uuid, p_order_id uuid)	payment_confirmer	-|INV
+FN	public.pcm_return_received_email_dedup_key(p_return_id uuid, p_order_id uuid)	service_role	X|INV
 FN	public.pcm_safe_uuid(p_text text)	anon	-|INV
 FN	public.pcm_safe_uuid(p_text text)	authenticated	-|INV
 FN	public.pcm_safe_uuid(p_text text)	payment_confirmer	-|INV
@@ -959,6 +1115,10 @@ FN	public.product_variants_content_changed_touch()	anon	-|INV
 FN	public.product_variants_content_changed_touch()	authenticated	-|INV
 FN	public.product_variants_content_changed_touch()	payment_confirmer	-|INV
 FN	public.product_variants_content_changed_touch()	service_role	-|INV
+FN	public.products_category_lock_guard()	anon	-|INV
+FN	public.products_category_lock_guard()	authenticated	-|INV
+FN	public.products_category_lock_guard()	payment_confirmer	-|INV
+FN	public.products_category_lock_guard()	service_role	-|INV
 FN	public.products_content_changed_guard()	anon	-|INV
 FN	public.products_content_changed_guard()	authenticated	-|INV
 FN	public.products_content_changed_guard()	payment_confirmer	-|INV
@@ -1076,17 +1236,27 @@ FNCFG	public.admin_adjust_wallet(p_customer_user_id uuid, p_entry_type text, p_a
 FNCFG	public.admin_append_order_note(p_order_id uuid, p_note_type text, p_body text, p_channel text, p_occurred_at timestamp with time zone, p_corrects_note_id uuid, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_backfill_tappay_console_refund(p_order_id uuid, p_amount integer, p_dr_code text, p_occurred_at timestamp with time zone, p_attested boolean, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_cancel_order(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_items jsonb)	DEFINER	search_path=""
+FNCFG	public.admin_card_image_missing(p products)	INVOKER	search_path=""
 FNCFG	public.admin_claim_hct_dispatch(p_shipment_reference text, p_edelno text)	DEFINER	search_path=""
+FNCFG	public.admin_claim_hct_redispatch(p_shipment_reference text, p_edelno text, p_expected_attempt_no integer, p_actor text)	DEFINER	search_path=""
 FNCFG	public.admin_compute_order_settlement(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.admin_confirm_hct_handover(p_shipment_reference text, p_actor text, p_reason text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_correct_backfilled_refund(p_refund_id uuid, p_new_amount integer, p_actor text, p_reason text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_correct_order_refund_verdict(p_refund_id uuid, p_expected_correction_id uuid, p_actor text, p_reason text, p_corrected_to text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_correct_refund_manual_verdict(p_refund_id uuid, p_expected_event_id uuid, p_actor text, p_reason text, p_refunded boolean)	DEFINER	search_path=""
 FNCFG	public.admin_create_manual_order(p_customer_user_id uuid, p_manual_request_id uuid, p_actor text, p_order_source text, p_payment_channel text, p_shipping_method text, p_ship_to jsonb, p_invoice jsonb, p_shipping_fee integer, p_lines jsonb, p_notification_email text, p_tier text, p_vehicle jsonb)	DEFINER	search_path=""
+FNCFG	public.admin_create_manual_product(p_brand_id uuid, p_category_id uuid, p_title text, p_subtitle text, p_description text, p_variants jsonb, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_create_saved_order_view(p_actor text, p_label text, p_query text, p_date_preset text, p_is_shared boolean, p_idempotency_key text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_create_shipment(p_idempotency_key text, p_customer_user_id uuid, p_recipient_snapshot jsonb, p_carrier_code text, p_actor text, p_request_id text, p_carrier_note text)	DEFINER	search_path=""
+FNCFG	public.admin_customer_delete_eligibility(p_customer_user_id uuid)	DEFINER	search_path=""
+FNCFG	public.admin_dealer_account_create(p_user_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text, p_actor text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_dealer_application_decide(p_application_id uuid, p_decision text, p_note text, p_actor text, p_request_id text, p_expected_tier text, p_expected_updated_at timestamp with time zone)	DEFINER	search_path=""
+FNCFG	public.admin_dealer_brand_discounts_save(p_customer uuid, p_changes jsonb, p_expected jsonb, p_actor text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_delete_customer(p_actor text, p_customer_user_id uuid, p_reason text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_delete_item_receipt(p_receipt_id uuid, p_actor text, p_request_id text, p_reason text)	DEFINER	search_path=""
 FNCFG	public.admin_delete_saved_order_view(p_actor text, p_view_id bigint, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_disable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_enable_customer(p_actor text, p_customer_user_id uuid, p_expected_version integer, p_reason text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_finalize_order_refund(p_refund_id uuid, p_outcome text, p_tappay_refund_id text, p_refund_amount_wire bigint, p_failed_detail text, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_fx_rate_set(p_actor text, p_currency_code text, p_rate_to_twd numeric, p_effective_from timestamp with time zone, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_hct_reset_unknown_to_draft(p_shipment_reference text, p_actor text, p_request_id text, p_attestation text)	DEFINER	search_path=""
@@ -1100,34 +1270,45 @@ FNCFG	public.admin_list_pcm_incidents(p_limit integer, p_open_only boolean)	DEFI
 FNCFG	public.admin_list_saved_order_views(p_actor text)	DEFINER	search_path=""
 FNCFG	public.admin_mark_order_cancelled(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text)	DEFINER	search_path=""
 FNCFG	public.admin_mark_shipment_shipped(p_idempotency_key text, p_shipment_id uuid, p_actor text, p_request_id text, p_tracking_number text)	DEFINER	search_path=""
+FNCFG	public.admin_password_reset_claim(p_customer uuid, p_actor text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_products_by_keyword(p_term text)	INVOKER	(未設)
+FNCFG	public.admin_receive_return(p_return_id uuid, p_request_id uuid, p_actor text, p_items jsonb, p_note text)	DEFINER	search_path=""
 FNCFG	public.admin_record_hct_dispatch(p_shipment_reference text, p_edelno text)	DEFINER	search_path=""
 FNCFG	public.admin_record_hct_label_raw(p_shipment_reference text, p_edelno text, p_raw jsonb)	DEFINER	search_path=""
+FNCFG	public.admin_record_hct_redispatch(p_attempt_id uuid, p_edelno text)	DEFINER	search_path=""
 FNCFG	public.admin_record_hct_submit(p_shipment_reference text, p_status text, p_request_id text, p_raw jsonb)	DEFINER	search_path=""
 FNCFG	public.admin_record_hct_unknown_reason(p_shipment_reference text, p_reason jsonb)	DEFINER	search_path=""
 FNCFG	public.admin_record_item_receipt(p_procurement_id uuid, p_quantity integer, p_surplus_quantity integer, p_received_at timestamp with time zone, p_note text, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_record_manual_payment(p_order_id uuid, p_request_id uuid, p_actor text, p_rail text, p_amount integer, p_received_at timestamp with time zone, p_bank_reference text, p_payer_note text)	DEFINER	search_path=""
 FNCFG	public.admin_record_manual_refund(p_order_id uuid, p_request_id uuid, p_actor text, p_rail text, p_refund_amount integer, p_reason text, p_occurred_at timestamp with time zone, p_confirm_card_not_refunded boolean)	DEFINER	search_path=""
+FNCFG	public.admin_register_return(p_order_id uuid, p_idempotency_key uuid, p_actor text, p_reason_code text, p_reason_detail text, p_note text, p_tracking_number text, p_items jsonb)	DEFINER	search_path=""
 FNCFG	public.admin_reopen_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_reason text)	DEFINER	search_path=""
 FNCFG	public.admin_request_order_item_amount(p_order_id uuid, p_order_item_id uuid, p_expected_version integer, p_to_unit_price integer, p_zero_price_reason text, p_reason text, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_requeue_dead_email(p_outbox_id uuid, p_actor text)	DEFINER	search_path=""
 FNCFG	public.admin_resolve_pcm_incident(p_id bigint, p_actor text, p_request_id text, p_note text)	DEFINER	search_path=""
 FNCFG	public.admin_reverse_manual_payment(p_payment_id uuid, p_actor text, p_reason text)	DEFINER	search_path=""
 FNCFG	public.admin_review_order_item_amount(p_request_row_id uuid, p_decision text, p_review_note text, p_actor text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_save_manual_order_address(p_order_id uuid, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_saved_order_views_touch_updated_at()	INVOKER	search_path=public, pg_temp
-FNCFG	public.admin_search_customers(p_query text, p_limit integer)	DEFINER	search_path=""
+FNCFG	public.admin_search_customers(p_query text, p_limit integer, p_status text)	DEFINER	search_path=""
 FNCFG	public.admin_search_orders(p_query text, p_limit integer, p_from timestamp with time zone, p_to timestamp with time zone)	DEFINER	search_path=""
 FNCFG	public.admin_set_customer_tier(p_customer_user_id uuid, p_tier text, p_note text, p_actor text, p_request_id text, p_expected_before text)	DEFINER	search_path=""
 FNCFG	public.admin_set_order_item_costs(p_actor text, p_rows jsonb, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_set_product_category(p_product_ids uuid[], p_category_id uuid, p_unlock boolean, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_set_product_listing(p_product_id uuid, p_delisted boolean, p_note text, p_actor text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_set_product_override(p_product_id uuid, p_field text, p_value jsonb, p_actor text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_set_variant_prices(p_product_id uuid, p_changes jsonb, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_soft_delete_order_note(p_order_id uuid, p_note_id uuid, p_reason text, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_sso_login_events_force_occurred_at()	INVOKER	search_path=""
 FNCFG	public.admin_staff_create(p_actor text, p_id text, p_label text, p_is_manager boolean, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_staff_set_active(p_actor text, p_id text, p_is_active boolean, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_staff_update_profile(p_actor text, p_id text, p_label text, p_is_manager boolean, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.admin_swap_order_item(p_actor text, p_request_id text, p_order_id uuid, p_item_id uuid, p_expected_order_version integer, p_new_variant_id uuid)	DEFINER	search_path=""
+FNCFG	public.admin_title_lacks_cjk(p products)	INVOKER	search_path=""
 FNCFG	public.admin_today_payment_total(p_from timestamp with time zone, p_to timestamp with time zone)	DEFINER	search_path=""
 FNCFG	public.admin_unvoid_shipment(p_idempotency_key text, p_shipment_id uuid, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_update_order_item_amount(p_order_id uuid, p_order_item_id uuid, p_unit_price integer, p_expected_version integer, p_actor text, p_request_id text, p_zero_price_reason text)	DEFINER	search_path=""
-FNCFG	public.admin_update_order_item_workflow(p_item_id uuid, p_expected_version integer, p_patch jsonb, p_actor text, p_request_id text)	DEFINER	search_path=public, pg_temp
+FNCFG	public.admin_update_order_item_workflow(p_item_id uuid, p_expected_version integer, p_patch jsonb, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_update_order_workflow(p_order_id uuid, p_expected_version integer, p_patch jsonb, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_update_saved_order_view(p_actor text, p_view_id bigint, p_label text, p_query text, p_date_preset text, p_expected_updated_at timestamp with time zone, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_update_shipment_tracking(p_idempotency_key text, p_shipment_id uuid, p_tracking_number text, p_actor text, p_request_id text)	DEFINER	search_path=""
@@ -1136,7 +1317,11 @@ FNCFG	public.admin_upsert_supplier(p_supplier_id uuid, p_label text, p_is_active
 FNCFG	public.admin_void_backfilled_refund(p_refund_id uuid, p_actor text, p_reason text)	DEFINER	search_path=""
 FNCFG	public.admin_void_item_procurement(p_procurement_id uuid, p_void_reason text, p_actor text, p_request_id text)	DEFINER	search_path=""
 FNCFG	public.admin_void_manual_refund(p_refund_id uuid, p_void_reason text, p_actor text)	DEFINER	search_path=""
+FNCFG	public.admin_void_return(p_return_id uuid, p_request_id uuid, p_actor text, p_void_reason text)	DEFINER	search_path=""
 FNCFG	public.admin_void_shipment(p_idempotency_key text, p_shipment_id uuid, p_void_reason text, p_actor text, p_request_id text)	DEFINER	search_path=""
+FNCFG	public.auth_login_attempt_clear(p_email text)	DEFINER	search_path=""
+FNCFG	public.auth_login_attempt_reserve(p_email text)	DEFINER	search_path=""
+FNCFG	public.auth_login_attempt_settle(p_id uuid, p_outcome text)	DEFINER	search_path=""
 FNCFG	public.begin_charge_attempt(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.catalog_brand_counts()	INVOKER	search_path=public, pg_temp
 FNCFG	public.catalog_category_counts()	INVOKER	search_path=public, pg_temp
@@ -1153,6 +1338,11 @@ FNCFG	public.coupon_redeem_on_paid()	DEFINER	search_path=""
 FNCFG	public.coupon_redeem_order_problem(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.coupon_revert_on_full_refund(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	DEFINER	search_path=""
+FNCFG	public.dealer_application_mine()	DEFINER	search_path=""
+FNCFG	public.dealer_application_submit(p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	DEFINER	search_path=""
+FNCFG	public.dealer_application_update_mine(p_id uuid, p_company_name text, p_tax_id text, p_store_name text, p_region text, p_contact_name text, p_contact_phone text, p_contact_email text, p_note text)	DEFINER	search_path=""
+FNCFG	public.dealer_discount_apply(p_amount integer, p_percent numeric)	INVOKER	(未設)
+FNCFG	public.dealer_discounted_amount(p_user uuid, p_brand uuid, p_amount integer)	INVOKER	(未設)
 FNCFG	public.expire_stuck_attempts_at_ceiling()	DEFINER	search_path=""
 FNCFG	public.expire_webhook_events_at_ceiling()	DEFINER	search_path=""
 FNCFG	public.find_active_sibling_own(p_cart_session_id uuid)	DEFINER	search_path=""
@@ -1182,7 +1372,10 @@ FNCFG	public.get_shipped_email_gap_counts(p_shipped_cutoff timestamp with time z
 FNCFG	public.get_stuck_bank_orders_health()	DEFINER	search_path=""
 FNCFG	public.get_supplier_sync_stale_counts(p_stale_hours integer)	DEFINER	search_path=""
 FNCFG	public.get_tracking_corrected_gap_counts()	DEFINER	search_path=""
+FNCFG	public.get_vehicle_model_years(p_brand text)	INVOKER	search_path=""
 FNCFG	public.get_vehicle_taxonomy()	INVOKER	search_path=""
+FNCFG	public.get_vehicle_taxonomy_base()	INVOKER	search_path=""
+FNCFG	public.get_webhook_manual_review_health()	DEFINER	search_path=""
 FNCFG	public.handle_new_auth_user()	DEFINER	search_path=""
 FNCFG	public.list_charge_attempts_for_capture_recheck(p_cutoff_days integer, p_limit integer)	DEFINER	search_path=""
 FNCFG	public.log_search_query(p_query_raw text, p_path text, p_unmatched text, p_result_count integer)	DEFINER	search_path=""
@@ -1197,21 +1390,21 @@ FNCFG	public.mark_webhook_retry(p_rec_trade_id text, p_claimed_count integer, p_
 FNCFG	public.mask_obvious_pii(p_in text)	INVOKER	search_path=""
 FNCFG	public.orders_freeze_shipping_snapshot()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_a1_backfill_fields_immutable_guard()	DEFINER	search_path=""
-FNCFG	public.pcm_a2b1_procurement_allocation_guard()	DEFINER	search_path=public, pg_temp
-FNCFG	public.pcm_a4a_cancellation_summary_recompute()	DEFINER	search_path=public, pg_temp
-FNCFG	public.pcm_a4a_procurement_summary_recompute()	DEFINER	search_path=public, pg_temp
-FNCFG	public.pcm_a4a_receipts_received_sync()	DEFINER	search_path=public, pg_temp
-FNCFG	public.pcm_a4a_received_quantity_guard()	DEFINER	search_path=public, pg_temp
-FNCFG	public.pcm_a4a_recompute_order_item_summary(p_order_item_id uuid)	DEFINER	search_path=public, pg_temp
+FNCFG	public.pcm_a2b1_procurement_allocation_guard()	DEFINER	search_path=""
+FNCFG	public.pcm_a4a_cancellation_summary_recompute()	DEFINER	search_path=""
+FNCFG	public.pcm_a4a_procurement_summary_recompute()	DEFINER	search_path=""
+FNCFG	public.pcm_a4a_receipts_received_sync()	DEFINER	search_path=""
+FNCFG	public.pcm_a4a_received_quantity_guard()	DEFINER	search_path=""
+FNCFG	public.pcm_a4a_recompute_order_item_summary(p_order_item_id uuid)	DEFINER	search_path=""
 FNCFG	public.pcm_a4a_shipments_summary_recompute()	DEFINER	search_path=""
 FNCFG	public.pcm_a7c_refund_block_delete()	INVOKER	(未設)
-FNCFG	public.pcm_a7c_refund_immutable_guard()	DEFINER	search_path=public, pg_temp
-FNCFG	public.pcm_a7c_refund_insert_guard()	DEFINER	search_path=public, pg_temp
+FNCFG	public.pcm_a7c_refund_immutable_guard()	DEFINER	search_path=""
+FNCFG	public.pcm_a7c_refund_insert_guard()	DEFINER	search_path=""
 FNCFG	public.pcm_a7c_refund_items_frozen()	INVOKER	(未設)
 FNCFG	public.pcm_acl_approve_latest(p_note text)	DEFINER	search_path=""
 FNCFG	public.pcm_acl_digest()	DEFINER	search_path=""
 FNCFG	public.pcm_acl_digest_record()	DEFINER	search_path=""
-FNCFG	public.pcm_assert_cancellation_has_items()	DEFINER	search_path=public, pg_temp
+FNCFG	public.pcm_assert_cancellation_has_items()	DEFINER	search_path=""
 FNCFG	public.pcm_audit_actor_snapshot()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_auth_provider_of(p_ids uuid[])	DEFINER	search_path=""
 FNCFG	public.pcm_auto_cancel_on_full_card_refund(p_order_id uuid)	DEFINER	search_path=""
@@ -1225,7 +1418,7 @@ FNCFG	public.pcm_b2_shipments_hct_dispatched_at_write_once()	INVOKER	search_path
 FNCFG	public.pcm_b2_shipments_hct_request_id_write_once()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_b2_shipments_hct_submitted_at_stamp()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_b2_shipments_immutable_guard()	INVOKER	search_path=pg_catalog, public
-FNCFG	public.pcm_b2_shipments_items_presence()	DEFINER	search_path=public, pg_temp
+FNCFG	public.pcm_b2_shipments_items_presence()	DEFINER	search_path=""
 FNCFG	public.pcm_b2_shipments_no_batch_update()	INVOKER	search_path=""
 FNCFG	public.pcm_b2_shipments_touch_updated_at()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_b2_shipments_write_once()	INVOKER	search_path=pg_catalog, public
@@ -1244,14 +1437,19 @@ FNCFG	public.pcm_bank_amount_changed_email_floor()	INVOKER	search_path=""
 FNCFG	public.pcm_bank_transfer_due_at(p_created_at timestamp with time zone)	INVOKER	search_path=""
 FNCFG	public.pcm_cancellation_ledger_block_truncate()	INVOKER	(未設)
 FNCFG	public.pcm_card_image_is_placeholder(p_url text)	INVOKER	(未設)
+FNCFG	public.pcm_cjk_grams(p_title text, p_subtitle text, p_description text, p_external_id text)	INVOKER	search_path=""
 FNCFG	public.pcm_count_new_email_events(p_event_type text, p_keys text[])	INVOKER	(未設)
+FNCFG	public.pcm_cron_run_log_purge()	DEFINER	search_path=""
+FNCFG	public.pcm_customer_delete_blockers(p_customer_user_id uuid)	INVOKER	search_path=""
 FNCFG	public.pcm_d3d_manual_refund_immutable()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_d3d_manual_refund_no_truncate()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_e13_assert_order_subtotal_matches(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.pcm_e13_subtotal_guard()	DEFINER	search_path=""
+FNCFG	public.pcm_effective_general_price(p_price_general integer, p_sale_price_general integer)	INVOKER	search_path=""
 FNCFG	public.pcm_email_outbox_stamp_sent_seq()	INVOKER	search_path=""
 FNCFG	public.pcm_fx_rates_append_only()	INVOKER	search_path=""
 FNCFG	public.pcm_generate_display_id()	DEFINER	search_path=""
+FNCFG	public.pcm_hct_dispatch_attempts_guard()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_incident_log(p_kind text, p_subject_id uuid, p_detail text)	DEFINER	search_path=""
 FNCFG	public.pcm_incident_log_line_forward_failed(p_detail text)	DEFINER	search_path=""
 FNCFG	public.pcm_invoice_requested_false_is_final()	DEFINER	search_path=""
@@ -1273,7 +1471,7 @@ FNCFG	public.pcm_order_card_refunded(p_order_id uuid)	INVOKER	search_path=""
 FNCFG	public.pcm_order_fully_returned(p_order_id uuid)	INVOKER	search_path=""
 FNCFG	public.pcm_order_money_moved(p_order_id uuid)	INVOKER	search_path=""
 FNCFG	public.pcm_order_pending_manual_verdict_amount(p_order_id uuid)	DEFINER	search_path=""
-FNCFG	public.pcm_order_refund_cap_guard()	DEFINER	search_path=public, pg_temp
+FNCFG	public.pcm_order_refund_cap_guard()	DEFINER	search_path=""
 FNCFG	public.pcm_order_refund_status_transition()	INVOKER	search_path=""
 FNCFG	public.pcm_order_refundable_remaining(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.pcm_order_remaining_receivable(p_order_id uuid)	DEFINER	search_path=""
@@ -1289,6 +1487,7 @@ FNCFG	public.pcm_pending_refund_amounts_capped(p_order_id uuid, p_total bigint)	
 FNCFG	public.pcm_pending_refund_on_cancel()	DEFINER	search_path=""
 FNCFG	public.pcm_pending_refund_open_for(p_order_id uuid, p_overwrite_amount boolean)	DEFINER	search_path=""
 FNCFG	public.pcm_refund_ledger_block_truncate()	INVOKER	(未設)
+FNCFG	public.pcm_return_received_email_dedup_key(p_return_id uuid, p_order_id uuid)	INVOKER	search_path=""
 FNCFG	public.pcm_safe_uuid(p_text text)	INVOKER	search_path=""
 FNCFG	public.pcm_search_fold(p_text text)	INVOKER	search_path=""
 FNCFG	public.pcm_settle_retry_still_candidate(p_order_id uuid)	DEFINER	search_path=""
@@ -1309,6 +1508,7 @@ FNCFG	public.prl_append_only_guard()	INVOKER	search_path=""
 FNCFG	public.prl_no_cycle_guard()	INVOKER	search_path=""
 FNCFG	public.prl_one_effective_terminal_guard()	INVOKER	search_path=""
 FNCFG	public.product_variants_content_changed_touch()	INVOKER	search_path=""
+FNCFG	public.products_category_lock_guard()	INVOKER	search_path=""
 FNCFG	public.products_content_changed_guard()	INVOKER	search_path=""
 FNCFG	public.products_description_lock_guard()	INVOKER	search_path=""
 FNCFG	public.purge_admin_sso_login_events()	DEFINER	search_path=""
@@ -1333,7 +1533,7 @@ FNCFG	public.settle_zero_total_order(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.storefront_search_product_ids(p_terms text[])	DEFINER	search_path=""
 FNCFG	public.supersede_charge_attempt_for_user(p_order_id uuid, p_user_id uuid, p_reason text, p_successor_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.supplier_inbound_emails_purge_expired()	DEFINER	search_path=""
-FNCFG	public.sync_product_fitments()	INVOKER	(未設)
+FNCFG	public.sync_product_fitments()	INVOKER	search_path=""
 FNCFG	public.sync_product_variant_group(p_supplier_slug text, p_external_id text, p_variants jsonb, p_orphan_skus text[])	INVOKER	search_path=""
 FNCFG	public.sync_wallet_balance_on_ledger_insert()	DEFINER	search_path=""
 FNCFG	public.system_supplier_mail_record(p_record jsonb, p_draft jsonb, p_request_id text)	DEFINER	search_path=""
@@ -1342,6 +1542,7 @@ POL	public.admin_audit_log|admin_audit_log_select_service_role	service_role	r|PE
 POL	public.admin_saved_order_views|admin_saved_order_views_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.admin_sso_login_events|admin_sso_login_events_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.auth_callback_events|auth_callback_events_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.auth_login_attempts|auth_login_attempts_service_role_select	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.brands|brands_delete_service_role	service_role	d|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.brands|brands_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.brands|brands_select_public	PUBLIC	r|PERM|b326b5062b2f0e69046810717534cb09|-
@@ -1375,6 +1576,8 @@ POL	public.customers|customers_select_own	authenticated	r|PERM|19300d15578058525
 POL	public.customers|customers_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.customers|customers_update_own	authenticated	w|PERM|19300d155780585259ede73ac370586c|19300d155780585259ede73ac370586c
 POL	public.customers|customers_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
+POL	public.dealer_applications|dealer_applications_service_role_select	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.dealer_brand_discounts|dealer_brand_discounts_service_role_select	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.email_outbox|email_outbox_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.email_outbox|email_outbox_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.email_outbox|email_outbox_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
@@ -1402,6 +1605,8 @@ POL	public.order_refund_job_items|order_refund_job_items_select_service_role	ser
 POL	public.order_refund_jobs|order_refund_jobs_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.order_refund_manual_corrections|order_refund_manual_corrections_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.order_refunds|order_refunds_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_return_items|order_return_items_service_role_select	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_returns|order_returns_service_role_select	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.order_status_options|order_status_options_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.orders_deleted_log|orders_deleted_log_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.orders|orders_select_own	authenticated	r|PERM|41767db22bb3f730527c5144647402da|-
@@ -1417,6 +1622,7 @@ POL	public.product_fitments_effective|product_fitments_effective_select_service_
 POL	public.product_fitments|product_fitments_select_public	PUBLIC	r|PERM|89bf3c5a672e20d201ec75bcf6c354b2|-
 POL	public.product_fitments|product_fitments_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_image_trim|product_image_trim_public_read	PUBLIC	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.product_redirects|product_redirects_service_role_select	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_variants|product_variants_delete_service_role	service_role	d|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_variants|product_variants_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.product_variants|product_variants_select_public	PUBLIC	r|PERM|38a325c5ff2ee00eabe37e38954ae5b6|-
@@ -1428,6 +1634,7 @@ POL	public.products|products_select_public	PUBLIC	r|PERM|c08d15ab27145279edcded8
 POL	public.products|products_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.products|products_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
 POL	public.search_queries|search_queries_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.shipment_hct_dispatch_attempts|shipment_hct_dispatch_attempts_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.shipment_items|shipment_items_select_own	authenticated	r|PERM|def89c3b17a806e510cc0edd839dc587|-
 POL	public.shipment_items|shipment_items_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.shipment_order_ship_clearances|shipment_order_ship_clearances_service_role_select	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
@@ -1476,6 +1683,10 @@ REL	public.auth_callback_events|r	anon	-------|RLS
 REL	public.auth_callback_events|r	authenticated	-------|RLS
 REL	public.auth_callback_events|r	payment_confirmer	-------|RLS
 REL	public.auth_callback_events|r	service_role	S------|RLS
+REL	public.auth_login_attempts|r	anon	-------|RLS
+REL	public.auth_login_attempts|r	authenticated	-------|RLS
+REL	public.auth_login_attempts|r	payment_confirmer	-------|RLS
+REL	public.auth_login_attempts|r	service_role	S------|RLS
 REL	public.brands|r	anon	S------|RLS
 REL	public.brands|r	authenticated	S------|RLS
 REL	public.brands|r	payment_confirmer	-------|RLS
@@ -1520,6 +1731,14 @@ REL	public.dbk_external_id_rename_20260904|r	anon	-------|RLS
 REL	public.dbk_external_id_rename_20260904|r	authenticated	-------|RLS
 REL	public.dbk_external_id_rename_20260904|r	payment_confirmer	-------|RLS
 REL	public.dbk_external_id_rename_20260904|r	service_role	-------|RLS
+REL	public.dealer_applications|r	anon	-------|RLS
+REL	public.dealer_applications|r	authenticated	-------|RLS
+REL	public.dealer_applications|r	payment_confirmer	-------|RLS
+REL	public.dealer_applications|r	service_role	S------|RLS
+REL	public.dealer_brand_discounts|r	anon	-------|RLS
+REL	public.dealer_brand_discounts|r	authenticated	-------|RLS
+REL	public.dealer_brand_discounts|r	payment_confirmer	-------|RLS
+REL	public.dealer_brand_discounts|r	service_role	S------|RLS
 REL	public.email_outbox|r	anon	-------|RLS
 REL	public.email_outbox|r	authenticated	-------|RLS
 REL	public.email_outbox|r	payment_confirmer	-------|RLS
@@ -1640,6 +1859,14 @@ REL	public.order_refunds|r	anon	-------|RLS
 REL	public.order_refunds|r	authenticated	-------|RLS
 REL	public.order_refunds|r	payment_confirmer	-------|RLS
 REL	public.order_refunds|r	service_role	S------|RLS
+REL	public.order_return_items|r	anon	-------|RLS
+REL	public.order_return_items|r	authenticated	-------|RLS
+REL	public.order_return_items|r	payment_confirmer	-------|RLS
+REL	public.order_return_items|r	service_role	S------|RLS
+REL	public.order_returns|r	anon	-------|RLS
+REL	public.order_returns|r	authenticated	-------|RLS
+REL	public.order_returns|r	payment_confirmer	-------|RLS
+REL	public.order_returns|r	service_role	S------|RLS
 REL	public.order_status_options|r	anon	-------|RLS
 REL	public.order_status_options|r	authenticated	-------|RLS
 REL	public.order_status_options|r	payment_confirmer	-------|RLS
@@ -1720,6 +1947,10 @@ REL	public.pcm_definer_searchpath_rollback_20260905110000|r	anon	-------|RLS
 REL	public.pcm_definer_searchpath_rollback_20260905110000|r	authenticated	-------|RLS
 REL	public.pcm_definer_searchpath_rollback_20260905110000|r	payment_confirmer	-------|RLS
 REL	public.pcm_definer_searchpath_rollback_20260905110000|r	service_role	-------|RLS
+REL	public.pcm_definer_searchpath_rollback_20260917140000|r	anon	-------|RLS
+REL	public.pcm_definer_searchpath_rollback_20260917140000|r	authenticated	-------|RLS
+REL	public.pcm_definer_searchpath_rollback_20260917140000|r	payment_confirmer	-------|RLS
+REL	public.pcm_definer_searchpath_rollback_20260917140000|r	service_role	-------|RLS
 REL	public.pcm_incident|r	anon	-------|RLS
 REL	public.pcm_incident|r	authenticated	-------|RLS
 REL	public.pcm_incident|r	payment_confirmer	-------|RLS
@@ -1727,7 +1958,7 @@ REL	public.pcm_incident|r	service_role	-------|RLS
 REL	public.pcm_manual_no_email_excluded|v	anon	-------|---
 REL	public.pcm_manual_no_email_excluded|v	authenticated	-------|---
 REL	public.pcm_manual_no_email_excluded|v	payment_confirmer	-------|---
-REL	public.pcm_manual_no_email_excluded|v	service_role	S---TRG|---
+REL	public.pcm_manual_no_email_excluded|v	service_role	S------|---
 REL	public.pcm_net_exposure_snapshot|r	anon	-------|RLS
 REL	public.pcm_net_exposure_snapshot|r	authenticated	-------|RLS
 REL	public.pcm_net_exposure_snapshot|r	payment_confirmer	-------|RLS
@@ -1756,6 +1987,10 @@ REL	public.pcm_partially_cancelled_email_pending|v	anon	-------|---
 REL	public.pcm_partially_cancelled_email_pending|v	authenticated	-------|---
 REL	public.pcm_partially_cancelled_email_pending|v	payment_confirmer	-------|---
 REL	public.pcm_partially_cancelled_email_pending|v	service_role	S------|---
+REL	public.pcm_return_received_email_pending|v	anon	-------|---
+REL	public.pcm_return_received_email_pending|v	authenticated	-------|---
+REL	public.pcm_return_received_email_pending|v	payment_confirmer	-------|---
+REL	public.pcm_return_received_email_pending|v	service_role	S------|---
 REL	public.pcm_rls_rollback_20260904270000|r	anon	-------|RLS
 REL	public.pcm_rls_rollback_20260904270000|r	authenticated	-------|RLS
 REL	public.pcm_rls_rollback_20260904270000|r	payment_confirmer	-------|RLS
@@ -1812,6 +2047,14 @@ REL	public.product_image_trim|r	anon	S------|RLS
 REL	public.product_image_trim|r	authenticated	S------|RLS
 REL	public.product_image_trim|r	payment_confirmer	-------|RLS
 REL	public.product_image_trim|r	service_role	SIUDTRG|RLS
+REL	public.product_redirects_live_v|v	anon	S------|---
+REL	public.product_redirects_live_v|v	authenticated	S------|---
+REL	public.product_redirects_live_v|v	payment_confirmer	-------|---
+REL	public.product_redirects_live_v|v	service_role	S------|---
+REL	public.product_redirects|r	anon	-------|RLS
+REL	public.product_redirects|r	authenticated	-------|RLS
+REL	public.product_redirects|r	payment_confirmer	-------|RLS
+REL	public.product_redirects|r	service_role	SI-D---|RLS
 REL	public.product_variants_public|v	anon	S------|---
 REL	public.product_variants_public|v	authenticated	S------|---
 REL	public.product_variants_public|v	payment_confirmer	-------|---
@@ -1840,6 +2083,10 @@ REL	public.search_queries|r	anon	-------|RLS
 REL	public.search_queries|r	authenticated	-------|RLS
 REL	public.search_queries|r	payment_confirmer	-------|RLS
 REL	public.search_queries|r	service_role	S------|RLS
+REL	public.shipment_hct_dispatch_attempts|r	anon	-------|RLS
+REL	public.shipment_hct_dispatch_attempts|r	authenticated	-------|RLS
+REL	public.shipment_hct_dispatch_attempts|r	payment_confirmer	-------|RLS
+REL	public.shipment_hct_dispatch_attempts|r	service_role	S------|RLS
 REL	public.shipment_items|r	anon	-------|RLS
 REL	public.shipment_items|r	authenticated	S------|RLS
 REL	public.shipment_items|r	payment_confirmer	-------|RLS
@@ -1937,12 +2184,14 @@ VIEWOPT	public.pcm_partial_cancel_refund_reconciliation_v|view	security_invoker=
 VIEWOPT	public.pcm_partial_refund_email_pending|view	security_invoker=false	postgres
 VIEWOPT	public.pcm_partially_cancelled_email_current_v|view	security_invoker=false	postgres
 VIEWOPT	public.pcm_partially_cancelled_email_pending|view	security_invoker=false	postgres
+VIEWOPT	public.pcm_return_received_email_pending|view	security_invoker=false	postgres
 VIEWOPT	public.pcm_shipped_email_pending|view	security_invoker=true	postgres
 VIEWOPT	public.pcm_shipped_email_unsendable|view	security_invoker=true	postgres
 VIEWOPT	public.pcm_tracking_corrected_email_pending|view	security_invoker=true	postgres
 VIEWOPT	public.pcm_tracking_corrected_payload_unparseable|view	security_invoker=true	postgres
 VIEWOPT	public.pcm_tracking_correction_candidates|view	security_invoker=true	postgres
 VIEWOPT	public.pcm_unpaid_cancelled_email_pending|view	security_invoker=true	postgres
+VIEWOPT	public.product_redirects_live_v|view	security_invoker=false	postgres
 VIEWOPT	public.product_variants_public|view	security_invoker=true	postgres
 VIEWOPT	public.products_list_dealer|view	security_invoker=(未設)	postgres
 VIEWOPT	public.products_list_public|view	security_invoker=true	postgres
