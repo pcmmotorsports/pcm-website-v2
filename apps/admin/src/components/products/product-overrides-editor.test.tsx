@@ -47,6 +47,26 @@ describe('ProductOverridesEditor(商品頁改版乙 B3:三欄一次儲存)', () 
     }
   });
 
+  // 網站A 09-29 走一遍:網站自己新增的商品(supplier_slug='pcm')沒有供應商, 卻寫「網站顯示：供應商的／供應商提供（每天同步）」。
+  it('🔴 網站自己新增的商品 ⇒ 整張表單不出現「供應商」, 改說「新增時填的」', () => {
+    render(
+      <ProductOverridesEditor
+        productId={PID}
+        supplier={{ title: '自製拉桿', subtitle: null, highlights: [] }}
+        overrides={readProductOverrides({ title: '改過的標題' })}
+        manual
+      />,
+    );
+    const form = document.querySelector('form') as HTMLElement;
+    expect(form.textContent).not.toContain('供應商');
+    for (const el of form.querySelectorAll('input[placeholder]')) expect(el.getAttribute('placeholder')).not.toContain('供應商');
+    expect(card('title').textContent).toContain('新增商品時填的內容');
+    expect(card('title').textContent).toContain('網站顯示：我們的版本');
+    expect(within(card('title')).getByRole('button', { name: '還原成新增時填的' })).toBeTruthy();
+    expect(card('subtitle').textContent).toContain('網站顯示：新增時填的');
+    expect(card('subtitle').textContent).toContain('（新增時沒有填）');
+  });
+
   it('🔴 三欄同一個表單、只有一顆儲存鈕;表單帶 product_id 與三欄的值', () => {
     render(<ProductOverridesEditor productId={PID} supplier={SUPPLIER} overrides={readProductOverrides({ title: '煞車拉桿組', highlights: ['一'] })} />);
     const forms = document.querySelectorAll('form');
