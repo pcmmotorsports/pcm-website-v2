@@ -129,6 +129,10 @@ export const CRON_JOB_WHITELIST = [
   //       (`cron-heartbeat-read.ts` 逐字 `從來沒寫過心跳(接線落點:${w.wiredAt})`)
   //       ⇒ 寫『尚未 apply』那種話會在它過期之後對值班的人說謊(2026-09-06 實錘, 見上面 :100)。
   { jobName: 'pcm-net-exposure', label: 'net 曝露面', schedule: '0 0 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '20260908030000(查法 bash scripts/is-migration-applied.sh 20260908030000)' },
+  // 🔵 2026-09-28 加 `pcm-cron-run-log-purge`(migration 20260928260000;計畫 ~/pcm-mailbox/計畫-網站資料庫索引與清理-20260928.md):
+  //    每天台灣 03:17 刪 cron.job_run_details 裡 14 天前的列,成功後寫心跳。staleMinutes 比照 pcm-acl-digest 的兩天(一天只跑一次)。
+  //    🔴 上線順序:先貼 migration(貼的當下就寫第一筆心跳),再推這一顆 ⇒ 反過來後台會亮「從來沒寫過心跳」。
+  { jobName: 'pcm-cron-run-log-purge', label: '排程紀錄清理', schedule: '17 19 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '20260928260000(查法 bash scripts/is-migration-applied.sh 20260928260000)' },
 ] as const;
 
 /**
@@ -180,6 +184,9 @@ export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set([
   //       有人把新 job 插在白名單中間、再 append 到這個 Set ⇒ 照那句話做, 測試會紅。
   //    ✅ 判別句:**兩份清單的相對順序要對得起來** —— 改任一邊都要看另一邊。
   'pcm-net-exposure',
+  // 🔵 2026-09-28 加 `pcm-cron-run-log-purge`:同一個物理限制 —— 純 SQL(`SELECT public.pcm_cron_run_log_purge();`)
+  //    ⇒ 刪除失敗時同交易寫的心跳一起回捲 ⇒ 失敗計數永遠是 0 ⇒ 報 null 不報 0。與白名單同樣排在最後(相對序一致)。
+  'pcm-cron-run-log-purge',
 ]);
 
 /**
