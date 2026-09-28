@@ -175,6 +175,21 @@ describe('/products 列表(#20 片1a)', () => {
     expect(statuses[0]).not.toContain('已下架');
   });
 
+  // 商品頁乙 F1:搜尋失敗(例如 admin_products_by_keyword 逾時)⇒ 講「載入失敗」,而且搜尋框還留著那個詞,
+  //   員工知道自己剛才在搜什麼、可以直接清掉或換一個詞;不能退回成「查無符合的商品」(那會讓人以為真的沒有)。
+  it('🔴 F1 搜尋失敗 ⇒ 顯示載入失敗、搜尋詞還在、不說「查無」', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.list.mockRejectedValue(new Error('57014 canceling statement due to statement timeout'));
+    const { container } = await renderPage({ q: 'panigale' });
+    expect(mocks.list.mock.calls.at(-1)?.[2]).toMatchObject({ keyword: 'panigale' });
+    const text = container.textContent ?? '';
+    expect(text).toContain('商品列表載入失敗');
+    expect(text).not.toContain('查無');
+    expect(text).not.toContain('57014');
+    expect((container.querySelector('input[name="q"]') as HTMLInputElement | null)?.value).toBe('panigale');
+    spy.mockRestore();
+  });
+
   it('🔴 驗收 2:讀取失敗 → 仍渲染錯誤態、不把 DB error 印到畫面', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.list.mockRejectedValue(new Error('PGRST301 permission denied for table products'));

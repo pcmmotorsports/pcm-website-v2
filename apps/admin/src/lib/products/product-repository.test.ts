@@ -674,6 +674,96 @@ describe('D2 搜尋接到 admin_products_by_keyword', () => {
   });
 });
 
+// ─────────────── 商品頁乙 D3:一般列表和搜尋(含車款)兩條路要一致 ───────────────
+// 計畫原本讓搜尋那條路在 SQL 裡自己篩選、排序、分頁,篩選規則會有兩份,所以排了 D3 盯著。
+// D1 改成 admin_products_by_keyword 只當「資料來源」,其餘沿用列表同一段程式(migration 20260928150000 檔頭)。
+// ⇒ D3 釘的就是這個前提:換掉資料來源之後,送出去的篩選、排序、分頁、計數要一模一樣。
+//   哪天有人把某個篩選寫進 `if (keyword)` 的其中一邊,這裡就會紅。
+describe('D3 一般列表與搜尋兩條路:同一組篩選送出一模一樣的條件', () => {
+  /** 拿掉資料來源那兩步(from/rpc + 第一個 select),其餘照順序比。select 另外比:搜尋那條路只能多補排序欄。 */
+  const afterSource = (calls: unknown[][]) => {
+    const i = calls.findIndex((c) => (c[0] === 'from' && c[1] === 'products') || c[0] === 'rpc');
+    expect(i, '找不到資料來源那一步').toBeGreaterThanOrEqual(0);
+    expect(calls[i + 1]?.[0], '資料來源後面第一步應該是 select').toBe('select');
+    return { before: calls.slice(0, i), source: calls[i]!, select: calls[i + 1]!, rest: calls.slice(i + 2) };
+  };
+  const run = async (fn: () => Promise<unknown>) => {
+    q.calls.length = 0;
+    q.rows = null;
+    await fn();
+    return [...q.calls];
+  };
+
+  const FILTERS: { name: string; query: NonNullable<Parameters<typeof listProductsForAdmin>[2]> }[] = [
+    { name: '不篩', query: {} },
+    { name: '同步設定的', query: { setBy: 'sync' } },
+    { name: '員工設定的 + 分類鎖', query: { setBy: 'staff', categoryLocked: true } },
+    { name: '品牌兩個', query: { brandIds: ['b-1', 'b-2'] } },
+    { name: '分類', query: { categoryIds: ['c-1', 'c-2', 'c-3'] } },
+    { name: '料號清單', query: { skus: ['SKU-1', 'SKU-2'] } },
+    ...(['delisted', 'out_of_stock', 'image_missing', 'title_no_cjk', 'source_missing', 'on_sale'] as const).map((a) => ({
+      name: `要處理 ${a}`,
+      query: { attention: [a] },
+    })),
+    { name: '要處理兩顆', query: { attention: ['delisted', 'on_sale'] as const } },
+    ...(['updated', 'price_asc', 'price_desc', 'sku'] as const).map((sort) => ({ name: `排序 ${sort}`, query: { sort } })),
+    {
+      name: '全部疊在一起',
+      query: {
+        setBy: 'staff' as const,
+        categoryLocked: true as const,
+        brandIds: ['b-1'],
+        categoryIds: ['c-1'],
+        skus: ['SKU-1'],
+        attention: ['out_of_stock', 'image_missing'] as const,
+        sort: 'price_desc' as const,
+      },
+    },
+  ];
+
+  it.each(FILTERS)('列表(第 3 頁):$name', async ({ query }) => {
+    const plain = afterSource(await run(() => listProductsForAdmin(20, 40, query)));
+    const search = afterSource(await run(() => listProductsForAdmin(20, 40, { ...query, keyword: 'panigale' })));
+    expect(plain.source).toEqual(['from', 'products']);
+    expect(search.source).toEqual(['rpc', 'admin_products_by_keyword', { p_term: 'panigale' }, { count: 'exact', head: false }]);
+    // 資料來源之前(料號解成 id、特價條件那幾發)與之後(篩選、排序、分頁、讀特價標記)逐步相同
+    expect(search.before).toEqual(plain.before);
+    expect(search.rest).toEqual(plain.rest);
+    // select:同樣的欄,搜尋那條路只多補排序欄(D2 那格的理由);件數一樣要精確數
+    const cols = (c: unknown[]) => String(c[1]).split(',').map((x) => x.trim());
+    expect(cols(search.select).slice(0, cols(plain.select).length)).toEqual(cols(plain.select));
+    expect(plain.select[2]).toEqual({ count: 'exact', head: false });
+  });
+
+  it.each(FILTERS)('「要處理」件數:$name', async ({ query }) => {
+    const plain = await run(() => countProductAttention(query));
+    const search = await run(() => countProductAttention({ ...query, keyword: 'panigale' }));
+    const strip = (calls: unknown[][]) =>
+      calls.map((c) =>
+        c[0] === 'rpc' || (c[0] === 'from' && c[1] === 'products')
+          ? ['SOURCE']
+          : // 件數只選 id;搜尋那條路會多補排序欄(select 的第二個參數只有 from 那條有)⇒ 只比第一欄
+            c[0] === 'select' && String(c[1]).startsWith('id')
+            ? ['select', String(c[1]).split(',')[0]]
+            : // 每一發各自 new 一個 AbortSignal.timeout ⇒ 物件不會相等,只比有沒有掛
+              c[0] === 'abortSignal'
+              ? ['abortSignal']
+              : c,
+      );
+    expect(strip(search)).toEqual(strip(plain));
+    // 搜尋那條路的件數同樣只算數、精確數
+    for (const c of search.filter((x) => x[0] === 'rpc')) expect(c[3]).toEqual({ count: 'exact', head: true });
+  });
+
+  it('上一件 / 下一件:搜尋時照搜尋結果那一份的順序走(同一段排序、同一個範圍)', async () => {
+    const query = { brandIds: ['b-1'], sort: 'sku' as const };
+    const plain = afterSource(await run(() => findProductNeighbors('p-1', query, 3, 20)));
+    const search = afterSource(await run(() => findProductNeighbors('p-1', { ...query, keyword: 'panigale' }, 3, 20)));
+    expect(search.rest).toEqual(plain.rest);
+    expect(plain.rest).toContainEqual(['range', 39, 60]);
+  });
+});
+
 describe('商品頁乙 A1:列表名稱顯示客人看到的標題', () => {
   it('員工改過標題 ⇒ 顯示改過的;沒改過 ⇒ 顯示供應商的', () => {
     expect(displayTitle({ title: 'Brake Lever', override_title: 'Brembo 煞車拉桿組' })).toBe('Brembo 煞車拉桿組');
