@@ -1,5 +1,13 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [
+    ".npmrc",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "vercel.json",
+    "tsconfig.base.json",
+    "scripts/build-with-stamp.sh"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
