@@ -287,7 +287,7 @@
       <a href="#m2"><span class="nd d"></span><b>3</b>會員系統</a>
       <a href="#m3"><span class="nd d"></span><b>4</b>結帳收銀</a>
       <a href="#m4a"><span class="nd d"></span><b>5</b>員工後台</a>
-      <a href="#m5"><span class="nd a"></span><b>6</b>自動補貨</a>
+      <a href="#m5"><span class="nd d"></span><b>6</b>自動補貨</a>
       <a href="#m4b"><span class="nd d"></span><b>7</b>後台進階</a>
       <a href="#m6"><span class="nd d"></span><b>8</b>開門上線</a>
       <a href="#phase2"><span class="nd t"></span>Phase 2</a>
@@ -312,8 +312,8 @@
 
     <div class="phase-row">
       <div class="pname">Phase 1<small>蓋店開門</small></div>
-      <div class="track"><div class="fill fill--p1" style="width:98%"></div></div>
-      <div class="ptag ptag--live">● 進行中 · 約 98%</div>
+      <div class="track"><div class="fill fill--p1" style="width:100%"></div></div>
+      <div class="ptag ptag--live">● 進行中 · 約 100%</div>
     </div>
     <div class="phase-row">
       <div class="pname">Phase 2<small>升級平台</small></div>
@@ -329,14 +329,14 @@
     <div class="stats">
       <div class="stat">
         <div class="k">8 個施工段</div>
-        <div class="v">7 <span class="u">完成</span></div>
-        <div class="sub">進行中 1 · 還沒開始 0</div>
-        <div class="eight"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="a"></i><i class="d"></i><i class="d"></i></div>
+        <div class="v">8 <span class="u">完成</span></div>
+        <div class="sub">進行中 0 · 還沒開始 0</div>
+        <div class="eight"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i></div>
       </div>
       <div class="stat">
         <div class="k">108 個小步驟</div>
-        <div class="v">106 <span class="u">完成</span></div>
-        <div class="sub">進行中 0 · 還沒開始 2</div>
+        <div class="v">108 <span class="u">完成</span></div>
+        <div class="sub">進行中 0 · 還沒開始 0</div>
       </div>
       <div class="stat">
         <div class="k">Phase 1 預估工期</div>
@@ -345,8 +345,8 @@
       </div>
       <div class="stat">
         <div class="k">目前位置</div>
-        <div class="v" style="font-size:18px">第 6 段</div>
-        <div class="sub">自動補貨 · 步驟 M-5-03</div>
+        <div class="v" style="font-size:18px">已完工</div>
+        <div class="sub">8 段全數完成 🎉</div>
       </div>
     </div>
   </section>
@@ -356,8 +356,8 @@
       <div class="pin">📍</div>
       <div class="ht">
         <div class="l1">你在這裡</div>
-        <div class="l2">Phase 1 ▸ 第 6 施工段「自動補貨」</div>
-        <div class="l3">已完成 7 個施工段 ✅。下一步是第 6 段「自動補貨」的步驟 <code>M-5-03</code> —— 新商品審核清單（沒做：新商品通過檢查後直接上架，沒有人工審核；每日 LINE 摘要只列新上架的數量）。</div>
+        <div class="l2">Phase 1 ▸ 8 個施工段全部完成 🎉</div>
+        <div class="l3">8 個施工段、108 個小步驟全部完工。</div>
       </div>
     </div>
   </section>
@@ -558,15 +558,15 @@
       </div>
     </article>
 
-    <article class="ms ms--active" id="m5">
+    <article class="ms ms--done" id="m5">
       <div class="ms__edge"></div>
       <div class="ms__head">
         <div class="ms__num">6</div>
         <div class="ms__titles">
           <div class="ms__name"><span class="emoji">🤖</span>自動補貨 <span class="ms__code">M-5 · sync-engine + 試算表</span></div>
-          <div class="ms__meta">9 個小步驟 · 估時 7–8 小時 · 約 1–1.5 週 · 完成 7</div>
+          <div class="ms__meta">9 個小步驟 · 估時 7–8 小時 · 約 1–1.5 週</div>
         </div>
-        <div class="badge badge--active">🔄 進行中</div>
+        <div class="badge badge--done">✅ 完成</div>
       </div>
       <div class="ms__body">
         <p class="gline goal"><b>目標</b>　商品價格由報價單抓各家供應商，再由 GitHub Actions 每天自動同步到網站；價格或分類異常時停下不寫入並寄信，每天 LINE 摘要會提醒同步沒跑完。</p>
@@ -574,9 +574,9 @@
         <ul class="slices">
           <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-01</span><span class="slice__name">自動同步程式（已改成 GitHub Actions 每天跑一次）</span><span class="slice__est">45分</span></li>
           <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-02</span><span class="slice__name">讀廠商報價單（已改成直接讀報價單資料庫，不讀 Google 試算表）</span><span class="slice__est">45分</span></li>
-          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-03</span><span class="slice__name">新商品審核清單（沒做：新商品通過檢查後直接上架，沒有人工審核；每日 LINE 摘要只列新上架的數量）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-03</span><span class="slice__name">新商品審核清單（已完成 09-29：新商品照舊自動上架；後台商品區有「最近 7 天新上架」清單，把價格可疑、沒圖、沒中文、未分類的排在最前面，員工看完有問題就到商品頁下架）</span><span class="slice__est">45分</span></li>
           <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-04</span><span class="slice__name">報價變動告警（已完成 09-29：價格異常會擋下並寄信；每日 LINE 摘要多一行「商品」，列出新上架、變價的規格數與漲跌最大的一筆）</span><span class="slice__est">45分</span></li>
-          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-05</span><span class="slice__name">庫存數量自動更新（沒做：網站目前沒有庫存數量，只有上架／停產）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-05</span><span class="slice__name">庫存數量自動更新（刻意不做：Sean 09-03 決定接單才向原廠訂，前台不顯示庫存，貨況靠 LINE 詢問）</span><span class="slice__est">45分</span></li>
           <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-06</span><span class="slice__name">手動同步與看紀錄（已改成在 GitHub Actions 手動觸發、看執行紀錄；沒有暫停鍵）</span><span class="slice__est">45分</span></li>
           <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-07</span><span class="slice__name">後台同步狀態（已改成後台首頁「工程數字」：供應商資料多久前更新、排程心跳）</span><span class="slice__est">45分</span></li>
           <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-5-08</span><span class="slice__name">報價變動告警畫面（已完成 09-29：後台商品區有「價格變動」清單，可看最近變價的規格、舊價→新價與漲跌幅）</span><span class="slice__est">30分</span></li>
