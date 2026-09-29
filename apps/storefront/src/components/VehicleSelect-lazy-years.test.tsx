@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 
 import { VehicleSelect } from './VehicleSelect';
-import { YEARS_FETCH_TIMEOUT_MS } from './use-lazy-brand-years';
+import { resetBrandYearsRequestsForTests, YEARS_FETCH_TIMEOUT_MS } from './use-lazy-brand-years';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
 const SLIM: MockMotoBrand[] = [
@@ -50,6 +50,8 @@ const okResponse = (body: unknown) => ({ ok: true, json: async () => body }) as 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // 同牌子進行中的請求是模組層共用的;某一格留下永遠不回的假請求時, 不讓它漏到下一格。
+  resetBrandYearsRequestsForTests();
 });
 
 describe('VehicleSelect 自己補目前牌子的年份', () => {
@@ -166,5 +168,44 @@ describe('補年份逾時', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// 2026-09-29:同一個牌子同時被好幾個選車元件要(目錄頁量到 3 發)⇒ 只打 1 發, 大家等同一個結果。
+describe('同牌子進行中的請求共用', () => {
+  function Three({ vehicle }: { vehicle: { brand: string; model?: string } | null }) {
+    return (
+      <>
+        <Select brands={SLIM} vehicle={vehicle} />
+        <Select brands={SLIM} vehicle={vehicle} />
+        <Select brands={SLIM} vehicle={vehicle} />
+      </>
+    );
+  }
+  const years = () => screen.getAllByRole('combobox', { name: '選擇年份' }) as HTMLInputElement[];
+
+  it('🔴 三個選車元件同時要 Yamaha ⇒ fetch 只打 1 次, 三個都拿到年份', async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse({ brandId: 'yamaha', models: [{ id: 'r6', name: 'R6', years: [2016, 2017] }] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    render(<Three vehicle={{ brand: 'Yamaha', model: 'R6' }} />);
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(years().map((y) => y.disabled)).toEqual([false, false, false]);
+  });
+
+  it('🔴 那一發失敗 ⇒ 三個都寫失敗;清除再選 ⇒ 會再打(失敗不會卡在共用裡)', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 503 }) as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { rerender } = render(<Three vehicle={{ brand: 'Yamaha', model: 'R6' }} />);
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(years().map((y) => y.placeholder)).toEqual(Array(3).fill('年份讀取失敗，請清除廠牌再選'));
+    rerender(<Three vehicle={null} />);
+    rerender(<Three vehicle={{ brand: 'Yamaha', model: 'R6' }} />);
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

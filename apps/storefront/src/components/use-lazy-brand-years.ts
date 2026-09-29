@@ -46,24 +46,15 @@ export function useLazyBrandYears(
     if (needId === null || inflight.current.has(needId)) return;
     inflight.current.add(needId);
     setFailed((prev) => withoutId(prev, needId));
-    // 用 AbortController + setTimeout 而不是 `AbortSignal.timeout()`:後者 Safari / iOS 16 才有(iOS 15 及更早沒有), 呼叫就直接丟錯。
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), YEARS_FETCH_TIMEOUT_MS);
-    void fetch(`/api/catalog/vehicle-models?brand=${encodeURIComponent(needId)}`, { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`vehicle-models ${res.status}`);
-        const body = (await res.json()) as VehicleModelsResponse;
-        if (body.brandId !== needId || !Array.isArray(body.models)) {
-          throw new Error(`vehicle-models 回傳的牌子或形狀不對(問 ${needId}, 回 ${String(body.brandId)})`);
-        }
-        setLoaded((prev) => new Map(prev).set(needId, body.models));
+    void loadBrandModels(needId)
+      .then((models) => {
+        setLoaded((prev) => new Map(prev).set(needId, models));
       })
       .catch((err) => {
         console.error('[useLazyBrandYears] 年份補抓失敗:', err);
         setFailed((prev) => new Set(prev).add(needId));
       })
       .finally(() => {
-        clearTimeout(timer);
         inflight.current.delete(needId);
       });
   }, [needId]);
@@ -84,6 +75,44 @@ export function useLazyBrandYears(
     yearsPending: needId !== null,
     yearsFailed: needId !== null && failed.has(needId),
   };
+}
+
+/**
+ * 同一個牌子正在補的那一發(模組層, 全頁共用)。
+ * 🔴 為什麼要有:目錄頁 ProductsPage、桌機選車列、手機面板各自掛一份這支 hook, 同一個牌子會同時打 3 發
+ *    (2026-09-29 正式站實點量到)。同牌子進行中就等同一個 Promise。
+ * 🔴 一結束(成功、失敗、逾時)就從這裡拿掉:成功的年份各元件自己存;失敗要讓「清除廠牌再選」能再打一發。
+ * ⏱️ 8 秒逾時從第一個要的元件算起;晚加入的元件只等剩下的時間(伺服器對這個牌子已經那麼久沒回)。
+ */
+const pendingByBrand = new Map<string, Promise<MockMotoModel[]>>();
+
+function loadBrandModels(brandId: string): Promise<MockMotoModel[]> {
+  const existing = pendingByBrand.get(brandId);
+  if (existing) return existing;
+  // 用 AbortController + setTimeout 而不是 `AbortSignal.timeout()`:後者 Safari / iOS 16 才有(iOS 15 及更早沒有), 呼叫就直接丟錯。
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), YEARS_FETCH_TIMEOUT_MS);
+  const request = fetch(`/api/catalog/vehicle-models?brand=${encodeURIComponent(brandId)}`, { signal: controller.signal })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`vehicle-models ${res.status}`);
+      const body = (await res.json()) as VehicleModelsResponse;
+      if (body.brandId !== brandId || !Array.isArray(body.models)) {
+        throw new Error(`vehicle-models 回傳的牌子或形狀不對(問 ${brandId}, 回 ${String(body.brandId)})`);
+      }
+      return body.models;
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      // 只刪自己那一發(測試的 reset 之後可能已經有新的一發在表上)。
+      if (pendingByBrand.get(brandId) === request) pendingByBrand.delete(brandId);
+    });
+  pendingByBrand.set(brandId, request);
+  return request;
+}
+
+/** 僅測試用, 正式碼不得呼叫:清掉進行中的共用請求(某一格留下一發永遠不回的假請求時, 不讓它漏到下一格)。 */
+export function resetBrandYearsRequestsForTests(): void {
+  pendingByBrand.clear();
 }
 
 function withoutId(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
