@@ -46,3 +46,18 @@ describe('SearchOverlayProducts 通用款那一行與卡片一致', () => {
     expect(container.querySelector('.sop-fits')?.textContent).toBe('通用款');
   });
 });
+
+describe('SearchOverlayProducts 特價(2026-09-29:與卡片同一支 Price)', () => {
+  it('有 originalPrice ⇒ 劃線原價 + 特價, 用卡片那支 Price 的樣式', () => {
+    const { container } = render(<SearchOverlayProducts items={[item({ price: 1000, originalPrice: 1200 })]} onNavigate={() => undefined} />);
+    const cell = container.querySelector('.sop-price')!;
+    expect(cell.querySelector('.price-orig.price-strike')?.textContent).toBe('NT$ 1,200');
+    expect(cell.querySelector('.price-main.is-sale')?.textContent).toBe('NT$ 1,000');
+  });
+
+  it('🔵 沒有 originalPrice ⇒ 照舊只印一個價格, 沒有劃線', () => {
+    const { container } = render(<SearchOverlayProducts items={[item({ price: 1000 })]} onNavigate={() => undefined} />);
+    expect(container.querySelector('.sop-price')?.textContent).toBe('NT$ 1,000');
+    expect(container.querySelector('.price-strike')).toBeNull();
+  });
+});

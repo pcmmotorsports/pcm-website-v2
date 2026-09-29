@@ -10,6 +10,7 @@
 //    · `navigateToCatalog(router, …); close();` ⇒ `onNavigate(…)`(把 router/close 留在呼叫端)
 //    ⇒ 🎯 而下面那段 `<img>` 的註解是**跟著它解釋的那段碼一起搬過來的**,不是我重寫的。
 
+import { Price } from '@/components/Price';
 import { cardFitsLine } from '@/lib/product-card-fits';
 import type { SearchOverlayItem } from '@/lib/search-shape';
 
@@ -45,7 +46,16 @@ export function SearchOverlayProducts({ items, onNavigate }: SearchOverlayProduc
                 <div className="sop-name">{p.name}</div>
                 {p.fits ? <div className="sop-fits">{cardFitsLine(p.fits)}</div> : null}
                 {/* 🔴 `null` 印「—」不是「NT$ 0」:0 元是贈品、查不到價格是另一件事。 */}
-                <div className="sop-price">{p.price === null ? (p.dealerPriceMissing ? '價格暫時無法取得' : '—') : `NT$ ${p.price.toLocaleString()}`}</div>
+                {/* 特價中 ⇒ 用卡片那支 Price(劃線原價 + 特價, 同一套樣式);其餘照稿只印一個價格。 */}
+                <div className="sop-price">
+                  {p.price !== null && p.originalPrice !== undefined ? (
+                    <Price price={p.price} originalPrice={p.originalPrice} size="sm" />
+                  ) : p.price === null ? (
+                    p.dealerPriceMissing ? '價格暫時無法取得' : '—'
+                  ) : (
+                    `NT$ ${p.price.toLocaleString()}`
+                  )}
+                </div>
               </div>
             </button>
           ))}
