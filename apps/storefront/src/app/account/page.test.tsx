@@ -111,10 +111,15 @@ vi.mock('@/lib/auth/composition', () => ({
   getFavoritesRepo: async () => ({ listByCustomer: async () => [] }),
 }));
 
+// ⟦search-TAXONOMYTIMEOUT⟧:車款清單讀不到的旗標要從這一層傳下去 ⇒ 要能逐格換回傳值(見檔尾那一組)。
+const { tryVehicleTaxonomyBaseMock } = vi.hoisted(() => ({
+  tryVehicleTaxonomyBaseMock: vi.fn(async () => ({ motoBrands: [] as unknown[], failed: false })),
+}));
+
 vi.mock('@/lib/products', () => ({
   // B2B 片 5:改成真實形狀 { products, error }(原本回 [] —— 頁面原封轉交所以沒炸;現在頁面要讀 .products 換經銷價)。
   fetchFeaturedProducts: async () => ({ products: [], error: false }),
-  tryVehicleTaxonomyBase: async () => ({ motoBrands: [], failed: false }),
+  tryVehicleTaxonomyBase: tryVehicleTaxonomyBaseMock,
 }));
 
 import { readFileSync } from 'node:fs';
@@ -576,5 +581,19 @@ describe('generateMetadata — 分頁標題', () => {
   it('tab=不存在的值 ⇒ 落回會員中心, 不是把那個字直接印進標題', async () => {
     // 🔴 這格擋的是「把 searchParams 原樣拼進 title」那種寫法 —— 那會讓網址控制分頁列文字。
     expect((await generateMetadata(sp('../../evil'))).title).toBe('會員中心 — PCM重機零件販售');
+  });
+});
+
+// ⟦search-TAXONOMYTIMEOUT⟧ Fable R1 建議 4:把 page.tsx 那行 `vehicleBrandsFailed={…}` 拔掉, 下游的測試照樣綠
+//   (它們各自直接 render 那一層)⇒ 這一段守的是【這一層有沒有把旗標交出去】。
+describe('車款清單讀不到 ⇒ 旗標交給 AccountView', () => {
+  it('讀不到 ⇒ vehicleBrandsFailed 是 true', async () => {
+    tryVehicleTaxonomyBaseMock.mockResolvedValueOnce({ motoBrands: [], failed: true });
+    expect((await renderRoute('general')).props.vehicleBrandsFailed).toBe(true);
+  });
+
+  it('讀得到 ⇒ vehicleBrandsFailed 是 false(不是 undefined 碰巧過關)', async () => {
+    tryVehicleTaxonomyBaseMock.mockResolvedValueOnce({ motoBrands: [], failed: false });
+    expect((await renderRoute('general')).props.vehicleBrandsFailed).toBe(false);
   });
 });

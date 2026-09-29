@@ -55,6 +55,7 @@ vi.mock('@/app/account/profile/actions', () => ({
 
 import { AccountView, type AccountViewProps } from './AccountView';
 import { CartProvider } from '@/contexts/CartContext';
+import { VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 import type { FeaturedResult } from '@/lib/products';
 import { toMoneyAmount, type OrderListItem } from '@pcm/domain';
 
@@ -360,5 +361,28 @@ describe('AccountView · ?tab= 契約(client 那一半)', () => {
     renderView();
     fireEvent.click(screen.getByRole('button', { name: /儲值金/ }));
     expect(window.location.search).toBe('?tab=wallet');
+  });
+});
+
+// ⟦search-TAXONOMYTIMEOUT⟧ Fable R1 建議 4:AccountView 那一行轉交若被拔掉, VehiclesTab 與表單自己的測試照樣綠
+//   ⇒ 從這一層進去、打開新增表單, 看那一句有沒有真的到畫面上。
+describe('AccountView — 車款清單讀不到的提示要傳到愛車表單', () => {
+  // jsdom 沒有 scrollIntoView, 而打開愛車表單會捲過去(同 VehiclesTab.test.tsx:34 的補法)。
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('vehicleBrandsFailed ⇒ 愛車分頁按新增後看得到那一句', () => {
+    renderView({ vehicleBrandsFailed: true });
+    fireEvent.click(screen.getByRole('button', { name: /我的愛車/ }));
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+    expect(screen.getByText(VEHICLE_TAXONOMY_UNAVAILABLE)).toBeTruthy();
+  });
+
+  it('沒有失敗 ⇒ 不印', () => {
+    renderView();
+    fireEvent.click(screen.getByRole('button', { name: /我的愛車/ }));
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+    expect(screen.queryByText(VEHICLE_TAXONOMY_UNAVAILABLE)).toBeNull();
   });
 });
