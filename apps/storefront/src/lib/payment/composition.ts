@@ -46,6 +46,8 @@ import {
   createSupabaseServiceClient,
   readNewMilestoneMemberCount,
   type SpendReadClient,
+  readProductChangeDigest,
+  type ProductChangeReadClient,
   tapPayUrlsFor,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -338,6 +340,16 @@ export function getMemberSpendMilestoneClient(): SpendReadClient {
  * 防前台讀到採購作廢欄)。它讀的是退款表、只在排程伺服器端跑。storefront 只能經本檔碰 @pcm/adapters/server ⇒ 在這裡轉出。
  */
 export { readNewMilestoneMemberCount };
+
+/**
+ * 每日 LINE 摘要「商品」一行(Sean 2026-09-29 Q1 甲)的讀取 client。
+ * 要讀 product_price_changes(只 GRANT 給 service_role, 20260929020000)、product_variants、products、supplier_sync_runs
+ * ⇒ 走 service client;只讀, 只給 anomaly-alert 用。
+ */
+export function getProductChangeDigestClient(): ProductChangeReadClient {
+  return createSupabaseServiceClient() as unknown as ProductChangeReadClient;
+}
+export { readProductChangeDigest };
 
 /**
  * 部分取消對帳表(`pcm_partial_cancel_refund_reconciliation_v`)的讀取 client —— 給 anomaly-alert 讀計數。

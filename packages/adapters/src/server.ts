@@ -40,6 +40,7 @@ export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';
 
 // 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙;每日 LINE 摘要一行)。為什麼住在 adapters 見該檔檔頭。
 export { readNewMilestoneMemberCount, type SpendReadClient } from './supabase/member-spend-milestone-read';
+export { readProductChangeDigest, type ProductChangeReadClient } from './supabase/product-change-digest-read';
 
 // M-3 階段②-②a:TapPayChargeAdapter 走 server-only subpath(持 Partner Key、x-api-key server-only secret、
 // 絕不進 client bundle;pay-by-prime sandbox/prod by env)。composition root 唯一受控注入點(eslint no-restricted-imports

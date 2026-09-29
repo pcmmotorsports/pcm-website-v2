@@ -147,6 +147,8 @@ import {
   getDealerApplicationsPendingClient,
   getMemberSpendMilestoneClient,
   readNewMilestoneMemberCount,
+  getProductChangeDigestClient,
+  readProductChangeDigest,
   getPartialCancelReconciliationClient,
 } from '@/lib/payment/composition';
 import {
@@ -451,6 +453,17 @@ export async function GET(request: Request): Promise<Response> {
         return null;
       });
 
+    // 這一班的商品變動(Sean 2026-09-29 Q1 甲:有變動才印一行)。讀失敗 ⇒ null(列進「讀不到」), 不 503、不擋別的告警。
+    const productChanges = await Promise.resolve()
+      .then(() => readProductChangeDigest(getProductChangeDigestClient(), new Date()))
+      .catch((err: unknown) => {
+        console.error('[anomaly-alert] 🔴 商品變動讀取失敗(這一行本輪查不到)', {
+          reason: 'product_change_digest_read_failed',
+          error: safeErrorName(err),
+        });
+        return null;
+      });
+
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
       pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
@@ -515,6 +528,7 @@ export async function GET(request: Request): Promise<Response> {
       partialCancelReconciliation,
       dealerApplicationsPendingCount,
       newMilestoneMemberCount,
+      productChanges,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。
