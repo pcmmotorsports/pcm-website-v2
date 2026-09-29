@@ -19,3 +19,23 @@ describe('SearchOverlayProducts 價格(B2B 5d)', () => {
     expect([...container.querySelectorAll('.sop-price')].map((e) => e.textContent)).toEqual(['價格暫時無法取得', '—', 'NT$ 1,000']);
   });
 });
+
+describe('SearchOverlayProducts 適用車款那一行(2026-09-29 同名商品分不出來)', () => {
+  it('有 fits ⇒ 品名下方印「適用 …」,文字與商品卡片相同', () => {
+    const { container } = render(
+      <SearchOverlayProducts
+        items={[item({ fits: "Ducati Scrambler Sixty2 '16–'21" }), item({ slug: 'y', fits: '5 款車型' })]}
+        onNavigate={() => undefined}
+      />,
+    );
+    expect([...container.querySelectorAll('.sop-fits')].map((e) => e.textContent)).toEqual([
+      "適用 Ducati Scrambler Sixty2 '16–'21",
+      '適用 5 款車型',
+    ]);
+  });
+
+  it('🔵 負對照:沒有 fits(舊快取或舊 API)⇒ 不印空的「適用 」', () => {
+    const { container } = render(<SearchOverlayProducts items={[item({})]} onNavigate={() => undefined} />);
+    expect(container.querySelector('.sop-fits')).toBeNull();
+  });
+});

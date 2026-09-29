@@ -1,4 +1,4 @@
-/* search-overlay-mobile.css — 搜尋疊層在手機上的兩處補丁(2026-09-29 正式站手機 390 走查)。
+/* search-overlay-mobile.css — 搜尋疊層在稿之外的補充(2026-09-29 正式站手機 390 走查)。
    刻意不寫進 search-overlay.css:那一支要與 design-reference 逐行相同(search-overlay-design-parity.test.ts 在比)。
    本檔緊接在 search-overlay.css 之後載入, 同 specificity 靠載入順序生效。 */
 
@@ -9,3 +9,16 @@
 /* `type="search"` 在 Safari / Chrome 會自己多畫一顆藍色 ×, 緊貼在我們的「清除」旁邊 ⇒ 同一件事兩顆鈕。
    稿只有我們那一顆, 瀏覽器那顆收掉。 */
 .search-overlay-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+
+/* 商品列的「適用 …」:稿的疊層沒有這一行, 樣式照商品卡片的 `.pcard-fits`(design-reference/styles/product-card.css:177,
+   11px、次要文字色)。同名同價的商品(Evotech 一台車一張卡)靠這一行分辨。單行, 太長就「…」。 */
+.sop-fits {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--c-text-3, #888);
+  letter-spacing: 0.01em;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
