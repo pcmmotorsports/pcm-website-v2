@@ -952,3 +952,18 @@ describe('商品頁乙 P12b:選到的規格一般價是空的', () => {
     expect(document.querySelector('.pd-price-save')).toBeNull();
   });
 });
+
+// 2026-09-29 正式站手機走查(主視窗交辦 ③):加入之後給一個明確的下一步。
+describe('ProductInfo — 加入購物車後的「查看購物車」', () => {
+  it('🔴 按下加入 ⇒ 提示旁有「查看購物車」, 連到 /cart', () => {
+    renderInfo(variantProduct);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    const link = screen.getByRole('link', { name: '查看購物車' });
+    expect(link.getAttribute('href')).toBe('/cart');
+  });
+
+  it('🔵 還沒加入 ⇒ 沒有那個連結(它是回饋的一部分)', () => {
+    renderInfo(variantProduct);
+    expect(screen.queryByRole('link', { name: '查看購物車' })).toBeNull();
+  });
+});

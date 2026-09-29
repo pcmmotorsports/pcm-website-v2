@@ -55,6 +55,12 @@
   font-weight: 600;
   color: var(--c-red-dark);
 }
+/* 2026-09-29:選車沒有年份而商品有年份限制(qualified)⇒ 中性提醒, 刻意不用紅色(還不知道適不適用)。 */
+.cvf-qualified {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text);
+}
 .cvf-note {
   font-size: 12px;
   color: var(--c-text-2);

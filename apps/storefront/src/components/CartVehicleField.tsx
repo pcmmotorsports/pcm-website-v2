@@ -133,6 +133,11 @@ export function CartVehicleField({
           {fit === 'no-match' && (
             <span className="cvf-mismatch" role="status">可能不適用 · 下單前我們會與您確認</span>
           )}
+          {/* 2026-09-29 手機走查:選到車型但沒有年份, 而這件只適用某些年份(checkFitment = qualified)
+              ⇒ 中性提醒去選年份(不是紅色, 不擋結帳)。 */}
+          {fit === 'qualified' && (
+            <span className="cvf-qualified" role="status">這件有年份限制，請按「更改」選年份確認</span>
+          )}
           {SOURCE_NOTE[value.source] && <span className="cvf-note">{SOURCE_NOTE[value.source]}</span>}
           <button type="button" className="cvf-link" onClick={startEdit}>更改</button>
           <button type="button" className="cvf-link" onClick={() => { setSkipNotice(null); onChange(null); }}>清除</button>

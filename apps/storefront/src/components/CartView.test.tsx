@@ -604,7 +604,8 @@ describe('CartView · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT⟧)'
     seedOneLine();
     render(<CartView motoBrands={[]} vehicleTaxonomyFailed={false} />);
     // 🔵 先等那一列真的畫出來, 否則這個 null 只代表「還沒渲染」
-    await screen.findByText(/給哪台車用/);
+    //   (2026-09-29 起只有一種商品時不畫整車欄「給哪台車用」⇒ 改等那一列自己的「這件給哪台車」)
+    await screen.findByText(/這件給哪台車/);
     expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
   });
 });
@@ -673,5 +674,49 @@ describe('CartView — 取不到經銷價的列(B2B 5d)', () => {
     expect((document.querySelector('.cart-checkout') as HTMLButtonElement).disabled).toBe(true);
     expect((document.querySelector('.cart-mobile-buybar-btn') as HTMLButtonElement).disabled).toBe(true);
     expect(document.querySelector('.cart-totals')?.textContent).toContain('NT$ 700');
+  });
+});
+
+// 2026-09-29 正式站手機走查(主視窗交辦 ② ④)。
+describe('CartView — 手機走查:車款不重複顯示、年份限制要提醒', () => {
+  it('🔴 ② 只有一種商品 ⇒ 不畫整車欄「給哪台車用」, 只留那一列的「這件給哪台車」', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1, vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09', source: 'search' } }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    render(<CartView />);
+    await screen.findByText(/這件給哪台車/);
+    expect(screen.queryByText(/給哪台車用/)).toBeNull();
+  });
+
+  it('🔵 ② 兩種商品 ⇒ 整車欄照舊在(一次套用全部的入口不能拿掉)', async () => {
+    setCart([
+      { productId: 'rpm-1', variantId: 'v1', qty: 1 },
+      { productId: 'rpm-2', variantId: 'v2', qty: 1 },
+    ]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'rpm-2', variantId: 'v2' }),
+    ]);
+    render(<CartView />);
+    expect(await screen.findByText(/給哪台車用/)).toBeTruthy();
+  });
+
+  it('🔴 ④ 選到車型沒選年份、而這件只適用某些年份 ⇒ 提醒去選年份(中性, 不是「可能不適用」)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1, vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09', source: 'search' } }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021, yearEnd: 2023 }] }),
+    ]);
+    render(<CartView />);
+    expect(await screen.findByText('這件有年份限制，請按「更改」選年份確認')).toBeTruthy();
+    expect(screen.queryByText(/可能不適用/)).toBeNull();
+  });
+
+  it('🔵 ④ 年份已選而且在範圍內 ⇒ 不提醒', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1, vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09', year: 2022, source: 'search' } }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021, yearEnd: 2023 }] }),
+    ]);
+    render(<CartView />);
+    await screen.findByText(/這件給哪台車/);
+    expect(screen.queryByText(/這件有年份限制/)).toBeNull();
   });
 });

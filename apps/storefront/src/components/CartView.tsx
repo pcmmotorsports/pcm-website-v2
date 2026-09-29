@@ -295,7 +295,10 @@ export function CartView({
         {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
             而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
         <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
-        {/* V-2a 整車套用:填一次全列帶入(§2「不造成選擇負擔」預設路);混車時單列可各自改 */}
+        {/* V-2a 整車套用:填一次全列帶入(§2「不造成選擇負擔」預設路);混車時單列可各自改
+            🔵 2026-09-29 手機走查(主視窗交辦):只有一種商品時, 整車欄與那一列的「這件給哪台車」是同一台車,
+               畫面上會出現兩次、各帶一組「更改 / 清除」⇒ 只有一種商品時不顯示整車欄, 在那一列改就好。 */}
+        {lines.length > 1 && (
         <div className="cart-vehicle-top">
           <CartVehicleField
             label="給哪台車用（套用全部商品）"
@@ -307,6 +310,7 @@ export function CartView({
             garage={garage}
           />
         </div>
+        )}
 
         <div className="cart-layout">
           <div className="cart-items">

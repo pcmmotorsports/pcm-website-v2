@@ -59,7 +59,7 @@ describe('ProductFitmentCheck（§7）', () => {
     // 🔴 R3-F2:用**整串含逗號**的字面斷言。原本的 /有年份限制/ 正規式切在逗號後面 ⇒
     //   有人把這句「補成全形」照樣全綠,而它屬計畫 §2.6 明列凍結、不得動的既有文案。
     //   (與 R2-I2 帳號那條同型切口:不是沒測試,是測試切在逗號旁邊。)
-    expect(screen.getByText('此商品適用 YAMAHA MT-09,但有年份限制')).toBeTruthy();
+    expect(screen.getByText('此商品適用 YAMAHA MT-09，但有年份限制')).toBeTruthy();
     expect(screen.getByText(/請確認您的年份/)).toBeTruthy();
   });
 
@@ -117,7 +117,7 @@ describe('ProductFitmentCheck（§7）', () => {
     cleanup();
 
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle="invalid" />);
-    expect(screen.getByText('先前的車款連結已失效,請重新選擇您的車。')).toBeTruthy();
+    expect(screen.getByText('先前的車款連結已失效，請重新選擇您的車。')).toBeTruthy();
   });
 
   it('無 fitments → 整段不渲染', () => {
@@ -256,7 +256,7 @@ describe('ProductFitmentCheck（§7）', () => {
   it('Q27 A1/A2:qualified 態 ⇒ 結果框與 picker 同時顯示、picker 用 chosen 回填(年份欄可用)', () => {
     setContext({ brandName: 'YAMAHA', modelName: 'MT-09' }); // 無年份 → qualified
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
-    expect(screen.getByText('此商品適用 YAMAHA MT-09,但有年份限制')).toBeTruthy(); // 結果框仍在
+    expect(screen.getByText('此商品適用 YAMAHA MT-09，但有年份限制')).toBeTruthy(); // 結果框仍在
     const brand = screen.getByRole('combobox', { name: '選擇廠牌' }) as HTMLInputElement;
     const model = screen.getByRole('combobox', { name: '選擇車型' }) as HTMLInputElement;
     const year = screen.getByRole('combobox', { name: '選擇年份' }) as HTMLInputElement;
