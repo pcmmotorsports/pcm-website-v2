@@ -39,6 +39,10 @@ export function ProductToolbar({
       <a href='/products/new' className='inline-flex h-8 items-center rounded-md border px-3 text-sm' data-product-new>
         新增商品
       </a>
+      {/* 2026-09-29 價格變動清單(地圖 M-5-08):側欄維持 6 項, 入口放在商品工具列。 */}
+      <a href='/products/price-changes' className='inline-flex h-8 items-center rounded-md border px-3 text-sm' data-product-price-changes>
+        查看價格變動
+      </a>
       <span className='pcm-sp' />
       {!loadFailed && <ProductSortSelect filter={filter} size={size} />}
       {!loadFailed && <span className='pcm-count'>共 {total.toLocaleString('zh-TW')} 件</span>}
