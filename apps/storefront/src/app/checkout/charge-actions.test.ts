@@ -719,6 +719,24 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
     expect(mockConfirmPayment).not.toHaveBeenCalled();
   });
 
+  it('P-M5 紀錄:P2C22 ⇒ 印一行固定格式(只有原因碼與列數, 不印價格與身分), 明天貼板後查得到次數', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    mockPlaceOrder.mockRejectedValue(Object.assign(new Error('create_order: 沒有帶畫面單價'), { code: 'P2C22', details: 'price_unconfirmed' }));
+    const action = await getAction();
+    await action(validInput({ lines: [{ variantId: VARIANT, quantity: 2 }] }));
+    expect(info).toHaveBeenCalledWith('[checkout] pcm_price_unconfirmed 建單被拒 沒帶畫面單價', { reason: 'P2C22', lines: 1 });
+    info.mockRestore();
+  });
+
+  it('P-M5 紀錄:P2C21(單價已變更)不印這一行(只數 P2C22)', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    mockPlaceOrder.mockRejectedValue(Object.assign(new Error('create_order: 單價已變更'), { code: 'P2C21', details: 'price_changed' }));
+    const action = await getAction();
+    await action(validInput({ lines: [{ variantId: VARIANT, quantity: 2, expectedUnitPrice: 1200 }] }));
+    expect(info.mock.calls.some((c) => c[0] === '[checkout] pcm_price_unconfirmed 建單被拒 沒帶畫面單價')).toBe(false);
+    info.mockRestore();
+  });
+
   it('🔴 3DS-7:缺 cart_session_id → formError、零 placeOrder/charge(fail-closed)', async () => {
     const action = await getAction();
     const res = await action(validInput({ cartSessionId: undefined }));

@@ -684,6 +684,10 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     // P-M5(20260929050000):沒帶畫面單價 ⇒ P2C22、DETAIL price_unconfirmed,同樣沒有建單、沒有扣款。
     //   走同一個「重新讀價格、請客人確認」的流程:確認之後再送就會帶上單價。
     if (rpcErrorCode === 'P2C21' || rpcErrorCode === 'P2C22') {
+      // P-M5 紀錄(主視窗 09-29):P2C22 印一行固定格式, 貼板 252 之後查得到被擋幾次。只印原因碼與列數。
+      if (rpcErrorCode === 'P2C22') {
+        safeLog('info', '[checkout] pcm_price_unconfirmed 建單被拒 沒帶畫面單價', { reason: 'P2C22', lines: parsedLines.data.length });
+      }
       return { formError: MSG.priceChanged, priceChanged: true };
     }
     if (rpcErrorCode === 'P2C20') {

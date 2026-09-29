@@ -33,6 +33,7 @@ import type { ShippingMethod } from '@pcm/domain';
 import { CART_LINE_PRICE_UNREADABLE_MESSAGE, cartLineMissingVariantMessage } from '@/lib/checkout/checkout-messages';
 import { useCart, type CartItemVehicle } from '@/contexts/CartContext';
 import { chargePaymentAction, type ChargePaymentActionResult } from '@/app/checkout/charge-actions';
+import { reportPriceUnreadableAction } from '@/app/checkout/price-unreadable-actions';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
 import { setPaymentInflight } from '@/lib/payment/inflight-marker';
 import { useReconcilePayment } from '@/hooks/useReconcilePayment';
@@ -242,6 +243,15 @@ export function useChargePayment(): UseChargePayment {
       const expectedUnitPrice = args.unitPrice({ productId: it.productId, variantId: it.variantId });
       if (typeof expectedUnitPrice !== 'number' || !Number.isInteger(expectedUnitPrice)) {
         inFlightRef.current = false;
+        // P-M5 紀錄:讓伺服器記一行(只送列數與讀不到的列數)。不等它、失敗也不影響畫面。
+        const isInt = (v: unknown) => typeof v === 'number' && Number.isInteger(v);
+        let unreadable = 0;
+        try {
+          unreadable = items.filter((x) => !isInt(args.unitPrice({ productId: x.productId, variantId: x.variantId }))).length;
+        } catch {
+          unreadable = 0;
+        }
+        void reportPriceUnreadableAction(items.length, unreadable).catch(() => {});
         setState({ status: 'error', message: CART_LINE_PRICE_UNREADABLE_MESSAGE });
         return false;
       }
