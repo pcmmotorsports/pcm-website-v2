@@ -62,6 +62,19 @@ describe('buildProductJsonLd — 基本結構', () => {
     expect(buildProductJsonLd({ ...base, productCode: undefined }).sku).toBeUndefined();
   });
 
+  // 2026-09-29 Search Console「sku 欄位中的值無效」:Google 規定 sku 不可含任何空白字元。
+  //   正式庫 Öhlins 料號「DMX 0102」這類中間有空格(上架中約 1,100 件)。
+  it('sku 拿掉所有空白與控制字元;清完是空的就省略', () => {
+    expect(buildProductJsonLd({ ...base, productCode: 'DMX 0102' }).sku).toBe('DMX0102');
+    expect(buildProductJsonLd({ ...base, productCode: ' A\tB\nC D　E\u0007 ' }).sku).toBe('ABCDE');
+    expect(buildProductJsonLd({ ...base, productCode: ' \n　' }).sku).toBeUndefined();
+  });
+
+  it('offers 用 @id 指向全站退貨政策(定義在 Organization, 見 org-jsonld)', () => {
+    const o = buildProductJsonLd(base).offers as Record<string, unknown>;
+    expect(o.hasMerchantReturnPolicy).toEqual({ '@id': 'http://localhost:3000/#return-policy' });
+  });
+
   it('url 僅 opts.url 給時放(prod 未設 base 則省略)', () => {
     expect(buildProductJsonLd(base).url).toBeUndefined();
     expect(buildProductJsonLd(base, { url: 'https://x.com/products/y' }).url).toBe(

@@ -30,7 +30,7 @@ const BASE_KEYS = [
   'openingHoursSpecification',
   'sameAs',
 ];
-const URL_KEYS = ['@id', 'url', 'logo', 'image'];
+const URL_KEYS = ['@id', 'url', 'logo', 'image', 'hasMerchantReturnPolicy'];
 
 describe('buildOrganizationJsonLd', () => {
   beforeEach(() => {
@@ -87,6 +87,19 @@ describe('buildOrganizationJsonLd', () => {
     expect(o.url).toBe(BASE);
     expect(o.logo).toBe(`${BASE}/pcm-logo.png`);
     expect(o.image).toBe(`${BASE}/pcm-logo.png`);
+  });
+
+  // 2026-09-29 Search Console「hasMerchantReturnPolicy 未填」:Google 退貨政策標記的「選項 B」只要政策頁網址。
+  //   刻意不放天數 / 類別:政策頁寫的是「客製代購不適用鑑賞期、瑕疵簽收翌日起 7 天內免費換貨」,
+  //   對不上 Google 單一的 returnPolicyCategory;鑑賞期文字律師看過前不改, 也不在這裡另外詮釋。
+  it('base 有值 → hasMerchantReturnPolicy 只放政策頁網址 + 台灣', () => {
+    mockResolve.mockReturnValue(BASE);
+    expect(buildOrganizationJsonLd().hasMerchantReturnPolicy).toEqual({
+      '@type': 'MerchantReturnPolicy',
+      '@id': `${BASE}/#return-policy`,
+      applicableCountry: 'TW',
+      merchantReturnLink: `${BASE}/info/shipping`,
+    });
   });
 
   it('base undefined(prod 未設網域)→ 省略 @id/url/logo/image', () => {
