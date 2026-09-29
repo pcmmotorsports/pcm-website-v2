@@ -248,6 +248,10 @@ const PINNED_IDENTITY_SEQUENCES: readonly string[] = [
   //   `REVOKE ALL ON SEQUENCE public.fx_rates_id_seq FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;`
   //   零 GRANT(取號走 SECURITY DEFINER RPC)。與那支 migration 成對, 同一顆 commit。
   'fx_rates_id_seq',
+  // 2026-09-29 網站B:`20260929020000_m4b_product_price_changes_log.sql` 逐字
+  //   `REVOKE ALL ON SEQUENCE public.product_price_changes_id_seq FROM PUBLIC, anon, authenticated, service_role;`
+  //   (每日 LINE 摘要的規格變價紀錄表;寫入走 SECURITY DEFINER trigger)。與那支 migration 成對, 同一顆 commit。
+  'product_price_changes_id_seq',
 ] as const;
 
 describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {

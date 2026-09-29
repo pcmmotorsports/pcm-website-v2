@@ -11,6 +11,14 @@
 //    (must-fix ②:一次雙扣同時命中 open 與候選組 ⇒「異常 2 筆」是假的)。
 // 🔴 「讀不到」與 0 分得開(本線每一族的鐵律):讀不到的項目一行列出來,不折成 0(must-fix ③)。
 
+/** 商品一行的輸入(形狀與 adapters 的 ProductChangeDigest 相同;use-cases 不 import adapters)。 */
+export type ProductChangesInput = {
+  newVariants: number;
+  changedVariants: number;
+  top: { title: string; oldPrice: number; newPrice: number; pct: number } | null;
+  noCompletedSync: boolean;
+};
+
 export type OwnerLineDigestInput = {
   /** = 長信的 `shouldAlert`。true ⇒ 印「要處理」那一行。 */
   alerted: boolean;
@@ -49,6 +57,12 @@ export type OwnerLineDigestInput = {
    * number = 讀到;`null` = 讀不到(列進「這一輪讀不到」);缺 = 沒接。🛑 不進 `alerted`。
    */
   newMilestoneMemberCount?: number | null;
+  /**
+   * 這一班的商品變動(Sean 2026-09-29 Q1 甲 有變動才印一行 / Q2 甲 下架不印 / Q3 甲)。
+   * 讀取在 `packages/adapters/src/supabase/product-change-digest-read.ts`。
+   * 物件 = 讀到;`null` = 讀不到(列進「這一輪讀不到」);缺 = 沒接。🛑 不進 `alerted`。
+   */
+  productChanges?: ProductChangesInput | null;
   /** 逐 kind 未解決件數;只拿 `line_forward_failed` 印一行(那不是錢, 從「錢」那類扣掉)。 */
   pcmIncidentByKind?: Record<string, number>;
   stuckBankCount?: number;
@@ -160,6 +174,7 @@ export function ownerLineUnreadable(r: OwnerLineDigestInput): string[] {
   if (r.manualCustomerSearchUnknown) out.push('客戶搜尋');
   if (r.dealerApplicationsPendingCount === null) out.push('經銷商申請件數');
   if (r.newMilestoneMemberCount === null) out.push('一般會員累積金額');
+  if (r.productChanges === null) out.push('商品');
   return out;
 }
 
@@ -167,6 +182,36 @@ function taipeiMonthDay(now: Date): string {
   const parts = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit' }).formatToParts(now);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
   return `${get('month')}/${get('day')}`;
+}
+
+const money = (n: number) => `NT$${n.toLocaleString('en-US')}`;
+/** 品名壓成一行、最多 20 字(多撐一行就破了「每段一行」)。 */
+function oneLineTitle(t: string): string {
+  const flat = t.replace(/\s+/g, ' ').trim();
+  const chars = [...flat];
+  return chars.length > 20 ? `${chars.slice(0, 20).join('')}…` : flat;
+}
+
+/**
+ * 商品一行:有變動才印(Q1 甲);過去 24 小時沒有完成的同步也印, 兩者同時出現時合併成同一行(Codex R5 nit)。
+ * 讀不到(null)/ 沒接(undefined)⇒ 不印, 讀不到那半由 ownerLineUnreadable 列出。
+ */
+function productChangesLine(pc: ProductChangesInput | null | undefined): string | null {
+  if (!pc) return null;
+  const parts: string[] = [];
+  const counts = [
+    pc.newVariants > 0 ? `新上架 ${pc.newVariants} 個規格` : '',
+    pc.changedVariants > 0 ? `變價 ${pc.changedVariants} 個規格` : '',
+  ].filter(Boolean);
+  if (counts.length > 0) {
+    const t = pc.top;
+    const topText = t
+      ? `;${t.pct > 0 ? '漲最多' : '跌最多'} ${oneLineTitle(t.title)} ${money(t.oldPrice)}→${t.newPrice.toLocaleString('en-US')}(${t.pct > 0 ? '+' : ''}${t.pct}%)`
+      : '';
+    parts.push(`商品:${counts.join('、')}${topText}`);
+  }
+  if (pc.noCompletedSync) parts.push('商品同步:過去 24 小時沒有完成的同步');
+  return parts.length > 0 ? parts.join(' / ') : null;
 }
 
 export function buildOwnerLineDigest(now: Date, r: OwnerLineDigestInput): string {
@@ -204,6 +249,9 @@ export function buildOwnerLineDigest(now: Date, r: OwnerLineDigestInput): string
   lines.push(
     `${card} / ${search}${lf > 0 ? ` / LINE 訊息沒轉到報價單 ${lf} 件` : ''}${pc > 0 ? ` / 部分取消退款對不上 ${pc} 張` : ''}${da > 0 ? ` / 有 ${da} 件經銷商申請待審核` : ''}${dm > 0 ? ` / 新滿 10 萬的一般會員：${dm} 位` : ''}`,
   );
+
+  const product = productChangesLine(r.productChanges);
+  if (product !== null) lines.push(product);
 
   if (r.alerted) {
     const cats = ownerLineCategories(r);

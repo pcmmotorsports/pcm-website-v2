@@ -44,6 +44,8 @@ vi.mock('@/lib/payment/composition', () => ({
   getDealerApplicationsPendingClient: daClientSpy,
   getMemberSpendMilestoneClient: dmClientSpy,
   readNewMilestoneMemberCount: dmReadSpy,
+  getProductChangeDigestClient: pcClientSpy,
+  readProductChangeDigest: pcReadSpy,
 }));
 
 // 稽核 P2-3:三條寄信線的掃描面(route 只用 scanner)。
@@ -73,6 +75,9 @@ vi.mock('@/lib/payment/dealer-applications-pending-read', () => ({
 }));
 // 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙)。
 const { dmReadSpy, dmClientSpy } = vi.hoisted(() => ({ dmReadSpy: vi.fn(), dmClientSpy: vi.fn() }));
+// 每日 LINE 摘要「商品」一行(Sean 2026-09-29 Q1 甲)的讀取。
+const { pcReadSpy, pcClientSpy } = vi.hoisted(() => ({ pcReadSpy: vi.fn(), pcClientSpy: vi.fn() }));
+const PC_QUIET = { newVariants: 0, changedVariants: 0, top: null, noCompletedSync: false };
 
 vi.mock('@/lib/payment/partial-cancel-reconciliation-read', () => ({
   readPartialCancelReconciliationCounts: reconReadSpy,
@@ -302,6 +307,8 @@ beforeEach(() => {
   daReadSpy.mockReset().mockResolvedValue(0);
   dmClientSpy.mockReset().mockReturnValue({});
   dmReadSpy.mockReset().mockResolvedValue(0);
+  pcClientSpy.mockReset().mockReturnValue({});
+  pcReadSpy.mockReset().mockResolvedValue(PC_QUIET);
   resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
 });
 
@@ -532,6 +539,8 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       dealerApplicationsPendingCount: 0,
       // 一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙):又一個被這道完整物件比對逼出來的格。
       newMilestoneMemberCount: 0,
+      // 2026-09-29 Sean Q1 甲:每日摘要「商品」一行(讀到的物件原樣透傳)。
+      productChanges: PC_QUIET,
     });
   });
 
@@ -1840,5 +1849,22 @@ describe('GET anomaly-alert — 退貨收回通知那條線沒上膛而有待寄
     await GET(makeReq(bearer()));
     expect(returnReceivedScanSpy).not.toHaveBeenCalled();
     expect(lanesPassed()).not.toContain('RETURN_RECEIVED_EMAIL_CUTOFF');
+  });
+});
+
+describe('GET anomaly-alert — 商品變動(Sean 2026-09-29 Q1 甲)', () => {
+  it('讀到 ⇒ 透傳給 checkAnomalyAlerts;讀失敗 ⇒ null(列進讀不到), 不 503', async () => {
+    const pc = { newVariants: 2, changedVariants: 5, top: null, noCompletedSync: false };
+    pcReadSpy.mockResolvedValue(pc);
+    await GET(makeReq(bearer()));
+    expect(pcReadSpy).toHaveBeenCalledWith(expect.anything(), expect.any(Date));
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ productChanges: pc }));
+    checkSpy.mockClear();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    pcReadSpy.mockRejectedValue(new Error('boom'));
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).not.toBe(503);
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ productChanges: null }));
+    errSpy.mockRestore();
   });
 });

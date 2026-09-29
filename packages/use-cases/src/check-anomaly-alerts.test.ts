@@ -4982,3 +4982,34 @@ describe('一般會員這一班新滿 10 萬透傳(Sean 2026-09-27 更正 E 選�
     expect(r2.newMilestoneMemberCount).toBeUndefined();
   });
 });
+
+describe('商品變動透傳(Sean 2026-09-29 Q1 甲)', () => {
+  const PC = {
+    newVariants: 3,
+    changedVariants: 7,
+    top: { title: '測試商品', oldPrice: 1000, newPrice: 1200, pct: 20 },
+    noCompletedSync: false,
+  };
+  it('🔴 不進 shouldAlert:其他全零而有變動 ⇒ 不寄告警;result 帶得出物件(安靜日 route 用它組 LINE)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [n] }, { ...OPTS, productChanges: PC });
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    expect(res.productChanges).toEqual(PC);
+  });
+  it('告警日 ⇒ LINE 短版帶「商品:新上架 3 個規格、變價 7 個規格」', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [n] },
+      { ...OPTS, unarmedEmailLanesWithPending: ['CANCELLED_EMAIL_CUTOFF'], productChanges: PC },
+    );
+    const msg = n.notify.mock.calls[0]![0] as { lineText?: string };
+    expect(msg.lineText).toContain('商品:新上架 3 個規格、變價 7 個規格');
+  });
+  it('讀不到(null)照樣透傳成 null;沒接(缺)⇒ result 沒有這個欄位', async () => {
+    const r1 = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [okNotifier()] }, { ...OPTS, productChanges: null });
+    expect(r1.productChanges).toBeNull();
+    const r2 = await checkAnomalyAlerts({ reader: reader(ZERO), notifiers: [okNotifier()] }, OPTS);
+    expect(r2.productChanges).toBeUndefined();
+  });
+});

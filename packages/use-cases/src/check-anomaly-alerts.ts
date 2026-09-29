@@ -1,4 +1,4 @@
-import { buildOwnerLineDigest } from './owner-line-digest';
+import { buildOwnerLineDigest, type ProductChangesInput } from './owner-line-digest';
 import type { IAnomalyAlertReader, IAlertNotifier } from '@pcm/ports';
 import type { AnomalyAlertSummary, AnomalyAlertMessage, PaidAfterCancelSuspect } from '@pcm/domain';
 // 🔴 值匯入(不是 type)—— ⟦b4-FITSYNC1⟧ ③ 的門檻。**單一來源在 `@pcm/domain`**,
@@ -145,6 +145,8 @@ export type CheckAnomalyAlertsOptions = {
   dealerApplicationsPendingCount?: number | null;
   /** 一般會員這一班新滿 10 萬人數(Sean 2026-09-27 更正 E 選丙)。route 讀好注入, 只透傳給 LINE 摘要;null = 讀不到。🛑 不進 `shouldAlert`。 */
   newMilestoneMemberCount?: number | null;
+  /** 這一班的商品變動(Sean 2026-09-29 Q1 甲)。route 讀好注入, 只透傳給 LINE 摘要;null = 讀不到。🛑 不進 `shouldAlert`。 */
+  productChanges?: ProductChangesInput | null;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -493,6 +495,8 @@ export type CheckAnomalyAlertsResult = {
   dealerApplicationsPendingCount?: number | null;
   /** 一般會員這一班新滿 10 萬人數透傳(安靜日 route 用 result 組 LINE 摘要)。 */
   newMilestoneMemberCount?: number | null;
+  /** 商品變動透傳(安靜日 route 用 result 組 LINE 摘要)。 */
+  productChanges?: ProductChangesInput | null;
   emailOverdueCount: number | null;
   emailDeadLetterCount: number | null;
   emailStuckSendingCount: number | null;
@@ -3358,6 +3362,7 @@ export async function checkAnomalyAlerts(
       partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
       ...(opts.dealerApplicationsPendingCount !== undefined ? { dealerApplicationsPendingCount: opts.dealerApplicationsPendingCount } : {}),
       ...(opts.newMilestoneMemberCount !== undefined ? { newMilestoneMemberCount: opts.newMilestoneMemberCount } : {}),
+      ...(opts.productChanges !== undefined ? { productChanges: opts.productChanges } : {}),
     });
     const results = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
     notifiersFailed = results.filter((r) => r.status === 'rejected').length;
@@ -3529,6 +3534,7 @@ export async function checkAnomalyAlerts(
     partialCancelReconciliationUnknown: opts.partialCancelReconciliation === null,
     ...(opts.dealerApplicationsPendingCount !== undefined ? { dealerApplicationsPendingCount: opts.dealerApplicationsPendingCount } : {}),
     ...(opts.newMilestoneMemberCount !== undefined ? { newMilestoneMemberCount: opts.newMilestoneMemberCount } : {}),
+    ...(opts.productChanges !== undefined ? { productChanges: opts.productChanges } : {}),
     emailOverdueCount: summary.emailOverdueCount,
     emailDeadLetterCount: summary.emailDeadLetterCount,
     emailStuckSendingCount: summary.emailStuckSendingCount,

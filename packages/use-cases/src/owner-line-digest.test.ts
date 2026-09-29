@@ -219,3 +219,78 @@ describe('一般會員這一班新滿 10 萬(Sean 2026-09-27 更正 E 選丙:只
     expect(ownerLineUnreadable({ ...QUIET, newMilestoneMemberCount: 0 })).not.toContain('一般會員累積金額');
   });
 });
+
+describe('商品一行(Sean 2026-09-29 Q1 甲 有變動才印一行 / Q2 甲 下架不印 / Q3 甲)', () => {
+  const PC = {
+    newVariants: 12,
+    changedVariants: 35,
+    top: { title: 'Öhlins TTX GP 避震器', oldPrice: 58000, newPrice: 61200, pct: 5.5 },
+    noCompletedSync: false,
+  };
+  const base = buildOwnerLineDigest(NOW, QUIET).split('\n').length;
+
+  it('🔴 有變動 ⇒ 多一行, 寫規格數與漲最多那一個(計畫第三節範例)', () => {
+    const text = buildOwnerLineDigest(NOW, { ...QUIET, productChanges: PC });
+    expect(text).toContain('商品:新上架 12 個規格、變價 35 個規格;漲最多 Öhlins TTX GP 避震器 NT$58,000→61,200(+5.5%)');
+    expect(text.split('\n')).toHaveLength(base + 1);
+    // 放在「細節到後台看」之前
+    expect(text.split('\n').at(-1)).toBe('細節到後台看');
+  });
+
+  it('🔴 跌價寫「跌最多」, 不寫成漲', () => {
+    const text = buildOwnerLineDigest(NOW, {
+      ...QUIET,
+      productChanges: { ...PC, top: { title: 'X', oldPrice: 1000, newPrice: 900, pct: -10 } },
+    });
+    expect(text).toContain('跌最多 X NT$1,000→900(-10%)');
+    expect(text).not.toContain('漲最多');
+  });
+
+  it('只有其中一個數字 > 0 ⇒ 只印那一個;沒有漲跌最大的 ⇒ 不印分號後面那段', () => {
+    const text = buildOwnerLineDigest(NOW, { ...QUIET, productChanges: { ...PC, newVariants: 0, top: null } });
+    expect(text).toContain('商品:變價 35 個規格');
+    expect(text).not.toContain('新上架');
+    expect(text).not.toContain('最多');
+  });
+
+  it('🔴 品名換行壓成空白、超過 20 字截斷加「…」(不能撐出第二行)', () => {
+    const long = '一二三四五六七八九十\n一二三四五六七八九十一二三';
+    const text = buildOwnerLineDigest(NOW, { ...QUIET, productChanges: { ...PC, top: { ...PC.top, title: long } } });
+    expect(text.split('\n')).toHaveLength(base + 1);
+    expect(text).toContain('漲最多 一二三四五六七八九十 一二三四五六七八九…');
+  });
+
+  it('🔴 都是 0 且同步正常 ⇒ 不印(有事才出現)', () => {
+    const text = buildOwnerLineDigest(NOW, { ...QUIET, productChanges: { ...PC, newVariants: 0, changedVariants: 0, top: null } });
+    expect(text).not.toContain('商品');
+    expect(text.split('\n')).toHaveLength(base);
+  });
+
+  it('🔴 過去 24 小時沒有完成的同步 ⇒ 印那一句;有變動時合併成同一行(不多撐一行)', () => {
+    const none = { ...PC, newVariants: 0, changedVariants: 0, top: null, noCompletedSync: true };
+    expect(buildOwnerLineDigest(NOW, { ...QUIET, productChanges: none })).toContain('商品同步:過去 24 小時沒有完成的同步');
+    const both = buildOwnerLineDigest(NOW, { ...QUIET, productChanges: { ...PC, noCompletedSync: true } });
+    expect(both).toContain('商品:新上架 12 個規格、變價 35 個規格;漲最多');
+    expect(both).toContain(' / 商品同步:過去 24 小時沒有完成的同步');
+    expect(both.split('\n')).toHaveLength(base + 1);
+  });
+
+  it('🔴 讀不到(null)⇒ 列進「這一輪讀不到:商品」, 不印那一行、不當成 0;沒接(undefined)⇒ 什麼都不印', () => {
+    const text = buildOwnerLineDigest(NOW, { ...QUIET, productChanges: null });
+    expect(ownerLineUnreadable({ ...QUIET, productChanges: null })).toContain('商品');
+    expect(text).not.toContain('商品:');
+    expect(ownerLineUnreadable(QUIET)).not.toContain('商品');
+    expect(buildOwnerLineDigest(NOW, QUIET)).not.toContain('商品');
+  });
+
+  it('所有會印的行都出現時最多 7 行(原本 6 行 + 商品一行)', () => {
+    const worst = buildOwnerLineDigest(NOW, {
+      ...QUIET,
+      alerted: true,
+      openCount: 2,
+      orderRefundsStuckUnknown: true,
+      productChanges: { ...PC, noCompletedSync: true },
+    });
+    expect(worst.split('\n').length).toBeLessThanOrEqual(7);
+  });
+});
