@@ -202,6 +202,15 @@ describe('/api/search 的另三區', () => {
     expect(body.failed).toEqual({ brands: true, categories: false, vehicles: false });
   });
 
+  it('R6b 車款清單讀不到 ⇒ failed.vehicles 是 true(2026-09-29:原本寫死 false, 客人打「rsv4」只看到「沒有找到」)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryVehicleTaxonomy.mockResolvedValue({ motoBrands: [], failed: true });
+    const body = await (await GET(req('rsv4'))).json();
+    expect(body.failed.vehicles).toBe(true);
+    tryVehicleTaxonomy.mockResolvedValue({ motoBrands: [], failed: false });
+    expect((await (await GET(req('rsv4'))).json()).failed.vehicles).toBe(false);
+  });
+
   it('R6 三區任一 failed 不讓整發變 503 —— 商品那一區是主體', async () => {
     // 🔴 這個決定原本只寫在 route.ts 的一句註解裡 ⇒ **沒有任何東西守著它**,
     //    而它是一個下一個人可以【無聲改掉】的決定:改成 503 之後,

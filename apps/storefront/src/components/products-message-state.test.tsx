@@ -14,6 +14,7 @@ import {
   CATEGORY_TAXONOMY_UNAVAILABLE,
   VEHICLE_TAXONOMY_UNAVAILABLE,
   PDP_VEHICLE_TAXONOMY_UNAVAILABLE,
+  SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE,
   VehicleTaxonomyNotice,
   TaxonomyNotice,
   SearchAllResultsLink,
@@ -59,6 +60,7 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     // 🔴 2026-09-23 商品頁那一句(Sean 拍甲):列表頁那句不動,商品頁另起一句
     //   —— 兩句同時存在,更需要各自釘著,不然改錯哪一句都沒人叫。
     ['商品頁車款', PDP_VEHICLE_TAXONOMY_UNAVAILABLE],
+    ['搜尋車款', SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE],
   ])('🔴 %s 那句:非測試檔裡只有一支含它, 而它就是定義處', (_名, 字面) => {
     expect(nonTestFilesContaining(字面)).toEqual([
       'apps/storefront/src/components/products-message-state.tsx',
@@ -72,8 +74,9 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
       BRAND_TAXONOMY_UNAVAILABLE,
       FACET_COUNTS_UNAVAILABLE,
       PDP_VEHICLE_TAXONOMY_UNAVAILABLE,
+      SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE,
     ]);
-    expect(set.size).toBe(5);
+    expect(set.size).toBe(6);
   });
 
   // 🔴🔴 **2026-09-06 R3(codex `gpt-5.6-sol`)must-fix**:上面那幾格都只比【前綴】或【子字串】
@@ -93,6 +96,7 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     //   「分類清單暫時無法載入」與「分類仍可正常篩選」⇒ 主視窗 2026-09-07 裁「拿掉」。
     //   🛑 **本格就是那個決定的守門**:把那半句加回去 ⇒ 這裡紅。
     expect(FACET_COUNTS_UNAVAILABLE).toBe('件數暫時無法顯示');
+    expect(SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE).toBe('車款清單暫時無法載入，用車款名稱可能搜不到。請稍後再試，或改用商品名稱、品牌搜尋。');
   });
 
   // 🔵 **R3 nit**:刪掉 `style={MESSAGE_STATE_STYLE}` 之前所有格子都還是綠的。

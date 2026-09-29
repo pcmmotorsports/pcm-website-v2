@@ -27,6 +27,7 @@ import { resolve } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { SearchOverlay, viewFor } from './SearchOverlay';
+import { SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE } from './products-message-state';
 
 const push = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
@@ -295,6 +296,18 @@ describe('SearchOverlay', () => {
     openWith('排氣');
     await waitFor(() => expect(screen.getByText('這一區暫時讀不到')).toBeTruthy());
     expect(screen.queryByText(/沒有找到/)).toBeNull();
+  });
+
+  it('🔴 G3-h 商品 0 筆而車款清單【讀不到】⇒ 說車款清單讀不到, 不准說「沒有找到」(2026-09-29)', async () => {
+    mockFetch(async () =>
+      new Response(withFacets({ items: [], brands: [], categories: [], failed: { brands: false, categories: false, vehicles: true } }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('rsv4');
+    await waitFor(() => expect(screen.getByText(SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE)).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+    // 同一格裡不能再建議「你的車款名稱」(上一行才說車款名稱可能搜不到)
+    expect(screen.queryByText(/你的車款名稱/)).toBeNull();
   });
 
   it('🔴 G3-g 分類讀不到時【不得】同時畫出分類標籤(R1 must-fix 5:那道判斷原本零守門)', async () => {

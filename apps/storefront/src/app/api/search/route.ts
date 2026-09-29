@@ -214,7 +214,9 @@ export async function GET(request: Request) {
     //      `SearchOverlayFacets.tsx` 依 **Sean 2026-09-04「重出版甲」**刻意不畫車款區。
     //      ⇒ 要它出現在客人眼前,得先請 Sean 重開那一板,而那是他的決定、不是我們挑時機端上去的。
     //   ⚠️ **所以這一行今天【對】,而它的【理由換了】** —— 下一個要動它的人,請不要再引那 12 秒。
-    vehicles: { motoBrands: [], failed: false },
+    // 2026-09-29:清單照舊不給(沒有人畫), 而【讀不到】這個訊號要照實傳出去 ——
+    //   原本寫死 false, 車款清單讀不到時客人打「rsv4」只會看到「沒有找到」(網站B Fable 審查)。
+    vehicles: { motoBrands: [], failed: vehicleTax.failed },
   });
   // ── ⟦search-VEHZONEBACK⟧ 車款膠囊 —— **與按 Enter 那條路【同一支判準】** ────────────
   //
