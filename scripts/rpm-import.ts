@@ -133,6 +133,7 @@ import {
   clearSourceMissing,
   printReconcileReport,
   computeVariantOrphans,
+  fetchHardDeletedSkus,
   readTargetVariants,
   applyVariantDelete,
   printVariantOrphanReport,
@@ -988,6 +989,8 @@ async function main(): Promise<void> {
   //   (殘留前台選項可見+可下單凍結舊價)。差集 scope=本次要寫的群(其 source 變體集完整、全模式安全);
   //   dry-run 列報告不刪(F2 觀測性);寫入模式 gate 觸發(源空/比例>10% 無 bypass)→ abort 不寫。
   //   真正刪除在 products upsert 後、variants upsert 前(見寫入段;改名同 spec 先清舊列免 23505=F3)。
+  // 2026-09-29:報價單刪除紀錄 = 明確刪除證據(讀不到 ⇒ 空集合、不照紀錄刪, 見 fetchHardDeletedSkus)
+  const hardDeletedSkus = await fetchHardDeletedSkus(source, config.supplierSlug);
   const variantOrphans = await computeVariantOrphans(
     target,
     config.supplierSlug,
@@ -995,12 +998,21 @@ async function main(): Promise<void> {
     sourceExternalIds,
     {
       allowLargeDelist: ALLOW_LARGE_DELIST,
+      hardDeleted: hardDeletedSkus,
       // 只收這一輪真的會寫的群:被標題閘 / 排除名單跳過的群仍在 sourceExternalIds 裡,
       // 它的停產規格若進刪除清單, splitVariantSyncWork 會在商品已寫入之後 throw(Fable R1 必修 F1)。
       tombstoned: tombstonedVariants.filter((t) => variantsByExternalId.has(t.externalId)),
     },
   );
   printVariantOrphanReport(variantOrphans, { full: DELTA_FULL });
+  if (variantOrphans.hardDeleteCapped) {
+    // 🔴 照報價單刪除紀錄要刪的超過該家 5% ⇒ 這一輪一個都不照紀錄刪;非零退出讓 cron 看得到(同 A2 的做法)
+    console.error(
+      `🔴 [rpm-import] ${config.supplierSlug}:照報價單刪除紀錄要刪 ${variantOrphans.hardDeleteEvidence} 個規格,` +
+        `超過該家 5%(共 ${variantOrphans.targetInScope} 個)⇒ 這一輪停手不刪, 請人工確認報價單是不是真的刪了這麼多。`,
+    );
+    process.exitCode = 1;
+  }
   if (!DRY_RUN && variantOrphans.aborted) {
     throw new Error(`變體級對賬 gate 觸發、不寫:${variantOrphans.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
   }

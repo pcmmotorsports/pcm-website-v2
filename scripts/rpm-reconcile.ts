@@ -235,6 +235,8 @@ export async function clearSourceMissing(tgt: SupabaseClient, supplierSlug: stri
 
 // ── V1:變體級對賬(孤兒變體=群在、變體 sku 從來源消失;2026-07-05 雙跨模型審查 must-fix)──
 
+/** 照報價單刪除紀錄刪孤兒的單家上限(2026-09-29 主視窗:超過 5% 停手告警)。 */
+export const HARD_DELETE_RATIO_CAP = 0.05;
 const VARIANT_DELETE_RATIO_ABORT = 0.1; // 單次孤兒刪除比例硬上限(對齊商品下架 10%;疑來源變體殘缺、防誤刪)
 
 /** 這一批 source 是不是完整的。`'unknown'` = 沒有人說得出來(今天恆為它)。 */
@@ -392,6 +394,10 @@ export interface VariantOrphanReport {
    * 它不會因為漏抓而出現 ⇒ 不受完整性扣留, 照刪(2026-09-25 Sean Q4 甲)。abort 時為空。
    */
   tombstonedOrphans?: VariantOrphan[];
+  /** 2026-09-29:照報價單刪除紀錄(product_hard_delete_audit)該刪的孤兒數量;不論有沒有被停手。 */
+  hardDeleteEvidence?: number;
+  /** 2026-09-29:照刪除紀錄要刪的超過該家 5% ⇒ 這一輪一個都不照紀錄刪(只照舊刪標停產的), 呼叫端要讓 cron 叫。 */
+  hardDeleteCapped?: boolean;
 }
 
 /**
@@ -405,7 +411,13 @@ export function classifyVariantOrphans(
   targetVariants: VariantOrphan[],
   sourceSkus: Set<string>,
   sourceExternalIds: Set<string>,
-  opts: { allowLargeDelist?: boolean; sourceCompleteness?: SourceCompleteness; tombstoned?: readonly VariantOrphan[] } = {},
+  opts: {
+    allowLargeDelist?: boolean;
+    sourceCompleteness?: SourceCompleteness;
+    tombstoned?: readonly VariantOrphan[];
+    /** 報價單已經刪掉的料號(product_hard_delete_audit, 這一家)。孤兒在這裡面 = 有明確刪除證據。 */
+    hardDeleted?: ReadonlySet<string>;
+  } = {},
 ): VariantOrphanReport {
   // 🔴 預設 `'unknown'` —— 而那不是「還沒接上」,是**今天的事實**:
   //    沒有任何一側說得出「這一批 source 是完整的」。呼叫端不傳 = 誠實地說不知道。
@@ -450,8 +462,16 @@ export function classifyVariantOrphans(
   // 停產標記要連同所屬商品一起對上(同料號跨商品不算)。
   const tombKey = (o: VariantOrphan) => `${o.externalId}\n${o.sku}`;
   const tombKeys = new Set((opts.tombstoned ?? []).map(tombKey));
-  const tombstonedOrphans = aborted ? [] : orphans.filter((o) => tombKeys.has(tombKey(o)));
-  const withheldOrphans = withhold ? orphans.filter((o) => !tombKeys.has(tombKey(o))) : [];
+  const viewTombstoned = aborted ? [] : orphans.filter((o) => tombKeys.has(tombKey(o)));
+  // 🔴 2026-09-29(Sean「直接把 bug 修好」):sourceCompleteness 恆 unknown ⇒ 孤兒一律扣留,
+  //   報價單直接刪掉(不是標停產)的規格永遠留在網站、客人買得到(DBK 舊顏色 35 個)。
+  //   ⇒ 報價單刪除紀錄裡有這個料號 = 明確刪除證據, 照刪;沒紀錄的仍當「可能漏抓」扣留。
+  //   保護:照紀錄要刪的超過這一家 5% ⇒ 這一輪一個都不照紀錄刪, 標 hardDeleteCapped(呼叫端讓 cron 叫)。
+  const hardDeletedOrphans = aborted ? [] : orphans.filter((o) => !tombKeys.has(tombKey(o)) && (opts.hardDeleted?.has(o.sku) ?? false));
+  const hardDeleteCapped = inScope.length > 0 && hardDeletedOrphans.length / inScope.length > HARD_DELETE_RATIO_CAP;
+  const tombstonedOrphans = hardDeleteCapped ? viewTombstoned : [...viewTombstoned, ...hardDeletedOrphans];
+  const deletable = new Set(tombstonedOrphans.map(tombKey));
+  const withheldOrphans = withhold ? orphans.filter((o) => !deletable.has(tombKey(o))) : [];
 
   return {
     targetInScope: inScope.length,
@@ -464,6 +484,8 @@ export function classifyVariantOrphans(
     sourceCompleteness,
     withheldOrphans,
     tombstonedOrphans,
+    hardDeleteEvidence: hardDeletedOrphans.length,
+    hardDeleteCapped,
   };
 }
 
@@ -477,10 +499,34 @@ export async function computeVariantOrphans(
   supplierSlug: string,
   sourceSkus: Set<string>,
   sourceExternalIds: Set<string>,
-  opts: { allowLargeDelist?: boolean; tombstoned?: readonly VariantOrphan[] } = {},
+  opts: { allowLargeDelist?: boolean; tombstoned?: readonly VariantOrphan[]; hardDeleted?: ReadonlySet<string> } = {},
 ): Promise<VariantOrphanReport> {
   const targetVariants = await readTargetVariants(tgt, supplierSlug);
   return classifyVariantOrphans(targetVariants, sourceSkus, sourceExternalIds, opts);
+}
+
+/**
+ * 讀報價單 `product_hard_delete_audit` 這一家的料號(報價單刪掉規格時寫的紀錄)= 明確刪除證據。
+ * 🔴 讀失敗回空集合 ⇒ 當成「沒有證據」, 一個都不照紀錄刪(安全方向), 同步照常跑;印一行讓人看得到。
+ */
+export async function fetchHardDeletedSkus(source: SupabaseClient, supplierSlug: string): Promise<Set<string>> {
+  const skus = new Set<string>();
+  for (let from = 0; ; from += READ_BATCH) {
+    const { data, error } = await source
+      .from('product_hard_delete_audit')
+      .select('sku')
+      .eq('supplier_slug', supplierSlug) // 🔴 scope 該供應商(不變式 1)
+      .order('sku')
+      .range(from, from + READ_BATCH - 1);
+    if (error) {
+      console.error(`[rpm-import] 🔴 讀不到報價單刪除紀錄(${supplierSlug})⇒ 這一輪不照紀錄刪任何孤兒:${error.message}`);
+      return new Set();
+    }
+    const rows = (data ?? []) as { sku: unknown }[];
+    for (const r of rows) if (typeof r.sku === 'string' && r.sku !== '') skus.add(r.sku);
+    if (rows.length < READ_BATCH) break;
+  }
+  return skus;
 }
 
 /** 讀 target 該供應商全部變體(sku + 所屬群 external_id)。讀失敗一律 throw,不當成「沒有」。 */
@@ -541,11 +587,11 @@ export function printVariantOrphanReport(r: VariantOrphanReport, opts: { full?: 
   const mixed = withheld && tomb.length > 0;
   console.log(
     `target 變體(本次群範圍): ${r.targetInScope} / source 變體 sku: ${r.sourceSkuCount} / ` +
-      `孤兒(${mixed ? `報價單標停產會刪 ${tomb.length}, 其餘 🔴 【這一輪不刪】` : withheld ? '🔴 【這一輪不刪】' : '待硬刪'}): ${r.orphans.length}(${(r.ratio * 100).toFixed(1)}%)` +
+      `孤兒(${mixed ? `報價單標停產或已刪除會刪 ${tomb.length}, 其餘 🔴 【這一輪不刪】` : withheld ? '🔴 【這一輪不刪】' : '待硬刪'}): ${r.orphans.length}(${(r.ratio * 100).toFixed(1)}%)` +
       ` / source 完整性: ${r.sourceCompleteness}`,
   );
   if (mixed) {
-    console.log(`報價單標停產的孤兒 ${tomb.length} 個(${opts.full ? '全量' : '前 50'};寫入模式將刪除、dry-run 僅列):`);
+    console.log(`報價單標停產或已刪除的孤兒 ${tomb.length} 個(${opts.full ? '全量' : '前 50'};寫入模式將刪除、dry-run 僅列):`);
     console.table(tomb.slice(0, cap));
     console.log(
       `其餘孤兒 ${r.withheldOrphans.length} 個(${opts.full ? '全量' : '前 50'};🔴 **這一輪【不會刪】** —— ` +
