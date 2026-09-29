@@ -167,9 +167,9 @@ describe('GET /api/cron/bing-weekly — 送出的 LINE 全文', () => {
     expect(hbOkSpy).toHaveBeenCalledWith('pcm-bing-weekly');
   });
 
-  it('403 ⇒ 提示金鑰可能失效', async () => {
+  it.each([401, 403])('%i ⇒ 提示金鑰可能失效', async (status) => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    stubFetch({ status: 403 });
+    stubFetch({ status });
     await GET(req());
     expect(lineBodies[0]!.messages[0]!.text).toBe(
       'PCM Bing 週報\n這週讀不到 Bing 的資料（金鑰可能失效），請檢查 Bing 設定。',

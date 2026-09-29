@@ -66,6 +66,12 @@ describe('summarizeBingWeekly — 判斷順序與門檻', () => {
     expect(summarizeBingWeekly(prevFive, [], NOW).result?.kind).toBe('ok');
   });
 
+  it('同一天重複出現 ⇒ 只算一次(不讓 3 個日期各兩列湊成 6 天)', () => {
+    const rows = twoQuietWeeks();
+    const three = [...rows.slice(4, 7), ...rows.slice(4, 7), ...rows.slice(7)]; // 前 7 天只有 3 個日期, 各重複一次
+    expect(summarizeBingWeekly(three, [], NOW)).toEqual({ result: null, reason: 'too_few_days' });
+  });
+
   it('🔴 比的是每日平均, 不是加總:前 7 天缺 2 天不會被放大成問題', () => {
     const rows = twoQuietWeeks({ crawlErrors: 10 });
     const prevFive = [...rows.slice(2, 7), ...rows.slice(7)];

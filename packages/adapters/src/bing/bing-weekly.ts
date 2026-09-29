@@ -141,7 +141,8 @@ function shortPath(url: string): string | null {
 /** 判斷順序(計畫 11.2):過期 → 天數不足 → 比較。格式檢查在 parse 那一層。 */
 export function summarizeBingWeekly(stats: BingDailyStat[], issueUrls: string[], now: Date): BingReadOutcome {
   if (stats.length === 0) return { result: null, reason: 'too_few_days' };
-  const rows = [...stats].sort((a, b) => a.date.localeCompare(b.date));
+  // 同一天只留一列(最後出現的那列), 否則重複列會被算進天數與平均。
+  const rows = [...new Map(stats.map((r) => [r.date, r])).values()].sort((a, b) => a.date.localeCompare(b.date));
   const latest = rows[rows.length - 1]!;
   const latestMs = Date.parse(`${latest.date}T00:00:00Z`);
   const todayMs = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
