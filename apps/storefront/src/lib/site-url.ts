@@ -41,9 +41,33 @@ export function isAbsoluteHttpUrl(url: string): boolean {
  * 🔴 休眠照舊(`resolveSiteUrl()` 檔頭 🔴):base 拿不到 ⇒ **回空物件、不發 canonical**。
  *    寧缺勿錯 —— 相對 canonical 會落到框架預設基底,可能讓 Google 索引到 localhost。
  *
- * ⛔ `/search` 不用這支:該頁自己是 `noindex, follow`(線上實測),canonical 對它沒有意義。
+ * ⛔ `/search` 不用這支(它的網址帶 `?q=`, 用下面的 `selfPageUrl`)。
  */
 export function canonicalAlternates(path: string): { alternates?: { canonical: string } } {
   const base = resolveSiteUrl();
   return base ? { alternates: { canonical: `${base}${path}` } } : {};
+}
+
+/**
+ * 這一頁自己的完整網址(網址參數照原順序、重複參數保留)。base 拿不到 ⇒ undefined(同上「寧缺勿錯」)。
+ *
+ * 🔴 為什麼不進索引的頁面也要有 canonical(2026-09-29 Sean 手機發現):
+ *   頁面沒有 canonical 時, 前一頁的 canonical 會留在畫面上(正式站實測:先開 bonamici + zx-10r 的目錄頁,
+ *   回首頁再搜「daytona 660」⇒ 網址列是 daytona 660, canonical 仍是 bonamici + zx-10r)。
+ *   Chrome 手機的「分享」讀的是 canonical ⇒ 客人分享出去的是上一頁。新頁有自己的 canonical 時都會正確換掉。
+ *   ⇒ `/products` 不進索引的那些組合與 `/search` 一律發一條指向自己的 canonical(noindex 照舊, 兩者不衝突)。
+ */
+export function selfPageUrl(
+  base: string | undefined,
+  path: string,
+  searchParams: Record<string, string | string[] | undefined>,
+): string | undefined {
+  if (!base) return undefined;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams)) {
+    if (typeof v === 'string') qs.append(k, v);
+    else if (Array.isArray(v)) for (const one of v) qs.append(k, one);
+  }
+  const s = qs.toString();
+  return `${base}${path}${s ? `?${s}` : ''}`;
 }
