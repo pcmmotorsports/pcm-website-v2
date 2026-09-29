@@ -416,8 +416,9 @@ export default async function AccountPage(
   }
 
   // 🔵 2026-09-29 選車清單瘦身甲案:愛車表單只有牌子、車款下拉(年份是自由輸入)⇒ 底盤清單。
-  //   讀不到仍是空陣列(與舊的 `fetchVehicleTaxonomy` 同一個結果), 表單退回自行輸入。
-  const vehicleBrands = (await tryVehicleTaxonomyBase()).motoBrands;
+  //   讀不到仍是空陣列(與舊的 `fetchVehicleTaxonomy` 同一個結果), 表單退回自行輸入;
+  //   ⟦search-TAXONOMYTIMEOUT⟧ 而 `failed` 要一起傳下去, 表單才說得出「清單讀不到」而不是安靜地少一個下拉。
+  const { motoBrands: vehicleBrands, failed: vehicleBrandsFailed } = await tryVehicleTaxonomyBase();
 
   return (
     <AccountView
@@ -433,6 +434,7 @@ export default async function AccountPage(
       addresses={addresses}
       vehicles={vehicles}
       vehicleBrands={vehicleBrands}
+      vehicleBrandsFailed={vehicleBrandsFailed}
       orders={orders}
       favorites={favorites}
       favoritesFailed={favoritesFailed}

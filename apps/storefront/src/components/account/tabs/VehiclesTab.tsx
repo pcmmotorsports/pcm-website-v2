@@ -39,9 +39,11 @@ export type VehiclesTabProps = {
   vehicles: CustomerVehicle[];
   /** V-1c++:車型字典(結構化 taxonomy;表單品牌/車型雙下拉用、缺省 [] 退回純自由輸入) */
   vehicleBrands?: MockMotoBrand[];
+  /** ⟦search-TAXONOMYTIMEOUT⟧ 車款清單讀不到 ⇒ 兩個表單都要說(見 InlineVehicleForm 同名 prop)。 */
+  vehicleBrandsFailed?: boolean;
 };
 
-export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) {
+export function VehiclesTab({ vehicles, vehicleBrands = [], vehicleBrandsFailed = false }: VehiclesTabProps) {
   // 單一 inline 表單狀態(對齊 design vehEdit):null=全關 / 無 id=新增 / 有 id=編輯該筆。
   const [vehEdit, setVehEdit] = useState<InlineVehicleInitial | null>(null);
   const router = useRouter();
@@ -139,6 +141,7 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
               >
                 <InlineVehicleForm
                   vehicleBrands={vehicleBrands}
+                  vehicleBrandsFailed={vehicleBrandsFailed}
                   veh={vehEdit}
                   onClose={() => setVehEdit(null)}
                   onSaved={handleSaved}
@@ -162,6 +165,7 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
           >
             <InlineVehicleForm
               vehicleBrands={vehicleBrands}
+              vehicleBrandsFailed={vehicleBrandsFailed}
               veh={vehEdit}
               onClose={() => setVehEdit(null)}
                   onSaved={handleSaved}

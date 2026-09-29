@@ -12,6 +12,7 @@ vi.mock('next/navigation', () => ({
 
 import { InlineVehicleForm } from './InlineVehicleForm';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 
 const BRANDS: MockMotoBrand[] = [
   {
@@ -27,7 +28,7 @@ const BRANDS: MockMotoBrand[] = [
 
 afterEach(cleanup);
 
-function renderForm(props: { vehicleBrands?: MockMotoBrand[]; veh?: Record<string, unknown> } = {}) {
+function renderForm(props: { vehicleBrands?: MockMotoBrand[]; vehicleBrandsFailed?: boolean; veh?: Record<string, unknown> } = {}) {
   const onSubmit = vi.fn().mockResolvedValue({ ok: true as const });
   const onClose = vi.fn();
   const onSaved = vi.fn();
@@ -38,6 +39,7 @@ function renderForm(props: { vehicleBrands?: MockMotoBrand[]; veh?: Record<strin
       onSaved={onSaved}
       onSubmit={onSubmit}
       vehicleBrands={props.vehicleBrands}
+      vehicleBrandsFailed={props.vehicleBrandsFailed}
     />,
   );
   return { onSubmit, onClose, onSaved, ...utils };
@@ -53,6 +55,26 @@ function pickByTyping(label: string, text: string) {
   fireEvent.blur(input); // 唯一精確命中 → 套用
   return input;
 }
+
+// ⟦search-TAXONOMYTIMEOUT⟧:車款清單讀不到時表單退回自行輸入 —— 而客人要知道為什麼沒有下拉可選。
+//   「讀不到」與「字典本來就空」都是 [], 只有 route 給的 failed 分得開, 所以只看那個旗標。
+describe('InlineVehicleForm — 車款清單讀不到要說出來', () => {
+  it('讀不到 ⇒ 表單頂部印那一句, 並退回自行輸入', () => {
+    renderForm({ vehicleBrands: [], vehicleBrandsFailed: true });
+    expect(screen.getByRole('alert').textContent).toBe(VEHICLE_TAXONOMY_UNAVAILABLE);
+    expect(screen.queryByRole('combobox', { name: '品牌' })).toBeNull();
+  });
+
+  it('讀得到 ⇒ 不印', () => {
+    renderForm({ vehicleBrands: BRANDS });
+    expect(screen.queryByText(VEHICLE_TAXONOMY_UNAVAILABLE)).toBeNull();
+  });
+
+  it('字典本來就空而沒有失敗 ⇒ 不印(不把「沒有」說成「讀不到」)', () => {
+    renderForm({ vehicleBrands: [] });
+    expect(screen.queryByText(VEHICLE_TAXONOMY_UNAVAILABLE)).toBeNull();
+  });
+});
 
 describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
   // 🔴 Sean 2026-08-07 Q6=A(審查 F2 抓到我漏了這個消費端):Q4=B 起「打了查無的字、blur 也不清掉」,

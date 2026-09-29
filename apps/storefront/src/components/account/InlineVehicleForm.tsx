@@ -33,6 +33,7 @@ import { useRouter } from 'next/navigation';
 import type { VehicleInput } from '@pcm/schemas';
 import type { AddVehicleActionResult, VehicleFieldErrors } from '@/app/account/vehicle/actions';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { VehicleTaxonomyNotice } from '@/components/products-message-state';
 import { VehicleCombo, VEHICLE_EMPTY_HINTS } from '@/components/VehicleSelect';
 import { vehicleLabel } from '@/lib/vehicle-match';
 
@@ -63,6 +64,11 @@ export type InlineVehicleFormProps = {
    * 雙下拉為主 + 自行輸入 fallback;缺省 []=退回純自由輸入(行為同 V-1c 前舊版、不擋)。
    */
   vehicleBrands?: MockMotoBrand[];
+  /**
+   * ⟦search-TAXONOMYTIMEOUT⟧ 車款清單【讀不到】(不是「本來就沒有」)⇒ 表單頂部說一句, 客人才知道為什麼只能自行輸入。
+   * 兩種情況的 `vehicleBrands` 都是 [], 分得開的只有 route 給的這個旗標。
+   */
+  vehicleBrandsFailed?: boolean;
 };
 
 /** 編輯模式:既有 name 若正好是字典標準字面「品牌 車型」→ 回填雙下拉;否則走自行輸入。 */
@@ -84,6 +90,7 @@ export function InlineVehicleForm({
   onSaved,
   onSubmit,
   vehicleBrands = [],
+  vehicleBrandsFailed = false,
 }: InlineVehicleFormProps) {
   const router = useRouter();
   const [isPrimary, setIsPrimary] = useState(!!veh.isPrimary);
@@ -194,6 +201,8 @@ export function InlineVehicleForm({
           ×
         </button>
       </div>
+
+      <VehicleTaxonomyNotice failed={vehicleBrandsFailed} />
 
       {/* 頂部:帳號層級錯(請重新登入 / 儲存失敗 = formError);逐欄錯顯各欄下方(#181 雙通道) */}
       {formError && <div className="auth-err">{formError}</div>}
