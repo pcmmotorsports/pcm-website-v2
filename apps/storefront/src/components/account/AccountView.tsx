@@ -143,6 +143,8 @@ export type AccountViewProps = {
   vehicles: CustomerVehicle[];
   /** V-1c++:車型字典(page.tsx fetchVehicleTaxonomy 直傳;forward 給 VehiclesTab 雙下拉) */
   vehicleBrands?: MockMotoBrand[];
+  /** 車款清單讀不到(⟦search-TAXONOMYTIMEOUT⟧);轉給 VehiclesTab。 */
+  vehicleBrandsFailed?: boolean;
   // M-3:訂單摘要清單(page.tsx getOrderRepo→listSummariesByCustomer 算好傳入;forward 給 OrdersTab 全列 +
   // OverviewTab 最近訂單 slice(0,2)。orderCount 與此同源、Q5=A 一致)
   orders: OrderListItem[];
@@ -154,7 +156,7 @@ export type AccountViewProps = {
   favoriteDealerPrices?: Record<string, number | null> | null;
 };
 
-export function AccountView({ initialTab = 'overview', user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed, favoriteDealerPrices, walletEntries, walletEntriesFailed, walletEntryTotal, walletBalanceFailed }: AccountViewProps) {
+export function AccountView({ initialTab = 'overview', user, stats, featured, profile, addresses, vehicles, vehicleBrands, vehicleBrandsFailed, orders, favorites, favoritesFailed, favoriteDealerPrices, walletEntries, walletEntriesFailed, walletEntryTotal, walletBalanceFailed }: AccountViewProps) {
   const [tab, setTab] = useState<AccountTabId>(initialTab);
 
   /**
@@ -311,7 +313,7 @@ export function AccountView({ initialTab = 'overview', user, stats, featured, pr
               />
             )}
             {tab === 'favorites' && <FavoritesTab favorites={favorites} loadFailed={favoritesFailed} dealerPrices={favoriteDealerPrices ?? null} />}
-            {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} vehicleBrands={vehicleBrands} />}
+            {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} vehicleBrands={vehicleBrands} vehicleBrandsFailed={vehicleBrandsFailed} />}
             {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}
           </div>

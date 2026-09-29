@@ -16,6 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 
 const { mockUpdateVehicleAction, mockDeleteVehicleAction } = vi.hoisted(() => ({
   mockUpdateVehicleAction: vi.fn(),
@@ -274,5 +275,20 @@ describe('VehiclesTab(g-6a 唯讀 + g-6b 新增 + g-6c 編輯/刪除)', () => {
     const wrap = container.querySelector('.acc-inline-form') as HTMLElement;
     expect(spy.mock.contexts[0], '編輯態捲的不是該筆的 .acc-inline-form').toBe(wrap);
     expect(document.activeElement, '編輯態焦點沒落在表單容器上').toBe(wrap);
+  });
+});
+
+// ⟦search-TAXONOMYTIMEOUT⟧:讀不到車款清單的旗標要一路傳到表單, 不能在這一層掉。
+describe('VehiclesTab — 車款清單讀不到', () => {
+  it('新增表單打開時印出那一句', () => {
+    render(<VehiclesTab vehicles={[]} vehicleBrandsFailed />);
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+    expect(screen.getByText(VEHICLE_TAXONOMY_UNAVAILABLE)).toBeTruthy();
+  });
+
+  it('編輯表單打開時也印', () => {
+    render(<VehiclesTab vehicles={[makeVeh()]} vehicleBrandsFailed />);
+    fireEvent.click(screen.getByRole('button', { name: '編輯' }));
+    expect(screen.getByText(VEHICLE_TAXONOMY_UNAVAILABLE)).toBeTruthy();
   });
 });
