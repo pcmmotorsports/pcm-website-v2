@@ -165,3 +165,11 @@ describe('FeatureEditorial', () => {
     expect(container.querySelector('.ed-feature-side')).not.toBeNull();
   });
 });
+
+describe('本月聚焦的照片在首屏之外(2026-09-29 手機速度)', () => {
+  it('延遲載入, 不跟首頁大圖搶頻寬', () => {
+    const { container } = render(<FeatureEditorial focus={focus} />);
+    const img = container.querySelector('.ed-feature-media img');
+    expect(img?.getAttribute('loading')).toBe('lazy');
+  });
+});

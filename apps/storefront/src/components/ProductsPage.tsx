@@ -191,6 +191,9 @@ export function buildCatalogPaginationHref(
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
 // 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
+/** 首屏幾張卡的照片要立刻載入(手機兩欄 × 兩列、桌機一排四張)。 */
+const FIRST_SCREEN_CARDS = 4;
+
 export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands: serverMotoBrands, vehicleTaxonomyFailed = false, categoryTaxonomyFailed = false, brandTaxonomyFailed = false, garage = [], searchKeyword, unmatchedWords, universal = null }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
@@ -784,7 +787,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                 : `repeat(${gridCols}, 1fr)`,
               gap: 14, // 欄數鈕僅 3/4/5 + 自動(0),原 <=2?20:14 的 20 支為死碼、簡化(手機 2 欄 gap 由 CSS !important 12 控)
             }}>
-              {displayed.map((p) => <ProductCard key={p.id} p={p} href={cardHref(p)} />)}
+              {/* 2026-09-29 手機速度:前 4 張(手機兩欄的首屏兩列、桌機第一排)照片立刻載入、高優先。 */}
+              {displayed.map((p, i) => <ProductCard key={p.id} p={p} href={cardHref(p)} priority={i < FIRST_SCREEN_CARDS} />)}
             </div>
           ) : universal !== null && universal.total > 0 ? (
             /* 🔴🔴 **[版 B / 版 C · 2026-09-16 Sean「我蠻猶豫要怎樣顯示比較好」]**

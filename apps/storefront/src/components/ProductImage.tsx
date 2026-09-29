@@ -87,6 +87,11 @@ type ProductImageProps = {
    * 兩者的差異只剩「置中縮放 92%(trim)」vs「contain 全圖顯示(fallback)」。
    */
   trim?: UIImageTrim;
+  /**
+   * 首屏那幾張(2026-09-29 手機速度):目錄 LCP 是第一張卡的照片, 而它原本是 loading="lazy"
+   * ⇒ 瀏覽器要等版面算完才開始抓。priority ⇒ 立刻載入 + 高優先。預設 false, 其他呼叫端不變。
+   */
+  priority?: boolean;
 };
 
 // 🔴 2026-08-07:Sean 08-06 拍 A(圖框白底)本身就是「正式推翻他 07-24 拍板 Q1=A」的動作
@@ -104,7 +109,10 @@ type ProductImageProps = {
 // 原句保留,因為它記著「OD 稿完全沒有【無真圖】狀態」這個仍然成立的事實 ——
 // **底下那層漸層的顏色仍然沒有設計權威**,本片沒有動它,只換了疊在它上面的那張圖。
 
-export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = false, image = null, trim, brandSlug = null }: ProductImageProps) {
+export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = false, image = null, trim, brandSlug = null, priority = false }: ProductImageProps) {
+  // 四個 <img> 分支(真圖 trim / 真圖 contain / 品牌 logo / 站內佔位圖)共用同一組載入方式:
+  //   第一張卡剛好沒照片時, 首屏那一張是 logo 或佔位圖, 也要一起提早(Fable R1)。
+  const loadAttrs = priority ? ({ loading: 'eager', fetchPriority: 'high' } as const) : ({ loading: 'lazy' } as const);
   // hooks 一律置頂、不可條件呼叫(react-hooks/rules-of-hooks error);real-image 分支與 fallback
   // 共用同一組 hook、僅 render 內 branch。
   const [placeholderFailed, setPlaceholderFailed] = useState(false);
@@ -147,7 +155,7 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = fals
           <img
             src={image!}
             alt={label}
-            loading="lazy"
+            {...loadAttrs}
             onError={() => setRealFailed(true)}
             className="pcard-gallery-img"
             style={{
@@ -167,7 +175,7 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = fals
         <img
           src={image!}
           alt={label}
-          loading="lazy"
+          {...loadAttrs}
           onError={() => setRealFailed(true)}
           className="pcard-gallery-img"
           style={{
@@ -213,7 +221,7 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = fals
             <img
               src={logoSrc}
               alt={label}
-              loading="lazy"
+              {...loadAttrs}
               onError={() => setLogoFailed(true)}
               style={{
                 maxWidth: '52%', maxHeight: '34%', objectFit: 'contain',
@@ -241,7 +249,7 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = fals
           <img
             src={PLACEHOLDER_IMAGE}
             alt={label}
-            loading="lazy"
+            {...loadAttrs}
             onError={() => setPlaceholderFailed(true)}
             className="pcard-gallery-img"
             style={{
