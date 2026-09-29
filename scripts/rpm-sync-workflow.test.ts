@@ -133,3 +133,29 @@ describe('rpm-sync 同步日起點 = 最近一個台灣 07:30(Sean 2026-09-27 Q4
     expect(sh).not.toContain('00:00:00" +%s');
   });
 });
+
+describe('rpm-sync.yml IndexNow(2026-09-29 計畫 ~/pcm-mailbox/計畫-IndexNow-20260929.md, Fable R2 PASS)', () => {
+  it('🔴 sync 部分失敗仍送、被略過就不送、只在完整的日常同步送(R1 必修 2)', () => {
+    const job = jobBlock('indexnow');
+    expect(job).toContain('needs: sync');
+    expect(job).toContain("!cancelled() && needs.sync.result != 'skipped'");
+    expect(job).toContain(
+      "(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.daily && !inputs.supplier && !inputs.dry_run && inputs.dealer_price_checksum == ''))",
+    );
+  });
+
+  it('🔴 continue-on-error 要留:本 job 變紅會讓備援查不到 success、把 21 家整輪重跑', () => {
+    expect(jobBlock('indexnow')).toContain('continue-on-error: true');
+  });
+
+  it('金鑰走 secret, 不寫進檔案;跑的是 indexnow-submit.ts', () => {
+    const job = jobBlock('indexnow');
+    expect(job).toContain('INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}');
+    expect(job).toContain('pnpm exec tsx scripts/indexnow-submit.ts');
+  });
+
+  it('🔵 寄客服信那個 job 不看 indexnow(IndexNow 失敗不寄同步失敗信)', () => {
+    expect(jobBlock('notify-failure')).toContain('needs: sync');
+    expect(jobBlock('notify-failure')).not.toContain('indexnow');
+  });
+});

@@ -366,6 +366,49 @@ jobs:
         run: pnpm exec tsx scripts/image-trim-scan.ts --confirm-write --limit=800
 
   # ==========================================================================
+  # IndexNow:把最近 48 小時變動的商品網址通知搜尋引擎(2026-09-29 Bing Webmaster「未採用 IndexNow」)
+  #   計畫 ~/pcm-mailbox/計畫-IndexNow-20260929.md(Fable R1 FAIL → R2 PASS);腳本 scripts/indexnow-submit.ts。
+  # 🔴 if:sync 是 fail-fast:false 的供應商 matrix ⇒ 任一家失敗時 needs.sync.result 是 failure;
+  #    用預設 success() 會整天不送 ⇒ 抄 image-trim-scan 的 `!cancelled() && needs.sync.result != 'skipped'`(R1 必修 2)。
+  #    再加「完整的日常同步」判斷(與上面 DEALER_PRICE_TRIGGER 同一個運算式)⇒ 手動單家 / 乾跑不送。
+  #    備援那輪遇到當天 daily 已成功 ⇒ sync 整輪 skipped ⇒ 本 job 跟著略過 ⇒ 一天最多一批。
+  # 🔴 continue-on-error 一定要留:本 job 若讓整輪變紅, already-ran-today 查 status=success 會查不到,
+  #    備援就把全部供應商整輪重跑。腳本自己處理送出失敗(印 ::warning:: 並 exit 0), 這裡只擋腳本當掉。
+  # 停用:刪掉 GitHub Secret INDEXNOW_KEY ⇒ 腳本印一行就結束。
+  indexnow:
+    needs: sync
+    if: ${{ !cancelled() && needs.sync.result != 'skipped' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.daily && !inputs.supplier && !inputs.dry_run && inputs.dealer_price_checksum == '')) }}
+    continue-on-error: true
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Notify IndexNow (changed product URLs, last 48h)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+        run: pnpm exec tsx scripts/indexnow-submit.ts
+
+  # ==========================================================================
   # 同步失敗 ⇒ 寄一封到客服信箱(2026-09-12 Sean 拍甲 Q3)
   #
   # 🔴 **為什麼要有它**:本檔 `:43` 逐字寫著「失敗走 GitHub Actions 預設 email(寄給上次改本檔者)」
