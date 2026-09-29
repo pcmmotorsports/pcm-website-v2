@@ -8,6 +8,10 @@ const CATEGORY_BY_LEGACY_PATHNAME: ReadonlyMap<string, string> = new Map([
   [encodeURI('/輪框'), '懸吊與車架 · 輪圈'],
   [encodeURI('/懸吊系統/輪框.html'), '懸吊與車架 · 輪圈'],
   [encodeURI('/改裝精品/輪框.html'), '懸吊與車架 · 輪圈'],
+  // 2026-09-29 Bing 週報「找不到的頁面」:Vercel 近 7 天 404 紀錄裡仍有人打的舊分類頁, 新站有同一個大類
+  [encodeURI('/車身防護'), '車身防護與防摔'],
+  [encodeURI('/車身防護/車身防護/index.html'), '車身防護與防摔'],
+  [encodeURI('/排氣管/排氣管/index.html'), '排氣系統'],
 ]);
 
 /** 只接受 Search Console 已確認且有明確替代內容的完整原始 pathname。 */
