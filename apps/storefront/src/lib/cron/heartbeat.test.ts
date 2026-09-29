@@ -57,7 +57,7 @@ function fakeStore(opts: { failureCount?: number | null; writeError?: unknown; t
 beforeEach(() => vi.clearAllMocks());
 
 describe('CRON_JOB_NAME', () => {
-  it('🔴 六個字面 —— 對不上線上 cron.job.jobname 的後果不是報錯,是永遠報「沒心跳」(假陽性)', () => {
+  it('🔴 七個字面 —— 對不上線上 cron.job.jobname 的後果不是報錯,是永遠報「沒心跳」(假陽性)', () => {
     // 2026-08-28 對正式庫撈過、兩個窗各一次、逐格相同。這一格釘住的是【打字】,不是 DB。
     expect(Object.values(CRON_JOB_NAME)).toEqual([
       'pcm-anomaly-alert',
@@ -66,6 +66,8 @@ describe('CRON_JOB_NAME', () => {
       'pcm-order-ineligible-gate',
       'pcm-settle-sweep',
       'pcm-expire-unpaid-orders',
+      // 2026-09-29 Bing 週報(20260929040000)
+      'pcm-bing-weekly',
     ]);
   });
 });
@@ -228,7 +230,8 @@ describe('外部存活訊號', () => {
     //    📌 一個抽樣的守門,對【沒被抽到的那幾支】等於不存在。
     expect(
       Object.values(CRON_JOB_NAME)
-        .filter((n) => n !== CRON_JOB_NAME.expireUnpaidOrders)
+        // Bing 週報也不接 healthchecks(每週通知本身就是存活訊號), 在下面另外驗。
+        .filter((n) => n !== CRON_JOB_NAME.expireUnpaidOrders && n !== CRON_JOB_NAME.bingWeekly)
         .map((n) => pingTarget(n).envName),
     ).toEqual([
       'HEALTHCHECKS_PING_URL_PCM_ANOMALY_ALERT',
@@ -245,6 +248,11 @@ describe('外部存活訊號', () => {
     //    把「(不適用:純 SQL job)」改成一個【真的 env 名】不會紅 ⇒ 那會讓人以為它只是忘了設。
     expect(sixth.envName).toBe('(不適用:純 SQL job)');
     expect(sixth.notApplicable).toBe(true);
+    // 🔴 第七支 Bing 週報走 route, 但同樣不接 healthchecks(每週一則 LINE 本身就是存活訊號)。
+    const bing = pingTarget(CRON_JOB_NAME.bingWeekly);
+    expect(bing.url).toBeUndefined();
+    expect(bing.envName).toBe('(不適用:每週通知本身就是存活訊號)');
+    expect(bing.notApplicable).toBe(true);
   });
 
   it('[p2] env 有設 ⇒ 真的送出去,而且打的就是那個 URL', async () => {

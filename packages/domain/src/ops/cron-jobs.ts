@@ -133,6 +133,10 @@ export const CRON_JOB_WHITELIST = [
   //    每天台灣 03:17 刪 cron.job_run_details 裡 14 天前的列,成功後寫心跳。staleMinutes 比照 pcm-acl-digest 的兩天(一天只跑一次)。
   //    🔴 上線順序:先貼 migration(貼的當下就寫第一筆心跳),再推這一顆 ⇒ 反過來後台會亮「從來沒寫過心跳」。
   { jobName: 'pcm-cron-run-log-purge', label: '排程紀錄清理', schedule: '17 19 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '20260928260000(查法 bash scripts/is-migration-applied.sh 20260928260000)' },
+  // 🔵 2026-09-29 Bing 週報(Sean 選甲 = 獨立排程)。每週一次 ⇒ 14 天 = 週期 × 2, 與一天一次那幾支的 2 天同一把尺
+  //    (推算值, 沒有人拍過板, 可以改;計畫 ~/pcm-mailbox/計畫-Bing週報LINE-20260929.md 第 14 節第 7 點)。
+  //    每週一 Sean 固定收到一則 LINE 週報, 沒收到本身就是比這個門檻更早的訊號。
+  { jobName: 'pcm-bing-weekly', label: 'Bing 週報', schedule: '5 1 * * 1', staleMinutes: 14 * 24 * 60, wiredAt: '20260929040000(查法 bash scripts/is-migration-applied.sh 20260929040000)' },
 ] as const;
 
 /**
