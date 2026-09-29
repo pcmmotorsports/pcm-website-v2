@@ -39,3 +39,10 @@ describe('SearchOverlayProducts 適用車款那一行(2026-09-29 同名商品分
     expect(container.querySelector('.sop-fits')).toBeNull();
   });
 });
+
+describe('SearchOverlayProducts 通用款那一行與卡片一致', () => {
+  it('通用款 ⇒ 只寫「通用款」', () => {
+    const { container } = render(<SearchOverlayProducts items={[item({ fits: '通用款' })]} onNavigate={() => undefined} />);
+    expect(container.querySelector('.sop-fits')?.textContent).toBe('通用款');
+  });
+});

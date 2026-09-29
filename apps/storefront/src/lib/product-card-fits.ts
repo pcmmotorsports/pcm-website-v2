@@ -80,3 +80,11 @@ export function formatCardFits(fitments: UIFitment[] | undefined, fallback: stri
   const years = summarizeModelYears(only);
   return years ? `${label} ${years}` : label;
 }
+
+/**
+ * 卡片與搜尋疊層「適用 …」那一行的整句。通用款不加前綴:「適用 通用款」讀起來不順(主視窗 2026-09-29)。
+ * `通用型` 是 DB 舊資料的另一種寫法(稿 `Pages.jsx:261` 兩種都當通用款)。
+ */
+export function cardFitsLine(label: string): string {
+  return label === '通用款' || label === '通用型' ? label : `適用 ${label}`;
+}
