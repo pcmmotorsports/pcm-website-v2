@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -43,6 +44,23 @@ describe('商品頁乙 P-M5(20260929050000)', () => {
     expect(fn(code, 'create_order')).toContain('v_unit_price := public.pcm_effective_general_price(v_variant.price_general, v_variant.sale_price_general);');
     expect(fn(code, 'get_effective_prices')).toContain('pcm_effective_general_price(v.price_general, v.sale_price_general)');
     expect(fn(pm4, 'create_order').length).toBeGreaterThan(1000);
+  });
+
+  it('🔴 事後閘釘的指紋 = 檔案裡函式本體真正的 md5(改了本體忘了更新指紋 ⇒ 這格紅, 不用等到貼板)', () => {
+    const body = (file: string, name: string) => {
+      const t = readFileSync(new URL(file, import.meta.url), 'utf8');
+      const i = t.indexOf(`CREATE OR REPLACE FUNCTION public.${name}(`);
+      const a = t.indexOf('AS $function$', i) + 'AS $function$'.length;
+      return createHash('md5').update(t.slice(a, t.indexOf('$function$;', a))).digest('hex');
+    };
+    const mig = '../supabase/migrations/20260929050000_m4b_pm5_require_expected_unit_price.sql';
+    const rbf = '../supabase/rollbacks/20260929050000-rollback.sql';
+    const pm4f = '../supabase/migrations/20260928230000_m4b_sale_price_read_paths.sql';
+    expect(body(pm4f, 'create_order')).toBe('79e253857b6b2757b8823a6740e7107b');
+    expect(body(pm4f, 'get_effective_prices')).toBe('636409bea9cff799d5636805809f177d');
+    expect(code).toContain(`'${body(mig, 'create_order')}'`);
+    expect(code).toContain(`'${body(mig, 'get_effective_prices')}'`);
+    expect(rb).toContain(`'${body(rbf, 'create_order')}'`);
   });
 
   it('前置閘比 P-M4 寫出的指紋(= 正式庫現役);退回檔只換 create_order、先確認是 P-M5 那一代', () => {

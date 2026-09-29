@@ -237,9 +237,10 @@ export function useChargePayment(): UseChargePayment {
       }
       // 🔴 P-M5(20260929050000):每一列都要帶畫面單價, 伺服器沒收到就回 P2C22 不建單。
       //    讀不到的列在這裡先擋:送出去只會換來 P2C22 → 重新讀價格 → 還是讀不到 → 每按一次都被擋。
-      //    0 元贈品是合法單價, 所以看的是「是不是數字」, 不是真假值。
+      //    0 元贈品是合法單價, 所以看的是「是不是整數」, 不是真假值。NaN / 小數也擋:
+      //    伺服器的 schema(`.int()` + `.catch(undefined)`)會把它剝成「沒帶」, 一樣走進 P2C22 迴圈。
       const expectedUnitPrice = args.unitPrice({ productId: it.productId, variantId: it.variantId });
-      if (typeof expectedUnitPrice !== 'number') {
+      if (typeof expectedUnitPrice !== 'number' || !Number.isInteger(expectedUnitPrice)) {
         inFlightRef.current = false;
         setState({ status: 'error', message: CART_LINE_PRICE_UNREADABLE_MESSAGE });
         return false;

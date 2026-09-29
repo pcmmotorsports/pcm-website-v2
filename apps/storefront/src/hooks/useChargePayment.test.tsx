@@ -413,6 +413,19 @@ describe('useChargePayment', () => {
     ]);
   });
 
+  it('P-M5:單價是 NaN 或小數 ⇒ 當成讀不到(伺服器會把它剝掉再回 P2C22)', async () => {
+    for (const bad of [Number.NaN, 12.5]) {
+      setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+      const { result } = renderHook(() => useChargePayment());
+      await act(async () => {
+        await result.current.submit({ ...ARGS, unitPrice: () => bad });
+      });
+      expect(chargeMock).not.toHaveBeenCalled();
+      expect((result.current.state as { message: string }).message).toContain('價格讀不到');
+      cleanup();
+    }
+  });
+
   it('P-M5:單價是 0(贈品)照樣送出, 不當成讀不到', async () => {
     setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0003' });
