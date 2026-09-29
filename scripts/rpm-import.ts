@@ -999,6 +999,8 @@ async function main(): Promise<void> {
     {
       allowLargeDelist: ALLOW_LARGE_DELIST,
       hardDeleted: hardDeletedSkus,
+      // Fable R1 F1:刪除紀錄那一路也只收這一輪會寫的群(variantsByExternalId 已扣掉被跳過的群)
+      writableExternalIds: new Set(variantsByExternalId.keys()),
       // 只收這一輪真的會寫的群:被標題閘 / 排除名單跳過的群仍在 sourceExternalIds 裡,
       // 它的停產規格若進刪除清單, splitVariantSyncWork 會在商品已寫入之後 throw(Fable R1 必修 F1)。
       tombstoned: tombstonedVariants.filter((t) => variantsByExternalId.has(t.externalId)),
@@ -1009,7 +1011,7 @@ async function main(): Promise<void> {
     // 🔴 照報價單刪除紀錄要刪的超過該家 5% ⇒ 這一輪一個都不照紀錄刪;非零退出讓 cron 看得到(同 A2 的做法)
     console.error(
       `🔴 [rpm-import] ${config.supplierSlug}:照報價單刪除紀錄要刪 ${variantOrphans.hardDeleteEvidence} 個規格,` +
-        `超過該家 5%(共 ${variantOrphans.targetInScope} 個)⇒ 這一輪停手不刪, 請人工確認報價單是不是真的刪了這麼多。`,
+        `超過該家 5%(共 ${variantOrphans.supplierVariantCount} 個)⇒ 這一輪停手不刪, 請人工確認報價單是不是真的刪了這麼多。`,
     );
     process.exitCode = 1;
   }

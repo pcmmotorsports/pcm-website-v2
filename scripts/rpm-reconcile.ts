@@ -319,6 +319,8 @@ export function hazardGroupsToSkip(input: {
 export interface VariantOrphan {
   sku: string;
   externalId: string; // 所屬群 main_sku(報告用、客訴可回查)
+  /** 網站上次同步寫到這個規格的時間(product_variants.updated_at);報價單刪除紀錄要晚於它才算證據。 */
+  updatedAt?: string;
 }
 
 /**
@@ -398,6 +400,8 @@ export interface VariantOrphanReport {
   hardDeleteEvidence?: number;
   /** 2026-09-29:照刪除紀錄要刪的超過該家 5% ⇒ 這一輪一個都不照紀錄刪(只照舊刪標停產的), 呼叫端要讓 cron 叫。 */
   hardDeleteCapped?: boolean;
+  /** 這一家網站上的規格總數(5% 上限的分母)。 */
+  supplierVariantCount?: number;
 }
 
 /**
@@ -415,8 +419,10 @@ export function classifyVariantOrphans(
     allowLargeDelist?: boolean;
     sourceCompleteness?: SourceCompleteness;
     tombstoned?: readonly VariantOrphan[];
-    /** 報價單已經刪掉的料號(product_hard_delete_audit, 這一家)。孤兒在這裡面 = 有明確刪除證據。 */
-    hardDeleted?: ReadonlySet<string>;
+    /** 報價單刪除紀錄(product_hard_delete_audit, 這一家):料號 → 最晚一次刪除的時間(毫秒)。 */
+    hardDeleted?: ReadonlyMap<string, number>;
+    /** 這一輪真的會寫的群。被標題閘 / 排除名單跳過的群不在裡面, 它的規格不照刪除紀錄刪。不給 = 範圍內全部。 */
+    writableExternalIds?: ReadonlySet<string>;
   } = {},
 ): VariantOrphanReport {
   // 🔴 預設 `'unknown'` —— 而那不是「還沒接上」,是**今天的事實**:
@@ -467,8 +473,26 @@ export function classifyVariantOrphans(
   //   報價單直接刪掉(不是標停產)的規格永遠留在網站、客人買得到(DBK 舊顏色 35 個)。
   //   ⇒ 報價單刪除紀錄裡有這個料號 = 明確刪除證據, 照刪;沒紀錄的仍當「可能漏抓」扣留。
   //   保護:照紀錄要刪的超過這一家 5% ⇒ 這一輪一個都不照紀錄刪, 標 hardDeleteCapped(呼叫端讓 cron 叫)。
-  const hardDeletedOrphans = aborted ? [] : orphans.filter((o) => !tombKeys.has(tombKey(o)) && (opts.hardDeleted?.has(o.sku) ?? false));
-  const hardDeleteCapped = inScope.length > 0 && hardDeletedOrphans.length / inScope.length > HARD_DELETE_RATIO_CAP;
+  //   Fable R1:
+  //   · F1 只收這一輪會寫的群 —— 被跳過的群的規格進刪除清單, splitVariantSyncWork 會在商品已寫入後 throw。
+  //   · F2 報價單料號刪掉後會原樣重生、舊紀錄不清 ⇒ 刪除時間要晚於網站上次同步到它的時間才算;
+  //        不知道網站同步時間 ⇒ 不算(寧可少刪)。
+  //   · F3 5% 的分母是這一家全部規格, 補跑幾群(--group / --limit)不會被誤擋。
+  const hasFreshDeleteRecord = (o: VariantOrphan): boolean => {
+    const deletedAt = opts.hardDeleted?.get(o.sku);
+    const syncedAt = o.updatedAt ? Date.parse(o.updatedAt) : NaN;
+    return deletedAt !== undefined && Number.isFinite(syncedAt) && deletedAt > syncedAt;
+  };
+  const hardDeletedOrphans = aborted
+    ? []
+    : orphans.filter(
+        (o) =>
+          !tombKeys.has(tombKey(o)) &&
+          (opts.writableExternalIds?.has(o.externalId) ?? true) &&
+          hasFreshDeleteRecord(o),
+      );
+  const hardDeleteCapped =
+    targetVariants.length > 0 && hardDeletedOrphans.length / targetVariants.length > HARD_DELETE_RATIO_CAP;
   const tombstonedOrphans = hardDeleteCapped ? viewTombstoned : [...viewTombstoned, ...hardDeletedOrphans];
   const deletable = new Set(tombstonedOrphans.map(tombKey));
   const withheldOrphans = withhold ? orphans.filter((o) => !deletable.has(tombKey(o))) : [];
@@ -486,6 +510,7 @@ export function classifyVariantOrphans(
     tombstonedOrphans,
     hardDeleteEvidence: hardDeletedOrphans.length,
     hardDeleteCapped,
+    supplierVariantCount: targetVariants.length,
   };
 }
 
@@ -499,7 +524,12 @@ export async function computeVariantOrphans(
   supplierSlug: string,
   sourceSkus: Set<string>,
   sourceExternalIds: Set<string>,
-  opts: { allowLargeDelist?: boolean; tombstoned?: readonly VariantOrphan[]; hardDeleted?: ReadonlySet<string> } = {},
+  opts: {
+    allowLargeDelist?: boolean;
+    tombstoned?: readonly VariantOrphan[];
+    hardDeleted?: ReadonlyMap<string, number>;
+    writableExternalIds?: ReadonlySet<string>;
+  } = {},
 ): Promise<VariantOrphanReport> {
   const targetVariants = await readTargetVariants(tgt, supplierSlug);
   return classifyVariantOrphans(targetVariants, sourceSkus, sourceExternalIds, opts);
@@ -507,23 +537,28 @@ export async function computeVariantOrphans(
 
 /**
  * 讀報價單 `product_hard_delete_audit` 這一家的料號(報價單刪掉規格時寫的紀錄)= 明確刪除證據。
- * 🔴 讀失敗回空集合 ⇒ 當成「沒有證據」, 一個都不照紀錄刪(安全方向), 同步照常跑;印一行讓人看得到。
+ * 回傳 料號 → 最晚一次刪除時間(毫秒);時間讀不懂的那筆不算。
+ * 🔴 讀失敗回空 ⇒ 當成「沒有證據」, 一個都不照紀錄刪(安全方向), 同步照常跑;印一行讓人看得到。
  */
-export async function fetchHardDeletedSkus(source: SupabaseClient, supplierSlug: string): Promise<Set<string>> {
-  const skus = new Set<string>();
+export async function fetchHardDeletedSkus(source: SupabaseClient, supplierSlug: string): Promise<Map<string, number>> {
+  const skus = new Map<string, number>();
   for (let from = 0; ; from += READ_BATCH) {
     const { data, error } = await source
       .from('product_hard_delete_audit')
-      .select('sku')
+      .select('sku, deleted_at')
       .eq('supplier_slug', supplierSlug) // 🔴 scope 該供應商(不變式 1)
       .order('sku')
       .range(from, from + READ_BATCH - 1);
     if (error) {
       console.error(`[rpm-import] 🔴 讀不到報價單刪除紀錄(${supplierSlug})⇒ 這一輪不照紀錄刪任何孤兒:${error.message}`);
-      return new Set();
+      return new Map();
     }
-    const rows = (data ?? []) as { sku: unknown }[];
-    for (const r of rows) if (typeof r.sku === 'string' && r.sku !== '') skus.add(r.sku);
+    const rows = (data ?? []) as { sku: unknown; deleted_at: unknown }[];
+    for (const r of rows) {
+      const at = typeof r.deleted_at === 'string' ? Date.parse(r.deleted_at) : NaN;
+      if (typeof r.sku !== 'string' || r.sku === '' || !Number.isFinite(at)) continue;
+      skus.set(r.sku, Math.max(at, skus.get(r.sku) ?? at));
+    }
     if (rows.length < READ_BATCH) break;
   }
   return skus;
@@ -535,14 +570,16 @@ export async function readTargetVariants(tgt: SupabaseClient, supplierSlug: stri
   for (let from = 0; ; from += READ_BATCH) {
     const { data, error } = await tgt
       .from('product_variants')
-      .select('sku, products!inner(external_id)')
+      .select('sku, updated_at, products!inner(external_id)')
       .eq('supplier_slug', supplierSlug)
       .order('sku')
       .range(from, from + READ_BATCH - 1);
     if (error) throw new Error(`computeVariantOrphans@${from}: ${error.message}`);
     // supabase-js 動態 embed select 回型別無法靜態推 → 雙 cast escape hatch(同 rpm-delta/readExistingPrices)
-    const rows = (data ?? []) as unknown as { sku: string; products: { external_id: string } }[];
-    targetVariants.push(...rows.map((r) => ({ sku: r.sku, externalId: r.products.external_id })));
+    const rows = (data ?? []) as unknown as { sku: string; updated_at: string | null; products: { external_id: string } }[];
+    targetVariants.push(
+      ...rows.map((r) => ({ sku: r.sku, externalId: r.products.external_id, updatedAt: r.updated_at ?? undefined })),
+    );
     if (rows.length < READ_BATCH) break;
   }
   return targetVariants;
