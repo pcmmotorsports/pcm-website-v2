@@ -2309,6 +2309,21 @@ describe('Q5 乙(2026-09-14):多樣的單 multiItemOnly → item_count > 1', () 
   });
 });
 
+describe('有貨可先出(2026-09-30):partialArrivedOnly → goods_axis=ordered ∧ has_arrived_unshipped', () => {
+  it('🔴 true ⇒ 下推兩個條件 + 排除已取消 / 已退款;false / 未給 ⇒ 都不下推', async () => {
+    const a = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(a.client).listOrderSummariesForAdmin({ partialArrivedOnly: true }, { limit: 20, offset: 0 });
+    expect(a.eq).toHaveBeenCalledWith('goods_axis', 'ordered');
+    expect(a.eq).toHaveBeenCalledWith('has_arrived_unshipped', true);
+    expect(a.is).toHaveBeenCalledWith('cancelled_at', null);
+    expect(a.neq).toHaveBeenCalledWith('payment_status', 'refunded');
+    const b = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(b.client).listOrderSummariesForAdmin({ partialArrivedOnly: false }, { limit: 20, offset: 0 });
+    expect(b.eq).not.toHaveBeenCalledWith('has_arrived_unshipped', true);
+    expect(b.eq).not.toHaveBeenCalledWith('goods_axis', 'ordered');
+  });
+});
+
 describe('只看已取消(2026-09-14):cancelledOnly → cancelled_at IS NOT NULL', () => {
   it('🔴 true ⇒ .not(cancelled_at, is, null);false / 未給 ⇒ 不下推(已取消單照舊看得到)', async () => {
     const a = makeAdminListClient({ data: [], error: null, count: 0 });

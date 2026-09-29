@@ -2,7 +2,7 @@ import type { AdminOrderSummary } from '@pcm/domain';
 import type { PendingBox } from '../shipping/box-progress';
 import { formatOrderAmount, formatOrderPayColumn, orderPayActionable, orderPayAmbiguous } from './order-list-view';
 import type { NextStepDo } from './order-return-to';
-import { orderNextStep, orderStatusView } from './order-status-axes';
+import { arrivedLineCount, orderNextStep, orderStatusView } from './order-status-axes';
 import { ORDER_TODO_SPECS, type OrderTodoKey } from './order-todo';
 
 // order-todo-view.ts — 待辦模式每一列要畫什麼(純函式;`order-todo-list.tsx` 只排版)。
@@ -50,7 +50,9 @@ export function buildOrderTodoRows(
         : { kind: 'text', label: money };
       return { id: o.id, displayId: o.displayId, customerName, itemSummary, money, action };
     }
-    const next = orderNextStep(orderStatusView(o), boxByOrderId?.get(o.id) ?? null);
+    // 🔴 第三個參數跟 `orders-table.tsx` 同一條(品項被截斷就不算, 不猜):部分到貨時下一步是「出貨（已到 N 樣）」。
+    const arrivedLines = o.itemsTruncated ? 0 : arrivedLineCount(o.lines);
+    const next = orderNextStep(orderStatusView(o), boxByOrderId?.get(o.id) ?? null, arrivedLines);
     const action: OrderTodoAction =
       next.kind === 'goto'
         ? { kind: 'link', label: next.label, href: next.href, tone: 'default' }

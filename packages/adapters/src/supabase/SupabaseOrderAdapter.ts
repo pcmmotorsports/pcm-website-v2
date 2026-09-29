@@ -1387,6 +1387,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     }
     // Q5 乙:多樣的單 = view 第 45 欄 `item_count`(`20260914020000`)> 1。
     // ⚠️ 那支 migration 沒貼的正式庫會回 42703(欄不存在)⇒ 列表整頁讀失敗,不是靜靜少篩 —— 這是刻意的 fail-loud。
+    // 有貨可先出(2026-09-30):view 欄 `has_arrived_unshipped`(貼板 255)。與貨品軸那段同一組排除(已取消 / 已退款)。
+    // ⚠️ 那支 migration 沒貼的庫會回 42703 ⇒ 列表整頁讀失敗(fail-loud, 同下面 item_count 那條)。
+    if (filter.partialArrivedOnly) {
+      query = query.eq('goods_axis', 'ordered').eq('has_arrived_unshipped', true);
+      query = query.is('cancelled_at', null);
+      query = query.neq('payment_status', 'refunded');
+    }
     if (filter.multiItemOnly) {
       query = query.gt('item_count', 1);
     }

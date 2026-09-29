@@ -382,6 +382,12 @@ export type AdminOrderFilter = {
    */
   multiItemOnly?: boolean;
   /**
+   * 有貨可先出(2026-09-30, plan `~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-2):還沒到齊、但有一樣到了還沒出。
+   * 走列表 view 欄 `has_arrived_unshipped`(貼板 255 `20260930030000`)∧ `goods_axis = 'ordered'`;排除已取消 / 已退款。
+   * 「一樣到了、另一樣還沒下訂」是 `goods_axis = 'none'` ⇒ 不在這裡(主視窗 Q4 甲:放「待訂貨」)。URL `partial_arrived=1`。
+   */
+  partialArrivedOnly?: boolean;
+  /**
    * 只看已取消(Sean 2026-09-14 線上逐字「已取消的訂單 變成 點擊手動後才會跳出來,目前找不到地方可以讓他顯示」):
    * `orders.cancelled_at IS NOT NULL`。`true` = 只看已取消;`false` / undefined = 不篩(沒有「排除已取消」這一面 ——
    * 那一面由貨品軸 / `pendingOnly` 自己帶)。URL `cancelled=1`。與六顆狀態 chip 互斥(它們都隱含 cancelled_at IS NULL)。

@@ -23,7 +23,8 @@ import {
 //    `.slice(0, 1)` clamp 拿掉(那條註解逐字說「片 B 的 chip UI 才放開、兩件事必須同一片」,舊的單選下拉本片退場)。
 
 /** 第一列 chip 擁有的鍵:換 chip 時**先清這三個**再套(少清一個就是「高亮跳了、清單沒跳」)。 */
-export const STATUS_CHIP_KEYS = ['goodsAxes', 'pendingOnly', 'paymentStatus'] as const;
+// 🆕 2026-09-30 `partialArrivedOnly`(有貨可先出)也算狀態軸:按任一顆狀態 chip 會把它清掉, 否則「可出貨」疊上它是空集合。
+export const STATUS_CHIP_KEYS = ['goodsAxes', 'pendingOnly', 'paymentStatus', 'partialArrivedOnly'] as const;
 type StatusChipKey = (typeof STATUS_CHIP_KEYS)[number];
 export type StatusChipFilter = Partial<Pick<AdminOrderFilter, StatusChipKey>>;
 

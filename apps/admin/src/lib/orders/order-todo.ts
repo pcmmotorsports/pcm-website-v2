@@ -19,6 +19,8 @@ export const ORDER_TODO_SPECS = {
   'unpaid-transfer': { label: '待收款(匯款)', action: 'pay', actionLabel: '新增收款' },
   'partial-paid': { label: '待尾款', action: 'pay', actionLabel: '新增收款' },
   'to-order': { label: '待訂貨', action: 'order', actionLabel: '跟供應商下訂' },
+  // 2026-09-30 有貨可先出:鈕的字跟列表下一步走(「出貨（已到 N 樣）」, `orderNextStep` 的部分到貨分支), `actionLabel` 只是後備。
+  'partial-ship': { label: '有貨可先出', action: 'ship', actionLabel: '出貨' },
   'ready-ship': { label: '到貨待出貨', action: 'ship', actionLabel: '出貨' },
 } as const satisfies Record<string, { label: string; action: OrderTodoAction; actionLabel: string }>;
 

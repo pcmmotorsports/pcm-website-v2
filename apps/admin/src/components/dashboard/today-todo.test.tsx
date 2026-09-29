@@ -46,3 +46,16 @@ describe('待尾款那一格(Sean 2026-09-30 批三格;主視窗 Q2 甲)', () =>
     expect(screen.getByRole('link', { name: /待尾款 讀取失敗/ })).toBeTruthy();
   });
 });
+
+describe('兩排:錢一排、貨一排(plan §2-1;2026-09-30)', () => {
+  it('第一排 = 新單 / 待收款(匯款) / 待尾款 / 退款待處理 / 改價待審;第二排 = 待訂貨 / 有貨可先出 / 到貨待出貨', () => {
+    render(<TodayTodo summary={null} lists={unreadableTodoLists()} amountRequests={null} />);
+    const rows = [...document.querySelectorAll('[data-testid="today-todo"] [data-todo-row]')];
+    expect(rows.map((r) => r.getAttribute('data-todo-row'))).toEqual(['money', 'goods']);
+    const labels = rows.map((r) => [...r.querySelectorAll('h4')].map((h) => h.textContent));
+    expect(labels).toEqual([
+      ['新單', '待收款(匯款)', '待尾款', '退款待處理', '改價待審'],
+      ['待訂貨', '有貨可先出', '到貨待出貨'],
+    ]);
+  });
+});

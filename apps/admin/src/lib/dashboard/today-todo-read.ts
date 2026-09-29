@@ -62,6 +62,13 @@ export const TODO_LIST_SPECS = {
     label: ORDER_TODO_SPECS['partial-paid'].label,
     filter: { paymentStatus: 'partiallyPaid', pendingOnly: true },
   },
+  /** 有貨可先出:還沒到齊、有一樣到了還沒出(view 欄 `has_arrived_unshipped`, 貼板 255)。每一樣都到齊的單在「到貨待出貨」, 不重複。
+   *  plan §2-2;主視窗 Q4 甲:「一樣到了、另一樣還沒下訂」算 `goods_axis = 'none'`, 放「待訂貨」。 */
+  partialArrived: {
+    todo: 'partial-ship',
+    label: ORDER_TODO_SPECS['partial-ship'].label,
+    filter: { partialArrivedOnly: true },
+  },
 } as const satisfies Record<string, { todo: OrderTodoKey; label: string; filter: AdminOrderFilter }>;
 
 export type TodoListKey = keyof typeof TODO_LIST_SPECS;

@@ -77,7 +77,8 @@ export function TodayTodo({
   return (
     <section aria-label='今天要做的事' data-testid='today-todo'>
       <h2 className='mb-2 text-[13px] leading-[1.4] font-semibold text-(--fg-2)'>今天要做的事</h2>
-      <div className='grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7'>
+      {/* 2026-09-30 兩排(plan `~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-1):錢一排、貨一排。 */}
+      <div data-todo-row='money' className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5'>
         <TodoCard
           label='新單'
           count={summary?.newOrderCount ?? null}
@@ -86,8 +87,6 @@ export function TodayTodo({
         <TodoCard {...lists.unpaidBankTransfer} />
         {/* Sean 2026-09-30 批「今天要做的事＋三格」:收了訂金、還差尾款(含已出貨);與「待收款(匯款)」並排, 錢的事放一起。 */}
         <TodoCard {...lists.partiallyPaid} />
-        <TodoCard {...lists.notOrdered} />
-        <TodoCard {...lists.instock} />
         {/* 🔴 兩個旗標跟 `today-summary.tsx` 同一份:截斷 ⇒ 數字是下限(黏 `+`);
             更正紀錄讀不到 ⇒ 這個數退化成全部筆數(含已判定的),要講出來。 */}
         <TodoCard
@@ -113,6 +112,12 @@ export function TodayTodo({
           suffix={amountRequests?.truncated ? '+' : ''}
           note={amountRequests?.truncated ? '已達上限,實際可能更多' : undefined}
         />
+      </div>
+      <div data-todo-row='goods' className='mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5'>
+        <TodoCard {...lists.notOrdered} />
+        {/* 2026-09-30:還沒到齊、有一樣到了(`has_arrived_unshipped`, 貼板 255)。 */}
+        <TodoCard {...lists.partialArrived} />
+        <TodoCard {...lists.instock} />
       </div>
     </section>
   );

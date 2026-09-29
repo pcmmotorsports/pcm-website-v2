@@ -35,13 +35,13 @@ beforeEach(() => {
 describe('loadTodayTodoLists · 四格 = 網址 → 列表頁讀法 → 同一支查詢的 total', () => {
   it('🔴🔴 由構造保證:送去查的 filter === 把那格的 href 用列表頁的 parser 讀回來的 filter', async () => {
     const out = await loadTodayTodoLists(NOW);
-    for (const key of ['unpaidBankTransfer', 'notOrdered', 'instock', 'partiallyPaid'] as const) {
+    for (const key of ['unpaidBankTransfer', 'notOrdered', 'instock', 'partiallyPaid', 'partialArrived'] as const) {
       const expected = parseOrderListSearchParams(hrefToRaw(out[key].href), { now: NOW }).filter;
       expect(filterSentFor(out[key].label)).toEqual(expected);
       expect(out[key].count).toBe(4);
       expect(out[key].href).toBe(todoListHref(key, NOW));
     }
-    expect(mocks.list).toHaveBeenCalledTimes(4);
+    expect(mocks.list).toHaveBeenCalledTimes(5);
     for (const c of mocks.list.mock.calls) expect(c[1]).toEqual({ limit: 1, offset: 0 });
   });
 
@@ -87,6 +87,14 @@ describe('loadTodayTodoLists · 四格 = 網址 → 列表頁讀法 → 同一�
   });
 
   // 🆕 2026-09-30:每一格連到自己的待辦模式(`todo=`, 顯示軸;上面第一格證了讀回來的 filter 不受它影響)。
+  it('有貨可先出 = partialArrivedOnly(view 欄 has_arrived_unshipped, 貼板 255), 不帶貨品軸 / 付款軸', async () => {
+    await loadTodayTodoLists(NOW);
+    const f = filterSentFor('有貨可先出');
+    expect(f.partialArrivedOnly).toBe(true);
+    expect(f.goodsAxes).toBeUndefined();
+    expect(f.paymentStatus).toBeUndefined();
+  });
+
   it('🔴 href 把「近半年」那段日期【寫死】(codex must-fix 2:跨午夜點進去不得換一天算);不帶密度 / page / 空參數', () => {
     const dates = 'date_from=2026-03-13&date_to=2026-09-13';
     expect(todoListHref('unpaidBankTransfer', NOW)).toBe(
@@ -95,6 +103,7 @@ describe('loadTodayTodoLists · 四格 = 網址 → 列表頁讀法 → 同一�
     expect(todoListHref('notOrdered', NOW)).toBe(`/orders?goods_axis=none&${dates}&todo=to-order`);
     expect(todoListHref('instock', NOW)).toBe(`/orders?goods_axis=instock&${dates}&todo=ready-ship`);
     expect(todoListHref('partiallyPaid', NOW)).toBe(`/orders?payment_status=partiallyPaid&pending=1&${dates}&todo=partial-paid`);
+    expect(todoListHref('partialArrived', NOW)).toBe(`/orders?partial_arrived=1&${dates}&todo=partial-ship`);
     // 隔天算 ⇒ 日期跟著隔天,而昨晚產的那條網址不變(它已經是字面)
     expect(todoListHref('instock', new Date('2026-09-13T16:30:00Z'))).toBe(
       '/orders?goods_axis=instock&date_from=2026-03-14&date_to=2026-09-14&todo=ready-ship',

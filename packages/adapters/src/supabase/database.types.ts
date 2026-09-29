@@ -7142,6 +7142,7 @@ export type Database = {
             | Database["public"]["Enums"]["fulfillment_status"]
             | null
           goods_axis: string | null
+          has_arrived_unshipped: boolean | null
           id: string | null
           invoice: Json | null
           invoice_amount: number | null
@@ -7191,6 +7192,7 @@ export type Database = {
             | Database["public"]["Enums"]["fulfillment_status"]
             | null
           goods_axis?: never
+          has_arrived_unshipped?: never
           id?: string | null
           invoice?: Json | null
           invoice_amount?: number | null
@@ -7240,6 +7242,7 @@ export type Database = {
             | Database["public"]["Enums"]["fulfillment_status"]
             | null
           goods_axis?: never
+          has_arrived_unshipped?: never
           id?: string | null
           invoice?: Json | null
           invoice_amount?: number | null

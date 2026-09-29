@@ -110,6 +110,12 @@ describe('buildOrderTodoRows', () => {
     expect(withBox!.action.label).not.toBe('出貨');
   });
 
+  it('🔴 有貨可先出:鈕 = 列表下一步「出貨（已到 N 樣）」(兩樣都訂了、到一樣), 開出貨彈窗', () => {
+    const o = order({ lines: [line('排氣管', { ordered: 1, instock: 1 }), line('腳踏', { ordered: 1 })] });
+    const [row] = buildOrderTodoRows([o], 'partial-ship', links, null);
+    expect(row!.action).toEqual({ kind: 'link', label: '出貨（已到 1 樣）', href: '/orders?next=ord-1&do=ship', tone: 'default' });
+  });
+
   it('客人名字沒有時用收件人姓名', () => {
     const [row] = buildOrderTodoRows([order({ customerName: null, lines: [line('排氣管')] })], 'to-order', links, null);
     expect(row!.customerName).toBe('收件人');
