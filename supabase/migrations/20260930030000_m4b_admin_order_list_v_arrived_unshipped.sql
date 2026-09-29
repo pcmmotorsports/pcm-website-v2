@@ -12,7 +12,8 @@
 -- 🔴 只改 view, 不動任何表、不動權限;GRANT / COMMENT / security_invoker 由 CREATE OR REPLACE 原地保留(事後閘證它)。
 -- 🔴 部署順序:新欄位, 部署時序閘只印警告不擋 ⇒ **板先貼, 程式才讀它**(程式先上 ⇒ 列表查詢 42703)。
 --   本支貼上去之後沒有任何程式讀它, 零行為變化;讀它的那一片另外交。
--- 回滾:supabase/rollbacks/20260930030000-rollback.sql(DROP VIEW 重建成 20260914020000 那一版 + 兩道 GRANT + COMMENT)。
+-- 回滾:supabase/rollbacks/20260930030000-rollback.sql —— 不 DROP, CREATE OR REPLACE 同形狀、這一欄固定 false(= 功能關閉)。
+--   回滾過之後要再開回來, 重貼本檔即可(前置閘① 接受「46 欄 / has_arrived_unshipped」這個基線)。
 
 BEGIN;
 
@@ -24,14 +25,15 @@ DECLARE
   v_cols int;
   v_last text;
 BEGIN
-  -- 前置閘①:基線 = 45 欄、最後一欄 item_count(`20260914020000`)
+  -- 前置閘①:基線 = 45 欄、最後一欄 item_count(`20260914020000`),
+  --   或 46 欄、最後一欄 has_arrived_unshipped(貼過本檔的回滾、要再開回來;Fable R1 建議 1)
   SELECT count(*) INTO v_cols FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'admin_order_list_v';
   SELECT column_name INTO v_last FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'admin_order_list_v'
    ORDER BY ordinal_position DESC LIMIT 1;
-  IF v_cols <> 45 OR v_last IS DISTINCT FROM 'item_count' THEN
-    RAISE EXCEPTION '前置閘①:admin_order_list_v 有 % 欄、最後一欄 %(期望 45 / item_count)⇒ 基線對不上(已貼過本支?或有人在中間加了一代), 停', v_cols, v_last;
+  IF NOT ((v_cols = 45 AND v_last = 'item_count') OR (v_cols = 46 AND v_last = 'has_arrived_unshipped')) THEN
+    RAISE EXCEPTION '前置閘①:admin_order_list_v 有 % 欄、最後一欄 %(期望 45 / item_count, 或回滾後的 46 / has_arrived_unshipped)⇒ 基線對不上(有人在中間加了一代?), 停', v_cols, v_last;
   END IF;
   -- 前置閘②:summary 表與兩個欄位在
   IF (SELECT count(*) FROM pg_catalog.pg_attribute
@@ -182,7 +184,7 @@ SELECT
   -- 🆕 20260930030000(貼板 255):第 46 欄, 只能附加在尾巴(同上面 item_count 那段理由)。
   --    這張單有沒有「已經到貨、還沒出完」的品項 = 部分到貨也可以先出。定義與列表的 `arrivedLineCount`
   --    (`apps/admin/src/lib/orders/order-status-axes.ts`)同一條:到貨數 − 出貨數 > 0。沒有摘要列 ⇒ 不算。
-  --    形狀照 `goods_axis` / `item_count`:純量子查詢, 不 join, 不改列數。
+  --    形狀照 `goods_axis` / `item_count`:純量子查詢, 外層不 join, 不改列數。
   EXISTS (
     SELECT 1
       FROM public.order_items oi
@@ -233,5 +235,8 @@ BEGIN
   RAISE NOTICE '✅ 20260930030000:admin_order_list_v 加上 has_arrived_unshipped(第 46 欄), 權限與 security_invoker 不變';
 END
 $postcondition$;
+
+-- 與前一代(20260914020000:241)同:叫 PostgREST 重讀 schema, 不靠 event trigger。
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;

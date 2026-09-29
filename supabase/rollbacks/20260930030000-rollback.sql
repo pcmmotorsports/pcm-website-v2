@@ -184,4 +184,6 @@ BEGIN
 END
 $postcondition$;
 
+NOTIFY pgrst, 'reload schema';
+
 COMMIT;
