@@ -36,6 +36,25 @@ vi.mock('../../../lib/products/product-repository', async (importOriginal) => {
   };
 });
 vi.mock('server-only', () => ({}));
+// 商品頁乙 P9:手動商品(supplier_slug = 'pcm')的價格區。預設 = 用自己帳號登入的在職主管。
+const priceArea = vi.hoisted(() => ({
+  session: vi.fn(async () => ({ actor: { id: 'boss' }, source: 'ticket' as string })),
+  manager: vi.fn(async () => true),
+}));
+vi.mock('../../../lib/session/actor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/session/actor')>()),
+  getSessionActorWithSource: priceArea.session,
+  // 舊寫法只看有沒有人、不看登入來源;一併 mock 成同一位, 讓「共用密碼也開輸入框」的舊行為重現得出來
+  getSessionActor: async () => (await priceArea.session()).actor,
+}));
+vi.mock('../../../lib/staff', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/staff')>()),
+  isActiveManager: priceArea.manager,
+}));
+vi.mock('../../../lib/products/manual-product-repository', () => ({ loadManualProductPrices: async () => [] }));
+vi.mock('../../../components/products/manual-product-price-editor', () => ({
+  ManualProductPriceEditor: ({ canEdit }: { canEdit: boolean }) => <section data-price-area>{`價格區 canEdit=${canEdit}`}</section>,
+}));
 // `notFound()` 真的會 throw ⇒ 用可觀察的 spy 取代,才驗得到「有沒有被呼叫」而不是靠例外形狀。
 vi.mock('next/navigation', () => ({
   // 商品頁乙 C4:分類區是 client 元件,用到 useRouter
@@ -493,6 +512,29 @@ describe('/products/[id] · FIX-47 三堆分組', () => {
     for (const must of ['基本資料', '分類', '商品說明與賣點', '適用車型', '圖片與影音', '時間']) {
       expect({ [must]: inner.includes(must) }).toEqual({ [must]: true });
     }
+  });
+
+  describe('商品頁乙 P9:手動商品的價格區', () => {
+    const renderManual = async () => {
+      mocks.get.mockResolvedValueOnce({ ...PRODUCT, supplier_slug: 'pcm' });
+      return renderPage();
+    };
+    it('用自己帳號登入的在職主管 ⇒ 輸入框打開;那句誠實話補上「主管也能改價格」', async () => {
+      const { container } = await renderManual();
+      expect(container.textContent).toContain('價格區 canEdit=true');
+      expect(container.textContent).toContain('分類與上架狀態，主管也能改上方的價格，其餘欄位仍不能修改。');
+    });
+    it('🔴 用共用密碼登入、自選主管名字 ⇒ 不開輸入框(按了也會被 action 擋, 不要先開後拒)', async () => {
+      priceArea.session.mockResolvedValue({ actor: { id: 'boss' }, source: 'shared' });
+      const { container } = await renderManual();
+      expect(container.textContent).toContain('價格區 canEdit=false');
+      priceArea.session.mockResolvedValue({ actor: { id: 'boss' }, source: 'ticket' });
+    });
+    it('非手動商品 ⇒ 沒有價格區, 那句話不提價格', async () => {
+      const { container } = await renderPage();
+      expect(container.querySelector('[data-price-area]')).toBeNull();
+      expect(container.textContent).not.toContain('主管也能改上方的價格');
+    });
   });
 
   it('🔴 那句誠實話留著 —— 稿明寫它是這一頁自己的話', async () => {

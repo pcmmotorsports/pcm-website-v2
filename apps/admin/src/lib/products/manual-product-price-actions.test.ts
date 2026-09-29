@@ -101,6 +101,18 @@ describe('商品頁乙 P8:主管改手動商品價格 server action', () => {
     expect(setPrices).not.toHaveBeenCalled();
   });
 
+  it('只有經銷價被別人改過(一般價沒動)⇒ 一樣整筆不送', async () => {
+    loadPrices.mockResolvedValue([{ ...current()[0]!, priceStore: 1234 }, current()[1]!]);
+    expect((await saveManualProductPricesAction(P, input())).ok).toBe(false);
+    expect(setPrices).not.toHaveBeenCalled();
+  });
+
+  it('要改的規格已經不在資料庫(被別人刪掉或搬走)⇒ 整筆不送', async () => {
+    loadPrices.mockResolvedValue([current()[1]!]);
+    expect((await saveManualProductPricesAction(P, input())).ok).toBe(false);
+    expect(setPrices).not.toHaveBeenCalled();
+  });
+
   it('目前的價格讀不到 ⇒ 不送', async () => {
     loadPrices.mockRejectedValue(new Error('down'));
     expect((await saveManualProductPricesAction(P, input())).ok).toBe(false);

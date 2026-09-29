@@ -9,7 +9,7 @@ import { ProductHistory } from '../../../components/products/product-history';
 import { ProductCategoryEditor } from '../../../components/products/product-category-editor';
 import { ManualProductPriceEditor } from '../../../components/products/manual-product-price-editor';
 import { loadManualProductPrices } from '../../../lib/products/manual-product-repository';
-import { getSessionActor } from '../../../lib/session/actor';
+import { getSessionActorWithSource } from '../../../lib/session/actor';
 import { isActiveManager } from '../../../lib/staff';
 import { loadProductHistory } from '../../../lib/products/product-history-loader';
 import { ProductGalleryPanel } from '../../../components/products/product-gallery-panel';
@@ -128,7 +128,9 @@ export default async function ProductDetailPage({
     product?.supplier_slug === 'pcm'
       ? await Promise.all([
           loadManualProductPrices(product.id),
-          getSessionActor().then((a) => isActiveManager(a?.id)),
+          // 只有用自己帳號登入(票證)的在職主管才開輸入框:共用密碼登入者按下去也會被 action 擋
+          //   (manual-product-price-actions.ts 的 source !== 'ticket'),不要先開後拒。
+          getSessionActorWithSource().then(async ({ actor, source }) => source === 'ticket' && (await isActiveManager(actor?.id))),
         ]).catch((error: unknown) => {
           console.error('[admin/products/[id]] 手動商品價格讀取失敗', error);
           return null;
@@ -435,9 +437,10 @@ export default async function ProductDetailPage({
           {/* 共用圖庫 G5:圖庫真的讀得到時才把「照片」算進能改的(沒啟用 / 讀不到時那句不成立)。 */}
           {/* 09-29 網站A 走一遍:分類(C4)已能改, 舊句漏了分類 ⇒ 補上。 */}
           <p className='text-muted-foreground text-sm'>
-            {gallery?.state === 'ok'
-              ? '這一頁目前能改標題、副標、賣點、照片、分類與上架狀態，其餘欄位仍不能修改。'
-              : '這一頁目前能改標題、副標、賣點、分類與上架狀態，其餘欄位仍不能修改。'}
+            {/* 商品頁乙 P9:手動商品主管能改價格 ⇒ 那一句要說出來, 否則和上方的價格區互相矛盾。 */}
+            {`這一頁目前能改標題、副標、賣點、${gallery?.state === 'ok' ? '照片、' : ''}分類與上架狀態${
+              product.supplier_slug === 'pcm' ? '，主管也能改上方的價格' : ''
+            }，其餘欄位仍不能修改。`}
           </p>
         </>
       )}
