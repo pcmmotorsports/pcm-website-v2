@@ -30,7 +30,7 @@
 
 import { useRef, useState } from 'react';
 import type { ShippingMethod } from '@pcm/domain';
-import { cartLineMissingVariantMessage } from '@/lib/checkout/checkout-messages';
+import { CART_LINE_PRICE_UNREADABLE_MESSAGE, cartLineMissingVariantMessage } from '@/lib/checkout/checkout-messages';
 import { useCart, type CartItemVehicle } from '@/contexts/CartContext';
 import { chargePaymentAction, type ChargePaymentActionResult } from '@/app/checkout/charge-actions';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
@@ -78,7 +78,7 @@ export type ChargeArgs = {
   /** 商品頁乙 P11:這一列在畫面上的【單價】(`useResolvedCart` 的 `resolved.unitPrice`),送去給 create_order 比對。
    *  和 `lineName` 同一個理由從外面傳進來:畫面上的價格只有 `CheckoutView` 那一份,不在這裡重查。
    *  給不出來(null / undefined)⇒ 那一列不帶,這一代 create_order 就不比對那一列。 */
-  unitPrice?: (key: { productId: string; variantId?: string }) => number | null | undefined;
+  unitPrice: (key: { productId: string; variantId?: string }) => number | null | undefined;
 };
 
 export type ChargeState =
@@ -226,7 +226,7 @@ export function useChargePayment(): UseChargePayment {
       });
       return false;
     }
-    const lines: { variantId: string; quantity: number; vehicle?: CartItemVehicle; expectedUnitPrice?: number }[] = [];
+    const lines: { variantId: string; quantity: number; vehicle?: CartItemVehicle; expectedUnitPrice: number }[] = [];
     for (const it of items) {
       if (!it.variantId) {
         // 🛑 **到不了** —— 上面那一發已經擋掉。留著是 fail-closed:
@@ -235,12 +235,21 @@ export function useChargePayment(): UseChargePayment {
         setState({ status: 'error', message: cartLineMissingVariantMessage([]) });
         return false;
       }
-      const expectedUnitPrice = args.unitPrice?.({ productId: it.productId, variantId: it.variantId });
+      // 🔴 P-M5(20260929050000):每一列都要帶畫面單價, 伺服器沒收到就回 P2C22 不建單。
+      //    讀不到的列在這裡先擋:送出去只會換來 P2C22 → 重新讀價格 → 還是讀不到 → 每按一次都被擋。
+      //    0 元贈品是合法單價, 所以看的是「是不是整數」, 不是真假值。NaN / 小數也擋:
+      //    伺服器的 schema(`.int()` + `.catch(undefined)`)會把它剝成「沒帶」, 一樣走進 P2C22 迴圈。
+      const expectedUnitPrice = args.unitPrice({ productId: it.productId, variantId: it.variantId });
+      if (typeof expectedUnitPrice !== 'number' || !Number.isInteger(expectedUnitPrice)) {
+        inFlightRef.current = false;
+        setState({ status: 'error', message: CART_LINE_PRICE_UNREADABLE_MESSAGE });
+        return false;
+      }
       lines.push({
         variantId: it.variantId,
         quantity: it.qty,
         ...(it.vehicle !== undefined ? { vehicle: it.vehicle } : {}),
-        ...(typeof expectedUnitPrice === 'number' ? { expectedUnitPrice } : {}),
+        expectedUnitPrice,
       });
     }
 

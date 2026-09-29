@@ -324,6 +324,15 @@ const ALLOWLIST = [
   // 🔬 由拋棄式 PG 行為測試背書(可重跑 supabase/tests/database/sale_price_pm4_behavior.sql;小計、運費、券、總額逐格對金額)。
   // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;特價與核對對不對由那組測試與 Codex R1 / Fable R2 背書。
   '20260928230000_m4b_sale_price_read_paths.sql',
+  // ── 2026-09-29 網站B agent/B-pm5(商品頁乙 P-M5)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 11 參 `create_order`(= 20260928230000 那一支的下一代,底 prosrc md5 79e25385…),
+  //    本體有 INSERT orders / order_items ⇒ 寫 `orders.subtotal`、`order_items.line_total`、`order_items.order_id` 這三欄。
+  // ✅ **它改了什麼**:① 品項沒帶 expected_unit_price(或 JSON null)⇒ P2C22、不建單;
+  //    ② 經銷分支規格一般價空 ⇒ 單價 NULL ⇒ 既有「變體無有效單價」拒絕。其餘逐字照抄 P-M4。
+  //    ⇒ 只會少建單(被拒絕),`v_line_total := v_unit_price × qty`、`v_subtotal` 累加、INSERT 的欄位清單一行沒動。
+  // 🔬 由拋棄式 PG 行為測試背書(可重跑 supabase/tests/database/sale_price_pm5_behavior.sql;每格被拒都驗零新增)。
+  // 🛑 本列只證:這個寫入者【登記過了】+ 小計算法未動;P2C22 與經銷檢查對不對由那組測試與 Fable R1(計畫、程式碼)背書。
+  '20260929050000_m4b_pm5_require_expected_unit_price.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。

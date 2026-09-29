@@ -100,6 +100,12 @@ export function cartLineMissingVariantMessage(names: readonly string[]): string 
  *     具體的指示會對其中四類成因是錯的。**共用的是字面, 不是成因。** */
 export const CART_LINES_INVALID_MESSAGE = CART_LINE_MISSING_VARIANT_MESSAGE;
 
+/** P-M5(20260929050000):結帳時購物車有一列讀不到畫面單價 ⇒ 前台先擋下, 不送伺服器。
+ *  不擋的話伺服器會回 P2C22、畫面重新讀價格, 而讀不到的那一列還是讀不到 ⇒ 每按一次都被擋(計畫第 8 節第 1 點)。
+ *  出路沿用站上既有的「聯繫客服 LINE」(同 cartLineMissingVariantMessage)。 */
+export const CART_LINE_PRICE_UNREADABLE_MESSAGE =
+  '購物車有商品的價格讀不到，這次沒有送出訂單。請回購物車重新整理後再結帳；如果還是不行，請聯繫客服 LINE。';
+
 /** 🔴 **那道 guard 今天【不可達】—— 而板上寫的理由是假的**(Fable 抓, 我開檔複驗):
  *  ```
  *  useResolvedCart.tsx:146 逐字   if (l.found === false) removeItem({ productId, variantId });

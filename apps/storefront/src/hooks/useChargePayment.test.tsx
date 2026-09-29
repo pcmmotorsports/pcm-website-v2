@@ -86,6 +86,8 @@ const ARGS = {
   // 🔵 段 1-B:tappay = 今天線上唯一的付款方式 ⇒ 既有測項的世界不變。
   //   🛑 而它是【一個世界不是中性預設】—— 匯款那個世界要有自己的測項。
   paymentChannel: 'tappay' as const,
+  // P-M5:每一列都要讀得到畫面單價(讀不到就在前台擋下, 不送伺服器)
+  unitPrice: () => 1000,
 };
 
 afterEach(() => {
@@ -160,8 +162,8 @@ describe('useChargePayment', () => {
     });
     const payload = chargeMock.mock.calls[0]![0] as { lines: Record<string, unknown>[] };
     expect(payload.lines).toEqual([
-      { variantId: 'v1', quantity: 1, vehicle: { kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search' } },
-      { variantId: 'v2', quantity: 2 },
+      { variantId: 'v1', quantity: 1, vehicle: { kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search' }, expectedUnitPrice: 1000 },
+      { variantId: 'v2', quantity: 2, expectedUnitPrice: 1000 },
     ]);
     expect(Object.keys(payload.lines[1]!)).not.toContain('vehicle');
   });
@@ -385,6 +387,53 @@ describe('useChargePayment', () => {
     expect(chargeMock).not.toHaveBeenCalled();
     expect(result.current.state).toMatchObject({ status: 'error' });
     expect((result.current.state as { message: string }).message).toContain('缺少規格資訊');
+  });
+
+  it('🔴 P-M5:有一列讀不到畫面單價 ⇒ 不送伺服器、釋放鎖、請客人回購物車(不讓 P2C22 重試迴圈發生)', async () => {
+    setCart([
+      { productId: 'p1', variantId: 'v1', qty: 1 },
+      { productId: 'p2', variantId: 'v2', qty: 1 },
+    ]);
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({ ...ARGS, unitPrice: ({ variantId }) => (variantId === 'v1' ? 1000 : undefined) });
+    });
+    expect(chargeMock).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ status: 'error' });
+    expect((result.current.state as { message: string }).message).toContain('價格讀不到');
+    // 鎖有釋放:修好之後再按一次會真的送出
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0002' });
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(chargeMock).toHaveBeenCalledTimes(1);
+    expect(chargeMock.mock.calls[0]![0].lines).toEqual([
+      { variantId: 'v1', quantity: 1, expectedUnitPrice: 1000 },
+      { variantId: 'v2', quantity: 1, expectedUnitPrice: 1000 },
+    ]);
+  });
+
+  it('P-M5:單價是 NaN 或小數 ⇒ 當成讀不到(伺服器會把它剝掉再回 P2C22)', async () => {
+    for (const bad of [Number.NaN, 12.5]) {
+      setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+      const { result } = renderHook(() => useChargePayment());
+      await act(async () => {
+        await result.current.submit({ ...ARGS, unitPrice: () => bad });
+      });
+      expect(chargeMock).not.toHaveBeenCalled();
+      expect((result.current.state as { message: string }).message).toContain('價格讀不到');
+      cleanup();
+    }
+  });
+
+  it('P-M5:單價是 0(贈品)照樣送出, 不當成讀不到', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0003' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({ ...ARGS, unitPrice: () => 0 });
+    });
+    expect(chargeMock.mock.calls[0]![0].lines).toEqual([{ variantId: 'v1', quantity: 1, expectedUnitPrice: 0 }]);
   });
 
   it('fieldErrors.addressId → 以該欄訊息顯示(引導補手機等)', async () => {

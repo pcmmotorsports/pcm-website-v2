@@ -708,6 +708,17 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
     expect(mockConfirmPayment).not.toHaveBeenCalled();
   });
 
+  it('🔴 P-M5:create_order 回 P2C22(沒帶畫面單價)⇒ 和 P2C21 同一個流程:沒建單沒扣款、標 priceChanged、零扣款', async () => {
+    mockPlaceOrder.mockRejectedValue(Object.assign(new Error('create_order: 沒有帶畫面單價'), { code: 'P2C22', details: 'price_unconfirmed' }));
+    const action = await getAction();
+    const res = await action(validInput({ lines: [{ variantId: VARIANT, quantity: 2 }] }));
+    expect(res).toEqual({
+      formError: '商品價格有更新，這次沒有建立訂單，也沒有扣款。請確認新的金額後再送出。',
+      priceChanged: true,
+    });
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
   it('🔴 3DS-7:缺 cart_session_id → formError、零 placeOrder/charge(fail-closed)', async () => {
     const action = await getAction();
     const res = await action(validInput({ cartSessionId: undefined }));

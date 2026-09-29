@@ -681,7 +681,9 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     //    not_found / inactive / exhausted 收斂成 `unavailable`(券碼枚舉防線在 SQL 邊界, 不在這裡)。
     // 商品頁乙 P11:單價和畫面上的不同(20260928230000 `create_order` 的 P2C21、DETAIL price_changed)
     //   ⇒ 單沒有建、卡沒有刷(扣款在建單之後)。請客人看新金額再送;畫面那端會重新讀購物車價格。
-    if (rpcErrorCode === 'P2C21') {
+    // P-M5(20260929050000):沒帶畫面單價 ⇒ P2C22、DETAIL price_unconfirmed,同樣沒有建單、沒有扣款。
+    //   走同一個「重新讀價格、請客人確認」的流程:確認之後再送就會帶上單價。
+    if (rpcErrorCode === 'P2C21' || rpcErrorCode === 'P2C22') {
       return { formError: MSG.priceChanged, priceChanged: true };
     }
     if (rpcErrorCode === 'P2C20') {
