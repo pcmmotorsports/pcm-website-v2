@@ -116,6 +116,9 @@
   min-width: 0;
 }
 .search-overlay-input::placeholder { color: var(--c-text-3, #aaa); }
+/* 2026-09-29 正式站手機實測:`type="search"` 在 Safari / Chrome 會自己多畫一顆藍色 ×, 緊貼在我們的「清除」旁邊
+   ⇒ 同一件事兩顆鈕。稿只有我們那一顆, 瀏覽器那顆收掉。 */
+.search-overlay-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
 .search-overlay-clear {
   width: 28px; height: 28px;
   border-radius: 50%;
@@ -195,6 +198,9 @@
   text-align: left;
   cursor: pointer;
   transition: background 0.12s;
+  /* 2026-09-29 正式站手機 390 實測:這顆是 grid 的一格、預設 min-width:auto ⇒ 被 `.sop-name` 的 nowrap 撐寬到 410px,
+     品名與價格被切在螢幕外, 稿要的「…」省略也沒出現。收在格子寬度內, `.sop-name` 的省略才會生效(稿不變)。 */
+  min-width: 0;
 }
 .search-overlay-product:hover { background: var(--c-surface-2, #f5f5f5); }
 .sop-thumb {
