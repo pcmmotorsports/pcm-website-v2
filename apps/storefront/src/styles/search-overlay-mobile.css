@@ -1,0 +1,11 @@
+/* search-overlay-mobile.css — 搜尋疊層在手機上的兩處補丁(2026-09-29 正式站手機 390 走查)。
+   刻意不寫進 search-overlay.css:那一支要與 design-reference 逐行相同(search-overlay-design-parity.test.ts 在比)。
+   本檔緊接在 search-overlay.css 之後載入, 同 specificity 靠載入順序生效。 */
+
+/* 商品列是 grid 的一格、預設 min-width:auto ⇒ 被 `.sop-name` 的 nowrap 撐寬到 410px,
+   品名與價格被切在螢幕外, 稿要的「…」省略也沒出現。收在格子寬度內, 省略才會生效(稿不變)。 */
+.search-overlay-product { min-width: 0; }
+
+/* `type="search"` 在 Safari / Chrome 會自己多畫一顆藍色 ×, 緊貼在我們的「清除」旁邊 ⇒ 同一件事兩顆鈕。
+   稿只有我們那一顆, 瀏覽器那顆收掉。 */
+.search-overlay-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }

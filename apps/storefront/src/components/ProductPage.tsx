@@ -16,6 +16,7 @@
 
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MemberTier } from '@pcm/domain';
@@ -326,30 +327,35 @@ export function ProductPage({
             selectedVariant={selectedVariant}
             onSelectVariant={setSelectedVariant}
             isRpmCarbon={isRpmCarbon}
+            fitmentSlot={
+              <>
+                {/* 2026-09-29 手機走查:這一塊從 pd-main 下方搬進 ProductInfo 的價格正下方(客人最想先知道裝不裝得上)。 */}
+                {/* V-2b §7:「是否適用我的車」保守比對(適用車款表段首;讀選車 context→checkFitment;
+                    display-only 不寫庫不擋購物車、車種鐵律零猜)。無 fitments 時元件內返 null。
+                    V-2c:URL 第一真相優先於 context 鏡;V-2h/MF-3:liveUrlVehicle 反應式(同頁 URL 變更即重判)
+                    + onPersistVehicle 選車回寫 URL(Option A router.replace 條件式 skip)。 */}
+                {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
+                    而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
+                {/* 🔴 同一件事不在同一頁講兩次(Fable R1 nit):網址指名了車款時,說明由適用判斷區那一句負責
+                    (它還會講操作後果與清除入口);這一句是給「網址沒有車款、只是選單載入不到」用的。
+                    而它尾巴的「改用自行輸入」在商品頁沒有那條路,更不能疊在上面。 */}
+                <PdpVehicleTaxonomyNotice failed={vehicleTaxonomyFailed && !vehicleUnverified} />
+                <ProductFitmentCheck
+                  fitments={product.fitments ?? []}
+                  motoBrands={motoBrands}
+                  garage={garage}
+                  urlVehicle={liveUrlVehicle}
+                  vehicleIntentSettled={vehicleIntent !== null}
+                  vehicleUnverified={vehicleUnverified}
+                  taxonomyUnavailable={vehicleTaxonomyFailed}
+                  vehicleNotFoundInput={vehicleIntent?.kind === 'notFound' ? vehicleIntent.input : undefined}
+                  onPersistVehicle={persistVehicle}
+                />
+              </>
+            }
           />
         </section>
         {/* 2026-07-11(Sean 拍板):服務保障橫條移入 ProductInfo 右欄(買價下方、窄欄直立);原 OD-5 hero 下方全寬版退場。 */}
-        {/* V-2b §7:「是否適用我的車」保守比對(適用車款表段首;讀選車 context→checkFitment;
-            display-only 不寫庫不擋購物車、車種鐵律零猜)。無 fitments 時元件內返 null。
-            V-2c:URL 第一真相優先於 context 鏡;V-2h/MF-3:liveUrlVehicle 反應式(同頁 URL 變更即重判)
-            + onPersistVehicle 選車回寫 URL(Option A router.replace 條件式 skip)。 */}
-        {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
-            而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
-        {/* 🔴 同一件事不在同一頁講兩次(Fable R1 nit):網址指名了車款時,說明由適用判斷區那一句負責
-            (它還會講操作後果與清除入口);這一句是給「網址沒有車款、只是選單載入不到」用的。
-            而它尾巴的「改用自行輸入」在商品頁沒有那條路,更不能疊在上面。 */}
-        <PdpVehicleTaxonomyNotice failed={vehicleTaxonomyFailed && !vehicleUnverified} />
-        <ProductFitmentCheck
-          fitments={product.fitments ?? []}
-          motoBrands={motoBrands}
-          garage={garage}
-          urlVehicle={liveUrlVehicle}
-          vehicleIntentSettled={vehicleIntent !== null}
-          vehicleUnverified={vehicleUnverified}
-          taxonomyUnavailable={vehicleTaxonomyFailed}
-          vehicleNotFoundInput={vehicleIntent?.kind === 'notFound' ? vehicleIntent.input : undefined}
-          onPersistVehicle={persistVehicle}
-        />
         {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
             D1=A 3 欄(車廠/車型/年式)。無 fitments(mock / 通用款 / 無資料真品)→ 元件內返 null 整段不渲染。 */}
         <ProductFitments product={product} />
@@ -398,7 +404,11 @@ export function ProductPage({
         )}
         {showMobileQtyPanel && (
           <div className="pd-mbb-qty-panel" role="region" aria-label="已加入購物車,調整數量">
-            <span className="pd-mbb-qty-label">已加入・數量</span>
+            <span className="pd-mbb-qty-label">
+              已加入・數量
+              {/* 2026-09-29 手機走查(主視窗交辦, 稿之外的補強):加入之後給一個明確的下一步, 不用自己找右上角購物車。 */}
+              <Link href="/cart" className="pd-added-cart-link">查看購物車</Link>
+            </span>
             <CartQtyInput qty={mobileCartQty} onCommit={(n) => updateQty(mobileLineKey, n)} />
           </div>
         )}

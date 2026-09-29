@@ -2191,6 +2191,13 @@
   border-top: 1px solid var(--c-border);
 }
 .pd-mbb-qty-label { font-size: 13px; font-weight: 600; color: var(--c-text); }
+/* 2026-09-29:「已加入」旁的「查看購物車」(手機列與桌機提示共用)。觸控區 ≥ 24px(WCAG 2.5.8, Sean 08-09 拍板的門檻)。 */
+.pd-added-cart-link {
+  display: inline-flex; align-items: center; min-height: 24px;
+  margin-left: 10px; padding: 0 2px;
+  font-size: 13px; font-weight: 600; color: var(--c-text);
+  text-decoration: underline; text-underline-offset: 2px;
+}
 
 /* 🔴 N4(2026-08-24):手機 sticky 買價列的上限提示 —— **不新增視覺,借桌機那兩個 class**
    (`.pd-added-notice` 的排版 + `.pd-over-limit-notice` 的暖底警示槓,Sean 2026-08-23 拍甲那一套)。

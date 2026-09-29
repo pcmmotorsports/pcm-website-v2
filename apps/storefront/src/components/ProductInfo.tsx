@@ -31,7 +31,8 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
@@ -53,6 +54,9 @@ export type ProductInfoProps = {
   onSelectVariant: (variant: UIVariant | null) => void;
   /** RPM 才顯「泰國原廠」卡(卡級守門);由 ProductPage 依 brandSlug 傳入。預設 false。 */
   isRpmCarbon?: boolean;
+  /** 2026-09-29 手機走查(主視窗交辦):「是否適用我的車」那一塊, 放在價格正下方。
+   *  客人最想知道的是「裝不裝得上」, 原本排在收藏與服務說明下面, 手機要往下滑一段才看到。 */
+  fitmentSlot?: ReactNode;
 };
 
 /**
@@ -75,7 +79,7 @@ export function addToCartBlockedReason(o: {
   return null;
 }
 
-export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, isRpmCarbon = false }: ProductInfoProps) {
+export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, isRpmCarbon = false, fitmentSlot }: ProductInfoProps) {
   const variants = product.variants ?? [];
   const hasVariants = variants.length > 0;
 
@@ -468,6 +472,8 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
         )}
       </div>
 
+      {fitmentSlot}
+
       {/* OD-7c:picker 上方即時預覽卡 — 顯當前選中變體對應的紋路樣品圖(findSwatch + fallback);
           點圖開 lightbox 瀏覽全 10 張樣品。與 Hero 圖庫(OD-7d 真變體實拍)互補(預覽=乾淨紋路參考)。
           W2:限 RPM 形狀 — 非 RPM(bonamici/cncracing 色彩變體)降級不渲染,防 findSwatch
@@ -569,6 +575,8 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
               🔵 **而守門仍然看 `cartLineQty > 0`** —— 它守的是另一件事:
                  「面板說已加入而車上那列是 0 件」是騙人的, 那個保護不能跟著換掉。 */}
           已加入購物車 · 車上共 {totalQty} 件
+          {/* 2026-09-29 手機走查(主視窗交辦):與手機列同一個下一步。 */}
+          <Link href="/cart" className="pd-added-cart-link">查看購物車</Link>
         </div>
       )}
 

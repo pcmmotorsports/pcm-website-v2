@@ -880,3 +880,34 @@ describe('加入購物車:一般價空的規格、沒有規格的商品都不能
     expect(addToCartBlockedReason({ dealerPriceUnavailable: false, hasVariants: true, displayPrice: null })).toBe(NO_PRICE_MSG);
   });
 });
+
+// 2026-09-29 正式站手機走查(主視窗交辦 ③ ⑤)。
+describe('ProductPage — 手機走查:適用判斷排在價格下方、加入後可直接去購物車', () => {
+  const withFitment = {
+    ...MOCK_PRODUCTS[0]!,
+    fitments: [{ motoBrand: 'Harley-Davidson', modelCode: 'Road Glide', yearStart: 2020, yearEnd: null }],
+  };
+
+  it('🔴 ⑤「是否適用我的車」在商品資訊欄裡、緊接在價格區之後', () => {
+    mockSearchParams = new URLSearchParams('');
+    const { container } = render(<ProductPage product={withFitment} tier="general" motoBrands={PDP_MOTO} />);
+    const price = container.querySelector('.pd-info .pd-price-block');
+    const fit = container.querySelector('.pd-info .pfc');
+    expect(price).not.toBeNull();
+    expect(fit).not.toBeNull();
+    // 價格區之後、下一個「加入購物車」那一列之前
+    expect(price!.compareDocumentPosition(fit!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const buyRow = container.querySelector('.pd-info .pd-buy-row')!;
+    expect(fit!.compareDocumentPosition(buyRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('🔴 ③ 手機購買列加入後, 數量列旁有「查看購物車」連到 /cart', () => {
+    mockSearchParams = new URLSearchParams('');
+    const { container } = render(<ProductPage product={SELLABLE} tier="general" />);
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    const panel = container.querySelector('.pd-mbb-qty-panel');
+    expect(panel).not.toBeNull();
+    const link = panel!.querySelector('a[href="/cart"]');
+    expect(link?.textContent).toBe('查看購物車');
+  });
+});

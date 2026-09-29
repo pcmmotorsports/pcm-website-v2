@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(resolve(__dirname, 'search-overlay.css'), 'utf8');
+const css = readFileSync(resolve(__dirname, 'search-overlay-mobile.css'), 'utf8');
 /** 取出某個選擇器第一個規則塊的內容。 */
 function ruleBody(selector: string): string {
   const i = css.indexOf(`${selector} {`);
