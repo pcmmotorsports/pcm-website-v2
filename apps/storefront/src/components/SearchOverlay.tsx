@@ -56,6 +56,7 @@ import { SEARCH_MAX_QUERY_LENGTH, type SearchOverlayItem } from '@/lib/search-sh
 import type { SearchFacets } from '@/lib/search-facets';
 import { SearchOverlayFacets } from '@/components/SearchOverlayFacets';
 import { SearchOverlayProducts } from '@/components/SearchOverlayProducts';
+import { SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 
 /** 稿 `SearchOverlay.jsx:74` 的熱門搜尋 chips,逐字照搬。 */
 const POPULAR = ['排氣管', '碳纖維', '腳踏', 'Öhlins', 'Akrapovič', 'CBR600RR'];
@@ -382,7 +383,10 @@ export function SearchOverlay() {
               客人看到的是「沒有找到」= plan §5 逐字要避開的那一句。 */}
           {view.kind === 'ok' && !hasAnyResult && (
             <div className="search-overlay-noresults">
-              <div className="search-overlay-nores-label">沒有找到「{q}」相關結果</div>
+              {/* 2026-09-29:車款清單讀不到時, 打車款名稱一定查不到 ⇒ 說清單讀不到, 不說「沒有找到」。 */}
+              <div className="search-overlay-nores-label">
+                {f?.failed.vehicles ? SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE : <>沒有找到「{q}」相關結果</>}
+              </div>
               {/* 🔴🔴 **「你是不是要找 X?」(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)**
                   原話逐字:「只在搜尋結果【0 筆】時, 畫面多一行『你是不是要找 AKRAPOVIČ?』(客人自己點)」
                   ⇒ 📌 三個限定詞都承重:**只在 0 筆時**(它就在這個 block 裡)· **客人自己點**(是 button)
@@ -434,7 +438,10 @@ export function SearchOverlay() {
                   搜尋「{q}」
                 </button>
               </div>
-              <div className="search-overlay-nores-hint">試試「排氣管」、「Öhlins」、或你的車款名稱</div>
+              {/* 車款清單讀不到時, 不再建議「你的車款名稱」(上一行才說車款名稱可能搜不到;Fable R1 建議 B)。 */}
+              <div className="search-overlay-nores-hint">
+                {f?.failed.vehicles ? '試試「排氣管」、「Öhlins」' : '試試「排氣管」、「Öhlins」、或你的車款名稱'}
+              </div>
             </div>
           )}
 

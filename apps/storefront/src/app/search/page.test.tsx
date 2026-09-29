@@ -15,6 +15,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 
+import { SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 const searchProducts = vi.fn();
 vi.mock('@/lib/search', () => ({ searchProducts, SEARCH_PAGE_LIMIT: 25 }));
 vi.mock('@/components/Header', () => ({ Header: () => <div data-testid="header" /> }));
@@ -158,5 +159,21 @@ describe('搜尋結果首屏照片(2026-09-29 手機速度, 與目錄同一個�
     searchProducts.mockResolvedValue({ items, total: 6, error: false });
     await renderAt('排氣管');
     expect(screen.getAllByTestId('card').map((c) => c.getAttribute('data-priority'))).toEqual(['true', 'true', 'true', 'true', 'false', 'false']);
+  });
+});
+
+describe('車款清單讀不到(2026-09-29)', () => {
+  it('0 筆而車款清單讀不到 ⇒ 說車款清單讀不到, 不說「沒有找到」;讀得到時照舊', async () => {
+    const products = await import('@/lib/products');
+    const tv = vi.mocked(products.tryVehicleTaxonomyBase);
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tv.mockResolvedValueOnce({ motoBrands: [], failed: true });
+    await renderAt('rsv4');
+    expect(screen.getByText(SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE)).toBeTruthy();
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+    tv.mockResolvedValueOnce({ motoBrands: [], failed: false });
+    await renderAt('rsv4');
+    expect(screen.queryByText(SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE)).toBeNull();
+    expect(screen.getByText(/沒有找到/)).toBeTruthy();
   });
 });

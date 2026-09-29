@@ -30,6 +30,7 @@ import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { SEARCH_LOG_PROBE_PARAM, isProbeTraffic, SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 import { resolveSiteUrl, selfPageUrl } from '@/lib/site-url';
+import { SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 
 // 搜尋字隨 URL 變動、結果隨每日目錄同步變動 ⇒ 不做靜態化。
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,7 @@ export default async function SearchRoute({ searchParams }: Props) {
   const { error } = searched;
   let items: readonly CatalogCardProduct[] = searched.items;
   let total: number | null | undefined = searched.total;
+  let vehicleListFailed = false;
   // 🔵 品牌俗名退路(Sean 2026-09-15 Q3:「阿卡、蠍子管、蠍子、碳蠍 都要當 Akrapovič 搜」)——
   //    與搜尋框疊層(`/api/search`)同一份判準與取數(`lib/search-brand-synonym-fallback.ts`),
   //    解析用同樣三份 taxonomy ⇒ 同一個字在兩個畫面得到同一個品牌。
@@ -82,6 +84,7 @@ export default async function SearchRoute({ searchParams }: Props) {
       // 🔵 2026-09-29 選車清單瘦身甲案:`parseSearchFacets` 只比牌子與車款、不用年份 ⇒ 底盤清單就夠。
       tryVehicleTaxonomyBase(),
     ]);
+    vehicleListFailed = vehicleTax.failed;
     const parsed = parseSearchFacets(q, {
       motoBrands: vehicleTax.motoBrands,
       brands: brandTax.brands,
@@ -114,6 +117,11 @@ export default async function SearchRoute({ searchParams }: Props) {
         ) : error ? (
           <p style={{ color: 'var(--c-text-3)', marginTop: 24 }} role="status">
             搜尋暫時無法使用,請稍後再試一次,或用 LINE 直接問我們。
+          </p>
+        ) : items.length === 0 && vehicleListFailed ? (
+          // 2026-09-29:車款清單讀不到時, 打車款名稱一定查不到 ⇒ 說清單讀不到, 不說「沒有找到」。
+          <p style={{ color: 'var(--c-text-3)', marginTop: 24 }} role="status">
+            {SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE}
           </p>
         ) : items.length === 0 ? (
           <p style={{ color: 'var(--c-text-3)', marginTop: 24 }}>
