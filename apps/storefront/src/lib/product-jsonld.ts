@@ -22,7 +22,8 @@
 //   U+003C〔原始碼第 2 引數雙反斜線、runtime 6 bytes〕→ JSON 解析回 <、但 HTML 不誤判 </script> breakout)。
 
 import type { MockProduct, UIFitment } from '@/data/mock-products';
-import { isAbsoluteHttpUrl } from '@/lib/site-url';
+import { isAbsoluteHttpUrl, resolveSiteUrl } from '@/lib/site-url';
+import { returnPolicyId } from '@/lib/org-jsonld';
 import { safeJsonLd } from '@/lib/json-ld';
 import { FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from '@pcm/domain';
 import { HANDLING_WEEKS, HOME_TRANSIT_BUSINESS_DAYS } from '@/lib/shipping-transit';
@@ -168,8 +169,11 @@ export function buildProductJsonLd(
   }
 
   // sku ← 真主碼 productCode(無 → 省略,不用 slug 冒充 sku)
-  if (product.productCode) {
-    jsonLd.sku = product.productCode;
+  //   Google 規定 sku 不可含任何空白字元(Search Console 2026-09-29「sku 欄位中的值無效」,
+  //   Öhlins「DMX 0102」這類中間有空格)⇒ 拿掉空白與控制字元;清完是空的就省略。畫面上的料號不動。
+  const sku = product.productCode?.replace(/[\s\p{Cc}]/gu, '');
+  if (sku) {
+    jsonLd.sku = sku;
   }
 
   // 🔴 category 刻意不放(2026-09-22, Search Console「category 欄位中的值無效」):
@@ -261,6 +265,7 @@ function buildOffers(product: MockProduct, now: Date): Record<string, unknown> {
   // 🔴 三個共用欄位走**同一個運算式**餵三種形狀,不是各寫一份(各寫一份就會分岔)。
   // 商品頁乙 P12b:一般價空的規格不列進 offers(Google 看到的只有買得到的價);全部都空 ⇒ 呼叫端不帶 offers
   const variantPrices = (product.variants ?? []).map((v) => v.price).filter((x): x is number => x !== null);
+  const siteBase = resolveSiteUrl();
   const lowestPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : (product.price ?? 0);
   const common = {
     priceCurrency: PRICE_CURRENCY,
@@ -268,6 +273,9 @@ function buildOffers(product: MockProduct, now: Date): Record<string, unknown> {
     itemCondition: ITEM_CONDITION,
     priceValidUntil: priceValidUntil(now),
     shippingDetails: buildShippingDetails(lowestPrice),
+    // 退貨政策只在 Organization 定義一份(org-jsonld.ts), 這裡用 @id 指過去(Google 商家資訊文件的寫法);
+    //   網域未設 ⇒ Organization 那份也不存在 ⇒ 不帶。
+    ...(siteBase ? { hasMerchantReturnPolicy: { '@id': returnPolicyId(siteBase) } } : {}),
   };
 
   if (variantPrices.length > 0) {

@@ -28,6 +28,11 @@ const SCHEMA_ORG = 'https://schema.org';
 
 export type OrganizationJsonLd = Record<string, unknown>;
 
+/** 全站退貨政策節點的 @id(Organization 定義、商品 offers 引用, 兩邊同一個字串)。 */
+export function returnPolicyId(base: string): string {
+  return `${base}/#return-policy`;
+}
+
 /** schema.org/Store JSON-LD 物件(逐欄白名單;見檔頭 🔴)。 */
 export function buildOrganizationJsonLd(): OrganizationJsonLd {
   const base = resolveSiteUrl();
@@ -66,6 +71,17 @@ export function buildOrganizationJsonLd(): OrganizationJsonLd {
     jsonLd.url = base;
     jsonLd.logo = `${base}${LOGO_PATH}`;
     jsonLd.image = `${base}${LOGO_PATH}`;
+    // 全站退貨政策(2026-09-29 Search Console「hasMerchantReturnPolicy 未填」)。Google 退貨政策標記
+    //   「選項 B」:只給政策頁網址(developers.google.com/search/docs/appearance/structured-data/return-policy)。
+    //   🔴 刻意不放天數 / returnPolicyCategory:/info/shipping 退換貨分頁(rpm-policies.ts)寫的是
+    //   「客製代購不適用 7 天鑑賞期;瑕疵、缺件、寄錯簽收翌日起 7 天內免費換貨」, 對不上 Google 單一的類別,
+    //   鑑賞期文字律師看過前也不改 ⇒ 不在這裡另外詮釋。商品 offers 用 @id 指到這裡(product-jsonld.ts)。
+    jsonLd.hasMerchantReturnPolicy = {
+      '@type': 'MerchantReturnPolicy',
+      '@id': returnPolicyId(base),
+      applicableCountry: 'TW',
+      merchantReturnLink: `${base}/info/shipping`,
+    };
   }
 
   return jsonLd;
