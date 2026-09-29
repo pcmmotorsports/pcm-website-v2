@@ -12,7 +12,8 @@ vi.mock('next/headers', () => ({
 import { ORDER_KEYWORD_COOKIE, encodeOrderKeywordCookie } from '../orders/order-keyword-cookie';
 
 import { parseOrderListSearchParams } from '../orders/order-list-view';
-import { hrefToRaw } from '../orders/order-list-count';
+import { frozenListHref, hrefToRaw } from '../orders/order-list-count';
+import { VIEW_CHIPS, applyViewChip } from '../orders/order-toolbar-view';
 import { TODO_LIST_SPECS, loadTodayTodoLists, todoListHref, unreadableTodoLists } from './today-todo-read';
 
 // 🔴 `now` 固定,「近半年」那條預設才能被斷言成一個確定的日期(台北 2026-09-13 中午)。
@@ -151,5 +152,29 @@ describe('loadTodayTodoLists · 四格 = 網址 → 列表頁讀法 → 同一�
       href: '/orders?goods_axis=none&date_from=2026-03-13&date_to=2026-09-13&todo=to-order',
       count: null,
     });
+  });
+});
+
+// 2026-09-30 名稱統一(主視窗 -fe):同一個名字要算出同一個數字。
+//   首頁「待尾款」格子與訂單頁「只看:待尾款」那顆, 按下去要是同一份篩選 ⇒ 同一支查詢、同一個筆數。
+//   已取消但收過訂金的單要走退款, 不是收尾款 ⇒ 兩邊都要 pendingOnly(排除已取消 / 已退款);
+//   也不能疊著列表預設的「未完成」貨品軸 —— 已出貨而錢沒收齊的單正是這一格要看到的。
+describe('待尾款:首頁格子 = 訂單頁只看列那顆(同一份篩選)', () => {
+  const NOW = new Date('2026-09-30T02:00:00Z');
+  const strip = (href: string) => {
+    const u = new URL(href, 'http://x');
+    u.searchParams.delete('todo');
+    return [...u.searchParams.entries()].sort().map(([k, v]) => `${k}=${v}`).join('&');
+  };
+
+  it('首頁那一格帶 pendingOnly', () => {
+    expect(TODO_LIST_SPECS.partiallyPaid.filter).toMatchObject({ paymentStatus: 'partiallyPaid', pendingOnly: true });
+  });
+
+  it('從訂單頁預設畫面按「待尾款」⇒ 網址與首頁格子點進去的一樣(拿掉任一邊的 pendingOnly 都會不同)', () => {
+    const partial = VIEW_CHIPS.find((c) => c.key === 'partial')!;
+    const listDefault = parseOrderListSearchParams({}, { now: NOW }).filter;
+    const fromChip = frozenListHref(applyViewChip(listDefault, partial), NOW);
+    expect(strip(fromChip)).toBe(strip(todoListHref('partiallyPaid', NOW)));
   });
 });

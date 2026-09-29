@@ -83,8 +83,9 @@ export type ViewChipFilter = Partial<Pick<AdminOrderFilter, ViewChipKey>>;
 export type ViewChipSpec = {
   key: string;
   label: string;
-  /** `all` = 清掉本列所有鍵。其餘 = 只動自己那一個鍵(可與別的 chip 疊)。 */
-  filter: ViewChipFilter;
+  /** `all` = 清掉本列所有鍵。其餘 = 只動自己那一個鍵(可與別的 chip 疊)。
+   *  🆕 2026-09-30:「待尾款」另帶 `pendingOnly`(與首頁那一格同一份篩選), 按下 / 取消時兩個鍵一起動。 */
+  filter: ViewChipFilter & Partial<Pick<AdminOrderFilter, 'pendingOnly'>>;
   /** 哪一個鍵是這顆 chip 的本體(疊加 / 判定選中用);`all` 沒有。 */
   owns?: ViewChipKey;
   group: 'view' | 'source' | 'channel' | 'tier';
@@ -101,8 +102,11 @@ export const VIEW_CHIPS: readonly ViewChipSpec[] = [
      ⚠️ `key` 仍是 `'all'`：它是連結與測試的識別碼, 不是給人看的字。 */
   { key: 'all', label: '不限', filter: {}, group: 'view' },
   // 2026-09-30 名稱統一(主視窗 -fe 答甲):原「尾款未收」→「待尾款」, 與首頁「今天要做的事」同名(Sean 批的名稱優先)。
-  //   篩選條件不動;首頁那一格另帶 `pendingOnly`(排除已取消), 這一顆沒帶 —— 已取消的單另有「已取消」那顆。
-  { key: 'partial', label: '待尾款', filter: { paymentStatus: 'partiallyPaid' }, owns: 'paymentStatus', group: 'view' },
+  //   🔴 同一個名字要算出同一個數字(主視窗 -fe):與首頁那一格同一份篩選 —— 帶 `pendingOnly`(已取消 / 已退款不算,
+  //      已取消而收過訂金的單要走退款, 不是收尾款), 而且按下去先清掉狀態列(同「已退款」「已取消」那兩顆):
+  //      列表預設的「未完成」貨品軸會把已出貨而錢沒收齊的單藏起來, 而那正是這一格要看到的。
+  //   守門:`lib/dashboard/today-todo-read.test.ts`「待尾款:首頁格子 = 訂單頁只看列那顆」。
+  { key: 'partial', label: '待尾款', filter: { paymentStatus: 'partiallyPaid', pendingOnly: true }, owns: 'paymentStatus', group: 'view' },
   { key: 'refunded', label: '已退款', filter: { paymentStatus: 'refunded' }, owns: 'paymentStatus', group: 'view' },
   // Sean 2026-09-14 線上:預設「未完成」把已取消藏掉,而只看列沒有一顆能把它叫出來。`cancelled_at IS NOT NULL`,零 migration。
   //    🔴 與六顆狀態 chip 互斥(它們都隱含 cancelled_at IS NULL)⇒ `applyViewChip` 對它會把狀態鍵清掉,六顆全不亮。
@@ -152,12 +156,17 @@ export function viewChipActive(chip: ViewChipSpec, filter: AdminOrderFilter): bo
 /** 按「只看」chip:`all` 清整列;選中的再按一次 = 取消那一鍵;否則只換自己那一鍵(其他鍵原樣)。 */
 export function applyViewChip(filter: AdminOrderFilter, chip: ViewChipSpec): AdminOrderFilter {
   if (chip.owns === undefined) return { ...filter, ...CLEARED_VIEW_FILTER };
-  if (viewChipActive(chip, filter)) return { ...filter, [chip.owns]: undefined };
+  // 取消選中:這顆帶進來的鍵全部拿掉(多數 chip 只有自己那一鍵;「待尾款」多一個 pendingOnly)。
+  if (viewChipActive(chip, filter)) {
+    return { ...filter, ...Object.fromEntries(Object.keys(chip.filter).map((k) => [k, undefined])) };
+  }
   // 🔴 「已取消」/「已退款」與六顆狀態 chip 互斥:狀態 chip 都隱含 `cancelled_at IS NULL` 與 `<> refunded`(adapter 貨品軸 /
   //    pendingOnly 那兩段),留著它們再疊「只看已取消 / 已退款」= 空集合。⇒ 按這兩顆先把狀態鍵清掉(六顆全不亮)。
   //    2026-09-14 Sean 線上撞到的就是「未完成」預設 + 沒地方叫出已取消。
-  const clearsStatus = chip.owns === 'cancelledOnly' || chip.key === 'refunded';
-  return { ...filter, ...(clearsStatus ? CLEARED_STATUS_FILTER : {}), [chip.owns]: chip.filter[chip.owns] };
+  //    2026-09-30:「待尾款」也清(理由見 VIEW_CHIPS 那一顆的註解)。
+  const clearsStatus = chip.owns === 'cancelledOnly' || chip.key === 'refunded' || chip.key === 'partial';
+  // 多數 chip 的 filter 只有自己那一鍵 ⇒ 整份帶進去與原本「只設 owns」等價;「待尾款」多帶一個 pendingOnly。
+  return { ...filter, ...(clearsStatus ? CLEARED_STATUS_FILTER : {}), ...chip.filter };
 }
 
 // ── 月份切換 ────────────────────────────────────────────────────────────────
