@@ -3,7 +3,7 @@ import type { AdminOrderFilter } from '@pcm/domain';
 import { getAdminOrderRepository } from '../orders/order-repository';
 import { countOrderList, frozenListHref } from '../orders/order-list-count';
 
-// today-todo-read.ts — 首頁「今天要做的事」裡**走訂單列表篩選**的那三格(IO 層)。
+// today-todo-read.ts — 首頁「今天要做的事」裡**走訂單列表篩選**的那四格(IO 層;2026-09-30 加「待尾款」)。
 //    另外兩格(今日新單 / 退款待處理)沿用 `today-read.ts` 的 `loadTodaySummary`,本檔不重查。
 //
 // 🔴🔴 **數字 = 連結打開後的筆數,由構造保證,不靠人記得同步**(Sean 2026-09-13 逐字
@@ -47,6 +47,13 @@ export const TODO_LIST_SPECS = {
     label: '到貨待出貨',
     filter: { goodsAxes: ['instock'] },
   },
+  /** 待尾款:已收訂金、還沒收齊(列表「只看:尾款未收」同一條);`pendingOnly` 排除已取消 / 已退款。
+   *  🔴 **不限貨品軸**(主視窗 2026-09-30 Q2 甲):已出貨而錢沒收齊的單會離開預設「未完成」,最容易被忘記 ⇒ 這一格要看得到它。
+   *  plan:`~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-2。 */
+  partiallyPaid: {
+    label: '待尾款',
+    filter: { paymentStatus: 'partiallyPaid', pendingOnly: true },
+  },
 } as const satisfies Record<string, { label: string; filter: AdminOrderFilter }>;
 
 export type TodoListKey = keyof typeof TODO_LIST_SPECS;
@@ -66,7 +73,7 @@ export function todoListHref(key: TodoListKey, now: Date): string {
   return frozenListHref(TODO_LIST_SPECS[key].filter, now);
 }
 
-/** 整支載入拋掉時的替身:三格全部「讀取失敗」、連結仍指向列表頁本身(數字不藏、不假裝 0)。 */
+/** 整支載入拋掉時的替身:每一格都「讀取失敗」、連結仍指向列表頁本身(數字不藏、不假裝 0)。 */
 export function unreadableTodoLists(now: Date = new Date()): TodayTodoLists {
   const keys = Object.keys(TODO_LIST_SPECS) as TodoListKey[];
   return Object.fromEntries(

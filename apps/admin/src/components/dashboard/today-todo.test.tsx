@@ -27,3 +27,22 @@ describe('改價待審那一格', () => {
     expect(screen.getByRole('link', { name: /改價待審/ }).textContent).toContain('200+');
   });
 });
+
+describe('待尾款那一格(Sean 2026-09-30 批三格;主視窗 Q2 甲)', () => {
+  it('排在「待收款(匯款)」後面, 數字與連結照 lists.partiallyPaid', () => {
+    const lists = unreadableTodoLists(new Date('2026-09-13T04:00:00Z'));
+    lists.partiallyPaid = { ...lists.partiallyPaid, count: 2 };
+    render(<TodayTodo summary={null} lists={lists} amountRequests={null} />);
+    const card = screen.getByRole('link', { name: /待尾款 2 筆/ }) as HTMLAnchorElement;
+    expect(card.getAttribute('href')).toBe(
+      '/orders?payment_status=partiallyPaid&pending=1&date_from=2026-03-13&date_to=2026-09-13',
+    );
+    const labels = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
+    expect(labels.indexOf('待尾款')).toBe(labels.indexOf('待收款(匯款)') + 1);
+  });
+
+  it('讀不到:顯示讀取失敗, 不印成 0', () => {
+    render(<TodayTodo summary={null} lists={unreadableTodoLists()} amountRequests={null} />);
+    expect(screen.getByRole('link', { name: /待尾款 讀取失敗/ })).toBeTruthy();
+  });
+});

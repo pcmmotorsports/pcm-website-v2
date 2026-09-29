@@ -5,7 +5,8 @@ import { newOrdersHref } from './today-summary';
 
 // today-todo.tsx — 首頁最上面那一列「今天要做的事」六格(Sean 2026-09-13 拍前五格:
 //    新單 · 待收款(匯款) · 待訂貨 · 到貨待出貨 · 退款待處理,每格帶連結,零也印 0 不藏;
-//    2026-09-27 G1 甲加第六格「改價待審」⇐ `listPendingAmountRequests`)。
+//    2026-09-27 G1 甲加第六格「改價待審」⇐ `listPendingAmountRequests`;
+//    2026-09-30 加第七格「待尾款」⇐ `loadTodayTodoLists`, 同另外三格的算法)。
 //
 // 🔴 五格數字**兩個來源、零自寫判準**:
 //    · 新單 / 退款待處理 ⇐ `loadTodaySummary`(與下面「今日對帳」同一份,不重查)
@@ -76,13 +77,15 @@ export function TodayTodo({
   return (
     <section aria-label='今天要做的事' data-testid='today-todo'>
       <h2 className='mb-2 text-[13px] leading-[1.4] font-semibold text-(--fg-2)'>今天要做的事</h2>
-      <div className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6'>
+      <div className='grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7'>
         <TodoCard
           label='新單'
           count={summary?.newOrderCount ?? null}
           href={summary === null ? '/orders' : newOrdersHref(summary.ymd)}
         />
         <TodoCard {...lists.unpaidBankTransfer} />
+        {/* Sean 2026-09-30 批「今天要做的事＋三格」:收了訂金、還差尾款(含已出貨);與「待收款(匯款)」並排, 錢的事放一起。 */}
+        <TodoCard {...lists.partiallyPaid} />
         <TodoCard {...lists.notOrdered} />
         <TodoCard {...lists.instock} />
         {/* 🔴 兩個旗標跟 `today-summary.tsx` 同一份:截斷 ⇒ 數字是下限(黏 `+`);
