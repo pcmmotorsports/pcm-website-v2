@@ -116,6 +116,13 @@ describe('buildOrderTodoRows', () => {
     expect(row!.action).toEqual({ kind: 'link', label: '出貨（已到 1 樣）', href: '/orders?next=ord-1&do=ship', tone: 'default' });
   });
 
+  it('🔴 逾期未到:鈕固定「到貨登記」, 開 ?next=&do=receipt(不跟下一步那格走:這一格要做的就是登到貨或追供應商)', () => {
+    const o = order({ lines: [line('排氣管', { ordered: 1 }), line('腳踏', { ordered: 1, instock: 1 })] });
+    const [row] = buildOrderTodoRows([o], 'overdue', links, null);
+    expect(row!.action).toEqual({ kind: 'link', label: '到貨登記', href: '/orders?next=ord-1&do=receipt', tone: 'default' });
+    expect(row!.money).toBe('NT$ 10,000');
+  });
+
   it('客人名字沒有時用收件人姓名', () => {
     const [row] = buildOrderTodoRows([order({ customerName: null, lines: [line('排氣管')] })], 'to-order', links, null);
     expect(row!.customerName).toBe('收件人');

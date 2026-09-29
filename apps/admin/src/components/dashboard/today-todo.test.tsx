@@ -55,7 +55,15 @@ describe('兩排:錢一排、貨一排(plan §2-1;2026-09-30)', () => {
     const labels = rows.map((r) => [...r.querySelectorAll('h4')].map((h) => h.textContent));
     expect(labels).toEqual([
       ['新單', '待收款（匯款）', '待尾款', '退款待處理', '改價待審'],
-      ['待下訂', '有貨可先出', '可出貨'],
+      ['待下訂', '逾期未到', '有貨可先出', '可出貨'],
     ]);
+  });
+});
+
+describe('逾期未到那一格(主視窗 2026-09-30 板 256 Q1 甲)', () => {
+  it('格子下方小字講出規則:品項已取消、採購沒作廢的也算', () => {
+    render(<TodayTodo summary={null} lists={unreadableTodoLists()} amountRequests={null} />);
+    const card = screen.getByRole('link', { name: /逾期未到/ });
+    expect(card.textContent).toContain('品項已取消、採購沒作廢的也算');
   });
 });

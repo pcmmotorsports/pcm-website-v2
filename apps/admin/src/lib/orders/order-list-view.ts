@@ -66,6 +66,9 @@ export const MULTI_ITEM_ON = '1';
 /** 有貨可先出(2026-09-30):唯一開關值 '1'(同 `multi_item`)。 */
 export const PARTIAL_ARRIVED_PARAM = 'partial_arrived';
 export const PARTIAL_ARRIVED_ON = '1';
+/** 逾期未到(2026-09-30):唯一開關值 '1'。 */
+export const OVERDUE_ARRIVAL_PARAM = 'overdue';
+export const OVERDUE_ARRIVAL_ON = '1';
 /** 只看已取消 `?cancelled=1`(2026-09-14;同一族的唯一開關值)。 */
 export const CANCELLED_ONLY_PARAM = 'cancelled';
 export const CANCELLED_ONLY_ON = '1';
@@ -462,6 +465,7 @@ export function parseOrderListSearchParams(
     customerTiers: pickEnumMulti(raw[CUSTOMER_TIER_PARAM], MEMBER_TIER_VALUES),
     multiItemOnly: firstValue(raw[MULTI_ITEM_PARAM]) === MULTI_ITEM_ON,
     partialArrivedOnly: firstValue(raw[PARTIAL_ARRIVED_PARAM]) === PARTIAL_ARRIVED_ON,
+    overdueArrivalOnly: firstValue(raw[OVERDUE_ARRIVAL_PARAM]) === OVERDUE_ARRIVAL_ON,
     cancelledOnly: firstValue(raw[CANCELLED_ONLY_PARAM]) === CANCELLED_ONLY_ON,
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
     includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
@@ -684,6 +688,7 @@ export const ORDER_FILTER_URL_KEYS = [
   CUSTOMER_TIER_PARAM,
   MULTI_ITEM_PARAM,
   PARTIAL_ARRIVED_PARAM,
+  OVERDUE_ARRIVAL_PARAM,
   CANCELLED_ONLY_PARAM,
   SHOW_UNPAID_CARD_PARAM,
   PENDING_ONLY_PARAM,
@@ -883,6 +888,7 @@ export function buildOrderListHref(
     customerTiers: [CUSTOMER_TIER_PARAM, filter.customerTiers],
     multiItemOnly: [MULTI_ITEM_PARAM, filter.multiItemOnly ? MULTI_ITEM_ON : undefined],
     partialArrivedOnly: [PARTIAL_ARRIVED_PARAM, filter.partialArrivedOnly ? PARTIAL_ARRIVED_ON : undefined],
+    overdueArrivalOnly: [OVERDUE_ARRIVAL_PARAM, filter.overdueArrivalOnly ? OVERDUE_ARRIVAL_ON : undefined],
     cancelledOnly: [CANCELLED_ONLY_PARAM, filter.cancelledOnly ? CANCELLED_ONLY_ON : undefined],
     // 🔴 L6 的開關必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
     //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
@@ -941,6 +947,7 @@ export function buildOrderListHref(
     [CUSTOMER_TIER_PARAM]: byFilterKey.customerTiers[1],
     [MULTI_ITEM_PARAM]: byFilterKey.multiItemOnly[1],
     [PARTIAL_ARRIVED_PARAM]: byFilterKey.partialArrivedOnly[1],
+    [OVERDUE_ARRIVAL_PARAM]: byFilterKey.overdueArrivalOnly[1],
     [CANCELLED_ONLY_PARAM]: byFilterKey.cancelledOnly[1],
     [SHOW_UNPAID_CARD_PARAM]: byFilterKey.includeUnpaidCardOrders[1],
     [PENDING_ONLY_PARAM]: byFilterKey.pendingOnly[1],

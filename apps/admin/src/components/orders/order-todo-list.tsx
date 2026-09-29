@@ -25,6 +25,7 @@ export function OrderTodoList({
   rows,
   fullListHref,
   keyword,
+  description,
 }: {
   /** 格子名稱(`ORDER_TODO_SPECS[todo].label`)。 */
   title: string;
@@ -34,6 +35,8 @@ export function OrderTodoList({
   fullListHref: string;
   /** 這個登入還留著的搜尋關鍵字(cookie);有的話清單只列符合的單 ⇒ 要講出來。 */
   keyword: string | null;
+  /** 這一格的規則說明(例如逾期未到);沒有就不印。 */
+  description?: string;
 }) {
   return (
     <section aria-label={`${title}待辦清單`} data-testid='order-todo-list' className='space-y-3'>
@@ -49,6 +52,9 @@ export function OrderTodoList({
           </Link>
         </span>
       </div>
+      {description !== undefined && (
+        <p className='m-0 text-[13px] leading-[1.4] text-(--fg-2)'>{description}</p>
+      )}
       {/* 🔴 R1 F1:列表頁與首頁格子都套搜尋 cookie, 而待辦模式不畫工具列(看不到「搜尋「x」」那句)
           ⇒ 不講的話, 其他符合這一格的單會無聲地不在清單上。清除要到完整列表的搜尋框。 */}
       {keyword !== null && (

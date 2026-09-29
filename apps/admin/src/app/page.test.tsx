@@ -143,6 +143,7 @@ beforeEach(() => {
     instock: { label: '可出貨', href: '/orders?c=1', count: 5 },
     partiallyPaid: { label: '待尾款', href: '/orders?d=1', count: 1 },
     partialArrived: { label: '有貨可先出', href: '/orders?e=1', count: 4 },
+    overdueArrival: { label: '逾期未到', href: '/orders?f=1', count: 2 },
   });
   mocks.loadInvoiceMonthStats.mockResolvedValue({
     month: '2026-09',
@@ -175,6 +176,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
       '/orders/refund-exceptions',
       '/orders/amount-requests',
       '/orders?b=1',
+      '/orders?f=1',
       '/orders?e=1',
       '/orders?c=1',
     ]);
@@ -185,6 +187,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
       '退款待處理2',
       '改價待審2',
       '待下訂0',
+      '逾期未到2品項已取消、採購沒作廢的也算',
       '有貨可先出4',
       '可出貨5',
     ]);
@@ -254,7 +257,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     const { container } = render(await AdminHomePage());
     const todo = container.querySelector('[data-testid="today-todo"]')!;
     const links = Array.from(todo.querySelectorAll('a'));
-    expect(links).toHaveLength(8);
+    expect(links).toHaveLength(9);
     expect(links[1]!.textContent).toBe('待收款（匯款）讀取失敗');
     expect(links[2]!.textContent).toBe('待尾款讀取失敗');
     expect(links[1]!.getAttribute('href')).toContain('/orders?');

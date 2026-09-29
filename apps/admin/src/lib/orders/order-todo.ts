@@ -9,7 +9,7 @@
 export const ORDER_TODO_PARAM = 'todo';
 
 /** 每一格要按的那一顆鈕打開哪個彈窗(`?pay=` 或 `?next=&do=`, 都是訂單列表既有的彈窗)。 */
-export type OrderTodoAction = 'pay' | 'order' | 'ship';
+export type OrderTodoAction = 'pay' | 'order' | 'receipt' | 'ship';
 
 /**
  * 待辦模式的格子。`label` 是首頁格子與清單標題的**唯一**來源(`today-todo-read.ts` 讀這裡)。
@@ -20,10 +20,22 @@ export const ORDER_TODO_SPECS = {
   'unpaid-transfer': { label: '待收款（匯款）', action: 'pay', actionLabel: '新增收款' },
   'partial-paid': { label: '待尾款', action: 'pay', actionLabel: '新增收款' },
   'to-order': { label: '待下訂', action: 'order', actionLabel: '跟供應商下訂' },
+  // 2026-09-30 逾期未到(貼板 256):鈕固定「到貨登記」—— 這一格要做的就是登到貨, 或追供應商 / 作廢那筆採購。
+  //   `tileNote` / `description`:主視窗板 256 Q1 甲的規則要寫在畫面上(品項已取消、採購沒作廢的也算)。
+  overdue: {
+    label: '逾期未到',
+    action: 'receipt',
+    actionLabel: '到貨登記',
+    tileNote: '品項已取消、採購沒作廢的也算',
+    description: '這些訂單有採購過了預計到貨日、還沒到齊。品項已取消但採購沒作廢的也算：請點單號進訂單明細作廢那筆採購，或聯絡供應商確認。',
+  },
   // 2026-09-30 有貨可先出:鈕的字跟列表下一步走(「出貨（已到 N 樣）」, `orderNextStep` 的部分到貨分支), `actionLabel` 只是後備。
   'partial-ship': { label: '有貨可先出', action: 'ship', actionLabel: '出貨' },
   'ready-ship': { label: '可出貨', action: 'ship', actionLabel: '出貨' },
-} as const satisfies Record<string, { label: string; action: OrderTodoAction; actionLabel: string }>;
+} as const satisfies Record<
+  string,
+  { label: string; action: OrderTodoAction; actionLabel: string; tileNote?: string; description?: string }
+>;
 
 export type OrderTodoKey = keyof typeof ORDER_TODO_SPECS;
 
@@ -33,6 +45,12 @@ export const ORDER_TODO_KEYS = Object.keys(ORDER_TODO_SPECS) as OrderTodoKey[];
 export function readOrderTodoKey(raw: string | string[] | undefined): OrderTodoKey | null {
   if (typeof raw !== 'string') return null;
   return (ORDER_TODO_KEYS as readonly string[]).includes(raw) ? (raw as OrderTodoKey) : null;
+}
+
+/** 這一格清單上方的規則說明(只有部分格子有, 例如逾期未到);沒有 ⇒ `undefined`。 */
+export function orderTodoDescription(key: OrderTodoKey): string | undefined {
+  const spec = ORDER_TODO_SPECS[key];
+  return 'description' in spec ? spec.description : undefined;
 }
 
 /** 清單空了的那一句(不是「讀取失敗」—— 讀取失敗走列表既有的錯誤文字)。 */

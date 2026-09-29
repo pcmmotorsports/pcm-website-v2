@@ -7143,6 +7143,7 @@ export type Database = {
             | null
           goods_axis: string | null
           has_arrived_unshipped: boolean | null
+          has_overdue_arrival: boolean | null
           id: string | null
           invoice: Json | null
           invoice_amount: number | null
@@ -7193,6 +7194,7 @@ export type Database = {
             | null
           goods_axis?: never
           has_arrived_unshipped?: never
+          has_overdue_arrival?: never
           id?: string | null
           invoice?: Json | null
           invoice_amount?: number | null
@@ -7243,6 +7245,7 @@ export type Database = {
             | null
           goods_axis?: never
           has_arrived_unshipped?: never
+          has_overdue_arrival?: never
           id?: string | null
           invoice?: Json | null
           invoice_amount?: number | null

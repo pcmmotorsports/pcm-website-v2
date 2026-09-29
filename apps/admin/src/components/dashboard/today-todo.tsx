@@ -2,8 +2,9 @@ import Link from 'next/link';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
 import type { TodayTodoLists } from '../../lib/dashboard/today-todo-read';
 import { newOrdersHref } from './today-summary';
+import { ORDER_TODO_SPECS } from '../../lib/orders/order-todo';
 
-// today-todo.tsx — 首頁最上面那一列「今天要做的事」六格(Sean 2026-09-13 拍前五格:
+// today-todo.tsx — 首頁最上面「今天要做的事」(2026-09-30 起兩排九格)(Sean 2026-09-13 拍前五格:
 //    新單 · 待收款(匯款) · 待訂貨 · 到貨待出貨 · 退款待處理,每格帶連結,零也印 0 不藏;
 //    2026-09-27 G1 甲加第六格「改價待審」⇐ `listPendingAmountRequests`;
 //    2026-09-30 加第七格「待尾款」⇐ `loadTodayTodoLists`, 同另外三格的算法)。
@@ -115,6 +116,8 @@ export function TodayTodo({
       </div>
       <div data-todo-row='goods' className='mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5'>
         <TodoCard {...lists.notOrdered} />
+        {/* 2026-09-30 逾期未到(貼板 256):規則寫在格子上(主視窗板 256 Q1 甲)。 */}
+        <TodoCard {...lists.overdueArrival} note={ORDER_TODO_SPECS.overdue.tileNote} />
         {/* 2026-09-30:還沒到齊、有一樣到了(`has_arrived_unshipped`, 貼板 255)。 */}
         <TodoCard {...lists.partialArrived} />
         <TodoCard {...lists.instock} />

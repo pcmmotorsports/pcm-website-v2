@@ -388,6 +388,12 @@ export type AdminOrderFilter = {
    */
   partialArrivedOnly?: boolean;
   /**
+   * 逾期未到(2026-09-30, plan §2-2):有一筆採購沒作廢、預計到貨日早於台北今天、還沒到齊。
+   * 走列表 view 欄 `has_overdue_arrival`(貼板 256 `20260930040000`);排除已取消 / 已退款。
+   * 品項已取消、採購沒作廢的也算(主視窗 2026-09-30 板 256 Q1 甲:讓員工去作廢那筆採購或聯絡供應商)。URL `overdue=1`。
+   */
+  overdueArrivalOnly?: boolean;
+  /**
    * 只看已取消(Sean 2026-09-14 線上逐字「已取消的訂單 變成 點擊手動後才會跳出來,目前找不到地方可以讓他顯示」):
    * `orders.cancelled_at IS NOT NULL`。`true` = 只看已取消;`false` / undefined = 不篩(沒有「排除已取消」這一面 ——
    * 那一面由貨品軸 / `pendingOnly` 自己帶)。URL `cancelled=1`。與六顆狀態 chip 互斥(它們都隱含 cancelled_at IS NULL)。

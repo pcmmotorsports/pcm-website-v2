@@ -32,6 +32,11 @@ describe('狀態 chip(第一列)= 既有 URL 參數的映射', () => {
   it('六顆各釘一個 filter;未完成 = 三值、待收款 = unpaid × pending、已完成 = shipped', () => {
     expect(applyStatusChip({}, byKey('open')).goodsAxes).toEqual(['none', 'ordered', 'instock']);
     expect(applyStatusChip({}, byKey('unpaid'))).toMatchObject({ paymentStatus: 'unpaid', pendingOnly: true });
+    // 🆕 2026-09-30:從「有貨可先出 / 逾期未到」的完整列表按任一顆狀態 chip ⇒ 那兩個篩選要被清掉(否則疊出空集合)
+    const fromTodo = applyStatusChip({ partialArrivedOnly: true, overdueArrivalOnly: true }, byKey('instock'));
+    expect(fromTodo.partialArrivedOnly).toBeUndefined();
+    expect(fromTodo.overdueArrivalOnly).toBeUndefined();
+    expect(fromTodo.goodsAxes).toEqual(['instock']);
     expect(applyStatusChip({}, byKey('to-order')).goodsAxes).toEqual(['none']);
     expect(applyStatusChip({}, byKey('ordered')).goodsAxes).toEqual(['ordered']);
     expect(applyStatusChip({}, byKey('instock')).goodsAxes).toEqual(['instock']);

@@ -1713,6 +1713,15 @@ describe('OrdersPage — 待辦模式(首頁格子點進來)', () => {
     expect(again.container.querySelector('[data-testid="order-todo-list"]')!.textContent).not.toContain('符合搜尋');
   });
 
+  it('🔴 逾期未到:清單上方印規則說明(主視窗板 256 Q1 甲);待尾款那格沒有說明就不印', async () => {
+    const { container } = await renderPage({ overdue: '1', date_from: '2026-03-30', date_to: '2026-09-30', todo: 'overdue' });
+    const list = container.querySelector('[data-testid="order-todo-list"]')!;
+    expect(list.textContent).toContain('品項已取消但採購沒作廢的也算');
+    cleanup();
+    const other = await renderPage({ ...PARAMS, todo: 'partial-paid' });
+    expect(other.container.querySelector('[data-testid="order-todo-list"]')!.textContent).not.toContain('採購沒作廢');
+  });
+
   it('不認得的 todo 值 ⇒ 一般列表(工具列照畫)', async () => {
     const { container } = await renderPage({ ...PARAMS, todo: 'nope' });
     expect(container.querySelector('[data-testid="order-toolbar"]')).not.toBeNull();

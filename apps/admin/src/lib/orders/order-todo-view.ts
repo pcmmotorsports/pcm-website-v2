@@ -50,6 +50,17 @@ export function buildOrderTodoRows(
         : { kind: 'text', label: money };
       return { id: o.id, displayId: o.displayId, customerName, itemSummary, money, action };
     }
+    if (spec.action === 'receipt') {
+      // 逾期未到:固定「到貨登記」(同 `ORDER_TODO_SPECS.overdue` 的理由), 金額印訂單總額。
+      return {
+        id: o.id,
+        displayId: o.displayId,
+        customerName,
+        itemSummary,
+        money: `NT$ ${formatOrderAmount(o.total.amount)}`,
+        action: { kind: 'link', label: spec.actionLabel, href: links.next(o.id, 'receipt'), tone: 'default' },
+      };
+    }
     // 🔴 第三個參數跟 `orders-table.tsx` 同一條(品項被截斷就不算, 不猜):部分到貨時下一步是「出貨（已到 N 樣）」。
     const arrivedLines = o.itemsTruncated ? 0 : arrivedLineCount(o.lines);
     const next = orderNextStep(orderStatusView(o), boxByOrderId?.get(o.id) ?? null, arrivedLines);

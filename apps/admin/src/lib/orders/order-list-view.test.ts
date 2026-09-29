@@ -83,6 +83,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       customerTiers: undefined,
       multiItemOnly: false,
       partialArrivedOnly: false,
+      overdueArrivalOnly: false,
       cancelledOnly: false, // 只看已取消(2026-09-14):唯一開關值 '1',預設不篩
       // L6:filter 是整包比對 ⇒ 新增鍵一定要在這裡出現(這正是它的價值:
       // 有人新增 filter 欄卻忘了想「預設值該是什麼」時,這三條會紅)。
@@ -136,6 +137,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
       multiItemOnly: false, // Q5 乙:唯一開關值 '1',預設不篩
       partialArrivedOnly: false, // 2026-09-30 有貨可先出:唯一開關值 '1',預設不篩
+      overdueArrivalOnly: false, // 2026-09-30 逾期未到:唯一開關值 '1',預設不篩
       cancelledOnly: false, // 只看已取消(2026-09-14):唯一開關值 '1',預設不篩
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
@@ -165,6 +167,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       customerTiers: undefined, // Q5 乙(2026-09-14)新軸:預設不限
       multiItemOnly: false, // Q5 乙:唯一開關值 '1',預設不篩
       partialArrivedOnly: false, // 2026-09-30 有貨可先出:唯一開關值 '1',預設不篩
+      overdueArrivalOnly: false, // 2026-09-30 逾期未到:唯一開關值 '1',預設不篩
       cancelledOnly: false, // 只看已取消(2026-09-14):唯一開關值 '1',預設不篩
       includeUnpaidCardOrders: false,
       // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
@@ -465,6 +468,15 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
     expect(href).toBe('/orders?partial_arrived=1');
     expect(buildOrderListHref({ partialArrivedOnly: false }, DEN, 1, PANEL_CLOSED)).toBe('/orders');
     expect(hasOrderFilterParams({ partial_arrived: '1' })).toBe(true);
+  });
+
+  // ── 2026-09-30 逾期未到(`overdue=1`, 篩選軸;view 欄 has_overdue_arrival, 貼板 256)──
+  it('🔴 OD-1 `overdue=1` ⇒ overdueArrivalOnly;往返逐字回來;它是篩選鍵', () => {
+    expect(parseOrderListSearchParams({ overdue: '1' }).filter.overdueArrivalOnly).toBe(true);
+    expect(parseOrderListSearchParams({ overdue: 'yes' }).filter.overdueArrivalOnly).toBe(false);
+    expect(buildOrderListHref({ overdueArrivalOnly: true }, DEN, 1, PANEL_CLOSED)).toBe('/orders?overdue=1');
+    expect(buildOrderListHref({ overdueArrivalOnly: false }, DEN, 1, PANEL_CLOSED)).toBe('/orders');
+    expect(hasOrderFilterParams({ overdue: '1' })).toBe(true);
   });
 
   // ── 2026-09-30 待辦模式(`todo`, 顯示軸):形狀照抄上面 boss 那組 ──

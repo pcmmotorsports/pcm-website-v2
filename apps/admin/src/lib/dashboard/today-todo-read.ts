@@ -69,6 +69,13 @@ export const TODO_LIST_SPECS = {
     label: ORDER_TODO_SPECS['partial-ship'].label,
     filter: { partialArrivedOnly: true },
   },
+  /** 逾期未到:有一筆採購沒作廢、預計到貨日早於台北今天、還沒到齊(view 欄 `has_overdue_arrival`, 貼板 256)。
+   *  品項已取消、採購沒作廢的也算(主視窗板 256 Q1 甲)。plan §2-2。 */
+  overdueArrival: {
+    todo: 'overdue',
+    label: ORDER_TODO_SPECS.overdue.label,
+    filter: { overdueArrivalOnly: true },
+  },
 } as const satisfies Record<string, { todo: OrderTodoKey; label: string; filter: AdminOrderFilter }>;
 
 export type TodoListKey = keyof typeof TODO_LIST_SPECS;

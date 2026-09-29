@@ -84,7 +84,7 @@ import {
 import { OrderToolbar } from '../../components/orders/order-toolbar';
 import { OrderTodoList } from '../../components/orders/order-todo-list';
 import { buildOrderTodoRows } from '../../lib/orders/order-todo-view';
-import { ORDER_TODO_SPECS } from '../../lib/orders/order-todo';
+import { ORDER_TODO_SPECS, orderTodoDescription } from '../../lib/orders/order-todo';
 import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
 import { countOrderList, type OrderListCount } from '../../lib/orders/order-list-count';
 import { STATUS_CHIPS, applyStatusChip } from '../../lib/orders/order-toolbar-view';
@@ -964,6 +964,7 @@ export default async function OrdersPage({
             rows={todoRows}
             fullListHref={buildOrderListHref(filter, { ...display, todo: null }, 1, PANEL_CLOSED)}
             keyword={keyword}
+            description={orderTodoDescription(display.todo)}
           />
           <ListPagination
             page={page}

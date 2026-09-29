@@ -1394,6 +1394,12 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       query = query.is('cancelled_at', null);
       query = query.neq('payment_status', 'refunded');
     }
+    // 逾期未到(2026-09-30):view 欄 `has_overdue_arrival`(貼板 256)。同上一段的排除(已取消 / 已退款)與 fail-loud。
+    if (filter.overdueArrivalOnly) {
+      query = query.eq('has_overdue_arrival', true);
+      query = query.is('cancelled_at', null);
+      query = query.neq('payment_status', 'refunded');
+    }
     if (filter.multiItemOnly) {
       query = query.gt('item_count', 1);
     }
