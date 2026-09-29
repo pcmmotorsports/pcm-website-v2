@@ -95,6 +95,8 @@ export default async function OrderDetailPage({
     refundPrefill: readReturnRefundPrefill({
       get: (k) => (typeof rawSearch[k] === 'string' ? (rawSearch[k] as string) : null),
     }),
+    // 2026-09-30 後台三小改 ②:列表收款欄「需確認」連過來的(`?tab=money`)⇒ 開在收款 · 退款。
+    openMoneyTab: rawSearch.tab === 'money',
     missing: 'not-found',
     // OD 片 3b:整頁版沒有面板槽(`@panel` 掛在 `/orders` 那條路徑上)⇒ 入口是**整頁跳轉**。
     // 🔴 直接把收斂函式本人傳進去,**不在這裡補 fallback**:拼不出來就回 `null`,

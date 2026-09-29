@@ -133,6 +133,7 @@ export function OrderDetail({
   manualRefundRailCap = null,
   orderReturns,
   refundPrefill = null,
+  openMoneyTab = false,
   cancelFormsAllowed = false,
   customerHref = null,
   payments,
@@ -222,6 +223,8 @@ export function OrderDetail({
   orderReturns?: ComponentProps<typeof OrderDetailMoneyTab>['orderReturns'];
   /** 退貨收回第 3 片:原樣轉給 `OrderDetailMoneyTab`(退款表單預填)。 */
   refundPrefill?: ComponentProps<typeof OrderDetailMoneyTab>['refundPrefill'];
+  /** 2026-09-30 後台三小改 ②:列表收款欄「需確認」點進來(`?tab=money`)⇒ 開單就停在收款 · 退款。 */
+  openMoneyTab?: boolean;
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
   /**
@@ -349,7 +352,7 @@ export function OrderDetail({
          截斷兩態與收款讀不到,藏起來的病一模一樣。已知殘餘 ①② 照舊(起始頁只算一次)。 */
       initialKey={
         // 退貨收回第 3 片:從退貨卡片「為這筆退貨登記退款」過來(帶預填)⇒ 直接開在收款 · 退款。
-        correctNoteId !== null ? 'notes' : moneyTabMustSee || refundPrefill != null ? 'money' : 'items'
+        correctNoteId !== null ? 'notes' : moneyTabMustSee || refundPrefill != null || openMoneyTab ? 'money' : 'items'
       }
       stacked={stacked}
       header={

@@ -2077,3 +2077,22 @@ describe('/orders/[id] — ⟦b4-TAPPAYDIRECT⟧ 片 B 補登入口顯示鏈', (
     expect(backfillSection(container)).not.toBeNull();
   });
 });
+
+// 2026-09-30 後台三小改 ②:列表收款欄「需確認」連到 `/orders/<id>?tab=money` ⇒ 頁面要把它交下去, 開在收款 · 退款。
+describe('?tab=money ⇒ 開在收款 · 退款那一頁', () => {
+  const visiblePanels = (c: HTMLElement) =>
+    [...c.querySelectorAll('section[data-od-panel]')]
+      .filter((el) => !(el as HTMLElement).hidden)
+      .map((el) => el.getAttribute('data-od-panel'));
+
+  it('帶 ?tab=money ⇒ money', async () => {
+    const ui = await OrderDetailPage({ params: Promise.resolve({ id: ORDER }), searchParams: Promise.resolve({ tab: 'money' }) });
+    const { container } = render(ui);
+    expect(visiblePanels(container)).toEqual(['money']);
+  });
+
+  it('沒帶 ⇒ 不是 money(對照組, 證明上一格不是恆綠)', async () => {
+    const { container } = await renderPage();
+    expect(visiblePanels(container)).not.toEqual(['money']);
+  });
+});

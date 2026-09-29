@@ -2864,12 +2864,49 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
   it.each([
     ['已收足', { balanceDue: 0 }],
     ['多收 N', { balanceDue: -800 }],
-    ['需確認（算不出來）', { balanceDue: null }],
-    ['需確認（取消過）', { balanceDue: 3500, cancelledAt: '2026-09-13T00:00:00Z' }],
-  ] as const)('🔴 %s ⇒ 【不可點】（沒有收款要做；算不出餘額更不能給入口）', (_label, over) => {
+  ] as const)('🔴 %s ⇒ 【不可點】（沒有收款要做）', (_label, over) => {
     const td = cell(over as Partial<Parameters<typeof order>[0]>);
     expect(td.querySelector('a'), '不該有入口的那一態出現了連結').toBeNull();
     expect(td.textContent).not.toBe(''); // 字還在，只是不可點
+  });
+
+  // 2026-09-30 後台三小改 ②(研究報告第二節第 4 點、推薦路線第 2 項):「需確認」原本不可點, 員工不知道要去哪裡確認。
+  //   🔴 它【不】去 `?pay=`(新增收款彈窗)—— 那條當初不給的理由仍然成立:算不出餘額, 照著一個不存在的「還差」收款是錯的錢。
+  //   它去的是明細頁的「收款 · 退款」分頁, 那裡有收款紀錄與退款紀錄, 是用來「確認」的地方, 不是用來收錢的表單。
+  it.each([
+    ['需確認（算不出來）', { balanceDue: null, id: 'ord-Q' as AdminOrderSummary['id'] }],
+    ['需確認（取消過）', { balanceDue: 3500, cancelledAt: '2026-09-13T00:00:00Z', id: 'ord-Q' as AdminOrderSummary['id'] }],
+  ] as const)('🔴 %s ⇒ 連到明細頁的收款分頁, 不是新增收款彈窗', (_label, over) => {
+    const td = cell(over as Partial<Parameters<typeof order>[0]>);
+    const a = td.querySelector('a')!;
+    expect(a, '需確認沒有連結 ⇒ 員工還是不知道要去哪裡確認').not.toBeNull();
+    expect(a.getAttribute('href')).toBe('/orders/ord-Q?tab=money');
+    expect(a.getAttribute('href')).not.toContain('pay=');
+    expect(a.className).toContain('relative z-10');
+    expect(a.textContent).toBe(PAY_COLUMN_LABEL.unknown);
+  });
+
+  it('還差 N 分兩行印(金額在第二行), 不會被欄寬截掉;文字內容不變', () => {
+    const td = cell({ balanceDue: 22759, paymentStatus: 'partiallyPaid' });
+    expect(td.querySelector('br'), '沒有斷行 ⇒ 1440 寬會被截成「還差 22,…」').not.toBeNull();
+    expect(td.textContent).toBe('還差 22,759');
+  });
+});
+
+// 2026-09-30 後台三小改 ②(Sean 拍 Q2 甲):收了訂金、還差尾款 ⇒ 狀態膠囊旁加小字「訂金」, 八個狀態名稱都不動。
+describe('狀態膠囊旁的「訂金」小字', () => {
+  const statusCell = (over: Partial<Parameters<typeof order>[0]>) => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], ...over })]} />);
+    return container.querySelector(STATUS_CELL)!;
+  };
+  it('已收訂金(partiallyPaid)⇒ 印「訂金」', () => {
+    expect(statusCell({ paymentStatus: 'partiallyPaid', balanceDue: 3500 }).querySelector('[data-testid="deposit-tag"]')?.textContent).toBe('訂金');
+  });
+  it.each(['unpaid', 'paid'] as const)('%s ⇒ 不印', (paymentStatus) => {
+    expect(statusCell({ paymentStatus }).querySelector('[data-testid="deposit-tag"]')).toBeNull();
+  });
+  it('取消的單 ⇒ 不印(狀態欄已經寫「已取消」)', () => {
+    expect(statusCell({ paymentStatus: 'partiallyPaid', cancelledAt: '2026-09-13T00:00:00Z' }).querySelector('[data-testid="deposit-tag"]')).toBeNull();
   });
 });
 
