@@ -33,7 +33,7 @@ vi.mock('@/lib/products', () => ({
 }));
 vi.mock('server-only', () => ({}));
 
-const { default: SearchRoute, metadata } = await import('./page');
+const { default: SearchRoute, generateMetadata } = await import('./page');
 
 async function renderAt(q: string | undefined) {
   cleanup();
@@ -71,8 +71,14 @@ describe('/search', () => {
     expect(screen.queryByText(/沒有找到/)).toBeNull();
   });
 
-  it('S4 搜尋結果頁不進索引', () => {
+  it('S4 搜尋結果頁不進索引', async () => {
+    const metadata = await generateMetadata({ searchParams: Promise.resolve({ q: '排氣管' }) });
     expect((metadata.robots as { index: boolean }).index).toBe(false);
+  });
+
+  it('S4b 仍有一條 canonical 指向這一頁自己(2026-09-29:否則手機分享會拿到上一頁的網址)', async () => {
+    const metadata = await generateMetadata({ searchParams: Promise.resolve({ q: '排氣管' }) });
+    expect(String(metadata.alternates?.canonical)).toMatch(/\/search\?q=%E6%8E%92%E6%B0%A3%E7%AE%A1$/);
   });
 
   it('S5 有結果 ⇒ 畫卡片;總數大於顯示數時要講「顯示前 N 件」', async () => {

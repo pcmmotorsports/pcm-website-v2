@@ -102,6 +102,21 @@ describe('/products · metadata', () => {
   // 🔵 2026-09-09(M-4b SEO 第1片):本 route 由 `export const metadata`(靜態)
   //   改成 `generateMetadata`(要讀 searchParams 才產得出 canonical)⇒ 這一組跟著改成呼叫它。
   //   **斷言的字面一個字沒動** —— 標題本來就不該因為那次改寫而變。
+  it('🔴 不進索引的目錄頁(搜尋、兩個篩選)也有 canonical, 指向這一頁自己的完整網址(2026-09-29 手機分享拿到舊網址)', async () => {
+    // 沒有 canonical 時, 前一次目錄頁的 canonical 會留在畫面上;Chrome 手機的「分享」讀它 ⇒ 分享出去是上一頁。
+    const m = await generateMetadata({ searchParams: Promise.resolve({ search: 'daytona 660', vehicle: 'triumph:daytona-660' }) });
+    expect((m.robots as { index: boolean }).index).toBe(false);
+    expect(String(m.alternates?.canonical)).toMatch(/\/products\?search=daytona\+660&vehicle=triumph%3Adaytona-660$/);
+    const two = await generateMetadata({ searchParams: Promise.resolve({ pbrands: 'bonamici', vehicle: 'kawasaki:ninja-zx-10r' }) });
+    expect(String(two.alternates?.canonical)).toMatch(/\/products\?pbrands=bonamici&vehicle=kawasaki%3Aninja-zx-10r$/);
+  });
+
+  it('🔵 可進索引的目錄頁 canonical 不變(照舊是整理過的網址, 不是原樣照抄)', async () => {
+    const m = await generateMetadata({ searchParams: Promise.resolve({ vehicle: 'triumph:daytona-660', q0: 'daytona 660' }) });
+    expect(m.robots).toBeUndefined();
+    expect(String(m.alternates?.canonical)).toMatch(/\/products\?vehicle=triumph%3Adaytona-660$/);
+  });
+
   it('🔴 分頁標題 = 商品目錄 — PCM重機零件販售,不是舊名 PCM Motorsports', async () => {
     const metadata = await generateMetadata({ searchParams: Promise.resolve({}) });
     expect(metadata.title).toBe('商品目錄 — PCM重機零件販售');

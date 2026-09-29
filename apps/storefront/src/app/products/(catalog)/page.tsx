@@ -40,7 +40,7 @@ import {
 } from '@/lib/catalog-canonical';
 import { fetchLiveHomeBanners } from '@/lib/home-banners';
 import { buildCatalogPageText } from '@/lib/catalog-page-title';
-import { resolveSiteUrl } from '@/lib/site-url';
+import { resolveSiteUrl, selfPageUrl } from '@/lib/site-url';
 import { parseCategoryFromUrl, normalizeCategoryPath, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -101,11 +101,14 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
     query.filter === 'new',
     query.page,
   );
+  // 2026-09-29:不進索引的組合沒有「整理過的」canonical ⇒ 改發指向這一頁自己的那條,
+  //   免得手機分享拿到上一頁的網址(理由見 lib/site-url.ts `selfPageUrl`)。
+  const pageCanonical = canonical ?? selfPageUrl(resolveSiteUrl(), '/products', sp);
   return {
     title,
     description,
     // base 未設(prod 未設 NEXT_PUBLIC_SITE_URL)⇒ 整個省略,絕不吐 localhost(對齊 PDP)。
-    ...(canonical ? { alternates: { canonical } } : {}),
+    ...(pageCanonical ? { alternates: { canonical: pageCanonical } } : {}),
     // 🔴 `follow` 保留:不收錄這一頁,但爬蟲仍然走得進結果裡的商品頁。
     ...(noindex ? { robots: { index: false, follow: true } } : {}),
   };

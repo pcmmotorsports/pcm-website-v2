@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { resolveSiteUrl, isAbsoluteHttpUrl, canonicalAlternates } from './site-url';
+import { resolveSiteUrl, isAbsoluteHttpUrl, canonicalAlternates, selfPageUrl } from './site-url';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -75,5 +75,24 @@ describe('canonicalAlternates', () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_URL', '');
     vi.stubEnv('NODE_ENV', 'production');
     expect(canonicalAlternates('/privacy')).toEqual({});
+  });
+});
+
+// ── selfPageUrl(2026-09-29 Sean 手機分享拿到舊網址)─────────────────────
+// 不進索引的頁面也要有一條 canonical 指向自己:沒有的話, 前一頁的 canonical 會留在畫面上,
+// 而 Chrome 手機的「分享」讀的就是 canonical ⇒ 分享出去的是上一頁的網址。
+describe('selfPageUrl', () => {
+  it('照原順序帶上所有網址參數(含重複參數), 值會編碼', () => {
+    expect(
+      selfPageUrl('https://www.pcmmotorsports.com', '/products', { search: 'daytona 660', vehicle: 'triumph:daytona-660', c: ['a', 'b'] }),
+    ).toBe('https://www.pcmmotorsports.com/products?search=daytona+660&vehicle=triumph%3Adaytona-660&c=a&c=b');
+  });
+
+  it('沒有參數 ⇒ 只有路徑;undefined 的參數略過', () => {
+    expect(selfPageUrl('https://www.pcmmotorsports.com', '/search', { q: undefined })).toBe('https://www.pcmmotorsports.com/search');
+  });
+
+  it('🔵 base 拿不到 ⇒ undefined(寧缺勿錯, 不吐相對網址)', () => {
+    expect(selfPageUrl(undefined, '/products', { a: '1' })).toBeUndefined();
   });
 });

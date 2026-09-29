@@ -29,20 +29,26 @@ import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 import { withDealerCardPrices } from '@/lib/dealer-card-prices';
 import { SEARCH_LOG_PROBE_PARAM, isProbeTraffic, SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
+import { resolveSiteUrl, selfPageUrl } from '@/lib/site-url';
 
 // 搜尋字隨 URL 變動、結果隨每日目錄同步變動 ⇒ 不做靜態化。
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: `搜尋${SITE_TITLE_SUFFIX}`,
-  description: '搜尋 PCM 的高端機車零件:依商品名稱、副標與說明找貨。',
-  // 🔴 搜尋結果頁不進索引:同一批商品會長出無限多組 `?q=` 網址,而它們的內容互相重疊。
-  robots: { index: false, follow: true },
-};
-
 type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const canonical = selfPageUrl(resolveSiteUrl(), '/search', await searchParams);
+  return {
+    title: `搜尋${SITE_TITLE_SUFFIX}`,
+    description: '搜尋 PCM 的高端機車零件:依商品名稱、副標與說明找貨。',
+    // 🔴 搜尋結果頁不進索引:同一批商品會長出無限多組 `?q=` 網址,而它們的內容互相重疊。
+    robots: { index: false, follow: true },
+    // 2026-09-29:仍發一條指向自己的 canonical, 否則手機分享會拿到上一頁的網址(理由見 lib/site-url.ts `selfPageUrl`)。
+    ...(canonical ? { alternates: { canonical } } : {}),
+  };
+}
 
 export default async function SearchRoute({ searchParams }: Props) {
   const sp = await searchParams;
