@@ -46,7 +46,7 @@ export function RefundBackfillSection({ orderId }: { orderId: string }) {
   return (
     <section className='rounded-lg border border-amber-500/40 bg-amber-500/5 p-4'>
       <h2 className='mb-1 text-sm font-semibold text-amber-700'>
-        補登 TapPay 後台的退款(還不能用)
+        補登 TapPay 後台已完成的退款（尚未開放）
       </h2>
       <p className='text-muted-foreground mb-3 text-xs'>
         此處補登已在 TapPay 後台完成、尚未記入本系統的退款。

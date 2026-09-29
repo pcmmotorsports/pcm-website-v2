@@ -29,7 +29,7 @@ describe('改價待審那一格', () => {
 });
 
 describe('待尾款那一格(Sean 2026-09-30 批三格;主視窗 Q2 甲)', () => {
-  it('排在「待收款(匯款)」後面, 數字與連結照 lists.partiallyPaid', () => {
+  it('排在「待收款（匯款）」後面, 數字與連結照 lists.partiallyPaid', () => {
     const lists = unreadableTodoLists(new Date('2026-09-13T04:00:00Z'));
     lists.partiallyPaid = { ...lists.partiallyPaid, count: 2 };
     render(<TodayTodo summary={null} lists={lists} amountRequests={null} />);
@@ -38,7 +38,7 @@ describe('待尾款那一格(Sean 2026-09-30 批三格;主視窗 Q2 甲)', () =>
       '/orders?payment_status=partiallyPaid&pending=1&date_from=2026-03-13&date_to=2026-09-13&todo=partial-paid',
     );
     const labels = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
-    expect(labels.indexOf('待尾款')).toBe(labels.indexOf('待收款(匯款)') + 1);
+    expect(labels.indexOf('待尾款')).toBe(labels.indexOf('待收款（匯款）') + 1);
   });
 
   it('讀不到:顯示讀取失敗, 不印成 0', () => {
@@ -48,14 +48,14 @@ describe('待尾款那一格(Sean 2026-09-30 批三格;主視窗 Q2 甲)', () =>
 });
 
 describe('兩排:錢一排、貨一排(plan §2-1;2026-09-30)', () => {
-  it('第一排 = 新單 / 待收款(匯款) / 待尾款 / 退款待處理 / 改價待審;第二排 = 待訂貨 / 有貨可先出 / 到貨待出貨', () => {
+  it('第一排 = 新單 / 待收款（匯款） / 待尾款 / 退款待處理 / 改價待審;第二排 = 待下訂 / 有貨可先出 / 可出貨', () => {
     render(<TodayTodo summary={null} lists={unreadableTodoLists()} amountRequests={null} />);
     const rows = [...document.querySelectorAll('[data-testid="today-todo"] [data-todo-row]')];
     expect(rows.map((r) => r.getAttribute('data-todo-row'))).toEqual(['money', 'goods']);
     const labels = rows.map((r) => [...r.querySelectorAll('h4')].map((h) => h.textContent));
     expect(labels).toEqual([
-      ['新單', '待收款(匯款)', '待尾款', '退款待處理', '改價待審'],
-      ['待訂貨', '有貨可先出', '到貨待出貨'],
+      ['新單', '待收款（匯款）', '待尾款', '退款待處理', '改價待審'],
+      ['待下訂', '有貨可先出', '可出貨'],
     ]);
   });
 });

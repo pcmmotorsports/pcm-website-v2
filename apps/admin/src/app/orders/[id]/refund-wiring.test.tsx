@@ -290,10 +290,10 @@ function refundForm(container: HTMLElement): HTMLFormElement {
  */
 function ledgerSection(container: HTMLElement): HTMLElement {
   const heading = Array.from(container.querySelectorAll('h2')).find(
-    (h) => h.textContent === '退款紀錄',
+    (h) => h.textContent === '線上退款紀錄',
   );
   const section = heading?.closest('section');
-  if (!section) throw new Error('找不到退款帳本區塊(<h2>退款紀錄</h2> 的 section)');
+  if (!section) throw new Error('找不到退款帳本區塊(<h2>線上退款紀錄</h2> 的 section)');
   return section as HTMLElement;
 }
 
@@ -325,7 +325,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
   function flagOffNotice(container: HTMLElement): Element | null {
     return (
       Array.from(container.querySelectorAll('[role="status"]')).find((el) =>
-        (el.textContent ?? '').includes('這個環境沒有開放'),
+        (el.textContent ?? '').includes('目前環境沒有開放'),
       ) ?? null
     );
   }
@@ -336,7 +336,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     const notice = flagOffNotice(container);
     expect(notice, '旗標關著時必須有那一句,否則員工看到的是一個空盒子').not.toBeNull();
     // 🔴 兩件都要:不可以只說「沒開放」而不說去找誰 —— 那還是一個死路,只是有字。
-    expect(notice?.textContent).toContain('系統維護');
+    expect(notice?.textContent).toContain('系統管理員');
     // 🔴 刻意不可以寫成「你不能退款」—— 那不是真的(換一個有開旗標的環境就能退)。
     expect(notice?.textContent).not.toContain('你不能退款');
   });
@@ -442,7 +442,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
     const { container } = await renderPage();
     // 🔴 `#428`:帳本專屬的宣稱一律鎖進帳本區塊,不用整頁 textContent。
-    expect(ledgerText(container)).toContain('退款紀錄');
+    expect(ledgerText(container)).toContain('線上退款紀錄');
     // 'NT$ 777' 全字面:fixture displayId='ABC123' 會讓裸 '123' 恆真(opus R1 nit、撞號教訓)。
     expect(ledgerText(container)).toContain('NT$ 777');
     expect(ledgerText(container)).toContain('帳本未登記額');
@@ -501,7 +501,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(1000);
     const { container } = await renderPage();
-    expect(container.textContent).not.toContain('退款紀錄');
+    expect(container.textContent).not.toContain('線上退款紀錄');
     expect(container.textContent).not.toContain('帳本未登記額');
   });
 
@@ -1565,7 +1565,7 @@ describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () 
     const text = container.textContent ?? '';
     expect(text).toContain('客人匯錯金額退回差額');
     // 🔵 對照:成功那一態不得同時出現失敗字樣(否則「有畫出來」可能是兩塊都畫了)
-    expect(text).not.toContain('「非卡退款登記」讀不出來');
+    expect(text).not.toContain('現金／匯款退款紀錄載入失敗');
   });
 
   it('🔴 讀不到(reject)⇒ 區塊要說它讀不到,不是安靜地什麼都不畫', async () => {
@@ -1574,7 +1574,7 @@ describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () 
     const text = container.textContent ?? '';
     // 正向對照:頁面真的渲染出來,不是整頁空白讓下面那條恆真。
     expect(text).toContain('退款');
-    expect(text).toContain('「非卡退款登記」讀不出來');
+    expect(text).toContain('現金／匯款退款紀錄載入失敗');
   });
   // ══ ⟦b4-PCM01RECORD⟧ route 層接線 ═══════════════════════════════════════════
   //
@@ -1732,7 +1732,7 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
     //    而表單底部那顆送出鈕的字面也是「登記退款」⇒ 用四個字的話,
     //    **鈕在而表單不在的那個世界也會過。** ⇒ 用標題全稱,它是本檔獨有字面。
     expect(text, '入口沒有出現 —— 而 #787 的旗標已經翻成 false 了').toContain(
-      '登記退款(現金/匯款)',
+      '登記現金／匯款退款',
     );
 
     // 🔴🔴 **codex `gpt-6-astra` 2026-09-08 打掉了上面那兩行的宣稱** ——
@@ -1747,7 +1747,7 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
     //    🔵 而錨用 `MANUAL_REFUND_*_FIELD` 那組常數 —— 它們是表單自己 export 的 name,
     //       ⇒ 欄位改名時這一格會紅, 而一個寫死字串的版本不會。
     const heading = Array.from(container.querySelectorAll('h1,h2,h3,h4,h5,h6,legend,summary')).find(
-      (el) => (el.textContent ?? '').includes('登記退款(現金/匯款)'),
+      (el) => (el.textContent ?? '').includes('登記現金／匯款退款'),
     );
     expect(heading, '找不到「登記退款(現金/匯館)」那個標題節點 —— 上面的字串斷言可能撈到別處的字').toBeTruthy();
     const section = heading?.closest('section,form,details,fieldset,div') ?? null;
@@ -1814,7 +1814,7 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
     const text = container.textContent ?? '';
     // 🟢 正向對照先釘:整頁真的渲染出來
     expect(text, '整頁沒渲染 ⇒ 下面每一條都不算數').toContain('收款 · 退款');
-    expect(text, '混合單看不到那張表單 —— 而第五道閘已經拿掉了').toContain('登記退款(現金/匯款)');
+    expect(text, '混合單看不到那張表單 —— 而第五道閘已經拿掉了').toContain('登記現金／匯款退款');
     // 🔴 **而【勾選框在不在】才是這一格的中心** ——
     //    表單回來了而勾選框沒有 ⇒ 員工按下去被 DB 擋, 而錯誤訊息叫他去勾一個不存在的格子。
     const box = container.querySelector(
@@ -1851,7 +1851,7 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
     // 🟢 正對照先釘:整頁真的渲染出來 —— 少了它,「整頁炸掉」也會讓下面那條綠。
     expect(text, '整頁沒渲染 ⇒ 下面那條不算數').toContain('收款 · 退款');
     expect(text, '帳本未登記額 0 而表單仍在 ⇒ 員工拿到一張填什麼都會被 DB 擋的表單').not.toContain(
-      '登記退款(現金/匯款)',
+      '登記現金／匯款退款',
     );
   });
 
@@ -1871,7 +1871,7 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
     const text = container.textContent ?? '';
     expect(text, '整頁沒渲染 ⇒ 下面那條不算數').toContain('收款 · 退款');
     expect(text, 'null 而表單仍在 ⇒ 前端放行而 DB :273-276 fail-closed ⇒ 兩道閘分岔').not.toContain(
-      '登記退款(現金/匯款)',
+      '登記現金／匯款退款',
     );
   });
   // ═════════════════════════════════════════════════════════════════════════
@@ -2027,7 +2027,7 @@ describe('/orders/[id] — ⟦b4-TAPPAYDIRECT⟧ 片 B 補登入口顯示鏈', (
   function backfillSection(container: HTMLElement): Element | null {
     return (
       Array.from(container.querySelectorAll('h2')).find((el) =>
-        (el.textContent ?? '').includes('補登 TapPay 後台的退款'),
+        (el.textContent ?? '').includes('補登 TapPay 後台已完成的退款'),
       ) ?? null
     );
   }

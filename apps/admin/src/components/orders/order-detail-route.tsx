@@ -616,7 +616,7 @@ export async function OrderDetailRoute({
               className='text-primary underline underline-offset-4'
               data-testid='open-invoice-cheatsheet'
             >
-              抬頭 / 統編要改 ⇒ 開發票小抄
+              要改抬頭或統編，請開發票小抄
             </Link>
           </p>
         )}

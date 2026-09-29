@@ -90,14 +90,14 @@ describe('buildOrderTodoRows', () => {
     expect(row!.money).toBe('需確認');
   });
 
-  it('待訂貨:鈕 = 列表下一步「跟供應商下訂」, 連到 ?next=&do=order;金額印訂單總額', () => {
+  it('待下訂:鈕 = 列表下一步「跟供應商下訂」, 連到 ?next=&do=order;金額印訂單總額', () => {
     const [row] = buildOrderTodoRows([order({ lines: [line('排氣管'), line('腳踏')] })], 'to-order', links, null);
     expect(row!.action).toEqual({ kind: 'link', label: '跟供應商下訂', href: '/orders?next=ord-1&do=order', tone: 'default' });
     expect(row!.money).toBe('NT$ 10,000');
     expect(row!.itemSummary).toBe('排氣管 等 2 樣');
   });
 
-  it('🔴 到貨待出貨:鈕的字與去處跟列表下一步那一格同一支(有箱子時跟著箱子進度走)', () => {
+  it('🔴 可出貨:鈕的字與去處跟列表下一步那一格同一支(有箱子時跟著箱子進度走)', () => {
     const o = order({ lines: [line('排氣管', { ordered: 1, instock: 1 })] });
     const [plain] = buildOrderTodoRows([o], 'ready-ship', links, null);
     expect(plain!.action).toEqual({ kind: 'link', label: '出貨', href: '/orders?next=ord-1&do=ship', tone: 'default' });

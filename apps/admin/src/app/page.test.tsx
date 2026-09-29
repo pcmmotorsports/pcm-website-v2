@@ -138,9 +138,9 @@ beforeEach(() => {
     unreadableReason: null,
   });
   mocks.loadTodayTodoLists.mockResolvedValue({
-    unpaidBankTransfer: { label: '待收款(匯款)', href: '/orders?a=1', count: 3 },
-    notOrdered: { label: '待訂貨', href: '/orders?b=1', count: 0 },
-    instock: { label: '到貨待出貨', href: '/orders?c=1', count: 5 },
+    unpaidBankTransfer: { label: '待收款（匯款）', href: '/orders?a=1', count: 3 },
+    notOrdered: { label: '待下訂', href: '/orders?b=1', count: 0 },
+    instock: { label: '可出貨', href: '/orders?c=1', count: 5 },
     partiallyPaid: { label: '待尾款', href: '/orders?d=1', count: 1 },
     partialArrived: { label: '有貨可先出', href: '/orders?e=1', count: 4 },
   });
@@ -180,13 +180,13 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     ]);
     expect(links.map((a) => a.textContent)).toEqual([
       '新單7',
-      '待收款(匯款)3',
+      '待收款（匯款）3',
       '待尾款1',
       '退款待處理2',
       '改價待審2',
-      '待訂貨0',
+      '待下訂0',
       '有貨可先出4',
-      '到貨待出貨5',
+      '可出貨5',
     ]);
     expect(links[3]!.querySelector('p')!.className).toContain('text-destructive');
     expect(links[4]!.querySelector('p')!.className).toContain('text-destructive');
@@ -255,7 +255,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     const todo = container.querySelector('[data-testid="today-todo"]')!;
     const links = Array.from(todo.querySelectorAll('a'));
     expect(links).toHaveLength(8);
-    expect(links[1]!.textContent).toBe('待收款(匯款)讀取失敗');
+    expect(links[1]!.textContent).toBe('待收款（匯款）讀取失敗');
     expect(links[2]!.textContent).toBe('待尾款讀取失敗');
     expect(links[1]!.getAttribute('href')).toContain('/orders?');
     expect(links[0]!.textContent).toBe('新單7');
@@ -282,7 +282,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     expect(links[0]!.textContent).toBe('新單讀取失敗');
     expect(links[0]!.getAttribute('href')).toBe('/orders');
     expect(links[3]!.textContent).toBe('退款待處理讀取失敗');
-    expect(links[1]!.textContent).toBe('待收款(匯款)3');
+    expect(links[1]!.textContent).toBe('待收款（匯款）3');
     expect(links[2]!.textContent).toBe('待尾款1');
     spy.mockRestore();
   });

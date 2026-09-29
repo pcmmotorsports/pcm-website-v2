@@ -136,7 +136,7 @@ export function RefundSection({
 
   return (
     <section className='border-destructive/40 bg-destructive/5 rounded-lg border p-4'>
-      <h2 className='text-destructive mb-1 text-sm font-semibold'>線上退款(TapPay)</h2>
+      <h2 className='text-destructive mb-1 text-sm font-semibold'>申請線上退款（TapPay）</h2>
       <p className='text-muted-foreground mb-3 text-xs'>
         送出後 TapPay 立即受理、無法取消。全額退款以 TapPay 端剩餘可退額為準;
         部分退款需 TapPay 已請款,金額不得超過剩餘可退額。

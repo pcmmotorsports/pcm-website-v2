@@ -13,15 +13,16 @@ export type OrderTodoAction = 'pay' | 'order' | 'ship';
 
 /**
  * 待辦模式的格子。`label` 是首頁格子與清單標題的**唯一**來源(`today-todo-read.ts` 讀這裡)。
+ * 2026-09-30 Sean Q3 甲:與訂單頁篩選列同名 —— 待收款（匯款）/ 待下訂 / 可出貨(原 待收款(匯款)/ 待訂貨 / 到貨待出貨)。
  * `actionLabel`:收款用彈窗標題「新增收款」(同一件事一個名字);下訂 / 出貨沿用列表下一步的字(`ORDER_NEXT_STEP_LABEL`)。
  */
 export const ORDER_TODO_SPECS = {
-  'unpaid-transfer': { label: '待收款(匯款)', action: 'pay', actionLabel: '新增收款' },
+  'unpaid-transfer': { label: '待收款（匯款）', action: 'pay', actionLabel: '新增收款' },
   'partial-paid': { label: '待尾款', action: 'pay', actionLabel: '新增收款' },
-  'to-order': { label: '待訂貨', action: 'order', actionLabel: '跟供應商下訂' },
+  'to-order': { label: '待下訂', action: 'order', actionLabel: '跟供應商下訂' },
   // 2026-09-30 有貨可先出:鈕的字跟列表下一步走(「出貨（已到 N 樣）」, `orderNextStep` 的部分到貨分支), `actionLabel` 只是後備。
   'partial-ship': { label: '有貨可先出', action: 'ship', actionLabel: '出貨' },
-  'ready-ship': { label: '到貨待出貨', action: 'ship', actionLabel: '出貨' },
+  'ready-ship': { label: '可出貨', action: 'ship', actionLabel: '出貨' },
 } as const satisfies Record<string, { label: string; action: OrderTodoAction; actionLabel: string }>;
 
 export type OrderTodoKey = keyof typeof ORDER_TODO_SPECS;

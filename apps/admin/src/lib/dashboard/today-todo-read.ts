@@ -42,13 +42,13 @@ export const TODO_LIST_SPECS = {
     label: ORDER_TODO_SPECS['unpaid-transfer'].label,
     filter: { paymentStatus: 'unpaid', paymentChannels: ['bank_transfer'], pendingOnly: true },
   },
-  /** 待訂貨:貨品軸「未訂貨」(列表那條 chip;自帶排除已取消 / 已退款)。 */
+  /** 待下訂(2026-09-30 Sean Q3 甲:與篩選列同名, 原「待訂貨」):貨品軸「未訂貨」(列表那條 chip;自帶排除已取消 / 已退款)。 */
   notOrdered: {
     todo: 'to-order',
     label: ORDER_TODO_SPECS['to-order'].label,
     filter: { goodsAxes: ['none'] },
   },
-  /** 到貨待出貨:貨品軸「已到貨」。 */
+  /** 可出貨(2026-09-30 Sean Q3 甲:與篩選列同名, 原「到貨待出貨」):貨品軸「已到貨」。 */
   instock: {
     todo: 'ready-ship',
     label: ORDER_TODO_SPECS['ready-ship'].label,
@@ -62,8 +62,8 @@ export const TODO_LIST_SPECS = {
     label: ORDER_TODO_SPECS['partial-paid'].label,
     filter: { paymentStatus: 'partiallyPaid', pendingOnly: true },
   },
-  /** 有貨可先出:還沒到齊、有一樣到了還沒出(view 欄 `has_arrived_unshipped`, 貼板 255)。每一樣都到齊的單在「到貨待出貨」, 不重複。
-   *  plan §2-2;主視窗 Q4 甲:「一樣到了、另一樣還沒下訂」算 `goods_axis = 'none'`, 放「待訂貨」。 */
+  /** 有貨可先出:還沒到齊、有一樣到了還沒出(view 欄 `has_arrived_unshipped`, 貼板 255)。每一樣都到齊的單在「可出貨」, 不重複。
+   *  plan §2-2;主視窗 Q4 甲:「一樣到了、另一樣還沒下訂」算 `goods_axis = 'none'`, 放「待下訂」。 */
   partialArrived: {
     todo: 'partial-ship',
     label: ORDER_TODO_SPECS['partial-ship'].label,

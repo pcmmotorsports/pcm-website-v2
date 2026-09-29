@@ -48,9 +48,9 @@ describe('loadTodayTodoLists · 四格 = 網址 → 列表頁讀法 → 同一�
   // 🔬 突變對照(主視窗要求「改掉一個篩選 ⇒ 那個數字的測試要紅」):下面三格各釘死一個軸。
   //    實跑:把 `TODO_LIST_SPECS.unpaidBankTransfer.filter.paymentChannels` 改成 `['cash']`
   //    ⇒ 只有第一格紅;把 `notOrdered` 的 `goodsAxes` 改 `['ordered']` ⇒ 只有第二格紅。
-  it('待收款(匯款)= 未付款 × 銀行轉帳 × pending(排除已取消/退款),刷卡未付款不放回來、近半年預設有套', async () => {
+  it('待收款（匯款）= 未付款 × 銀行轉帳 × pending(排除已取消/退款),刷卡未付款不放回來、近半年預設有套', async () => {
     await loadTodayTodoLists(NOW);
-    const f = filterSentFor('待收款(匯款)');
+    const f = filterSentFor('待收款（匯款）');
     expect(f).toMatchObject({
       paymentStatus: 'unpaid',
       paymentChannels: ['bank_transfer'],
@@ -63,17 +63,17 @@ describe('loadTodayTodoLists · 四格 = 網址 → 列表頁讀法 → 同一�
     expect(typeof f.createdTo).toBe('string');
   });
 
-  it('待訂貨 = 貨品軸 none,不帶付款軸', async () => {
+  it('待下訂 = 貨品軸 none,不帶付款軸', async () => {
     await loadTodayTodoLists(NOW);
-    const f = filterSentFor('待訂貨');
+    const f = filterSentFor('待下訂');
     expect(f.goodsAxes).toEqual(['none']);
     expect(f.paymentStatus).toBeUndefined();
     expect(f.pendingOnly).toBe(false);
   });
 
-  it('到貨待出貨 = 貨品軸 instock', async () => {
+  it('可出貨 = 貨品軸 instock', async () => {
     await loadTodayTodoLists(NOW);
-    expect(filterSentFor('到貨待出貨').goodsAxes).toEqual(['instock']);
+    expect(filterSentFor('可出貨').goodsAxes).toEqual(['instock']);
   });
 
   // Sean 2026-09-30 批「今天要做的事＋三格」;主視窗 Q2 甲:已出貨但錢沒收齊的單也算(不限貨品軸)。
@@ -147,7 +147,7 @@ describe('loadTodayTodoLists · 四格 = 網址 → 列表頁讀法 → 同一�
     const u = unreadableTodoLists(NOW);
     expect(Object.keys(u)).toEqual(Object.keys(TODO_LIST_SPECS));
     expect(u.notOrdered).toEqual({
-      label: '待訂貨',
+      label: '待下訂',
       href: '/orders?goods_axis=none&date_from=2026-03-13&date_to=2026-09-13&todo=to-order',
       count: null,
     });
