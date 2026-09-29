@@ -40,6 +40,7 @@ import {
   serializeBrandBreadcrumbJsonLd,
 } from '@/lib/brand-jsonld';
 import { fetchBrandTopProducts, fetchBrandsWithProducts } from '@/lib/brand-products';
+import { brandMetaDescription } from '@/lib/seo-description';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { resolveDisplayTierStrict } from '@/lib/display-tier';
 
@@ -122,7 +123,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${brand.name} 品牌介紹${SITE_TITLE_SUFFIX}`;
   // description ← 品牌自己的 lede(真內容、不是編的);lede 是 BrandRichString ⇒ 走 plain 轉換,
   // 否則 `<strong>` 之類的標記會原封進 meta。
-  const description = brandRichTextToPlain(brand.lede);
+  // 2026-09-29 Bing「描述太短」:品牌自己的 lede 在前(真內容), 再接上架件數與全站事實, 120–150 字。
+  const count = (await fetchBrandsWithProducts()).brands?.find((b) => b.id === brand.slug)?.count ?? null;
+  const description = brandMetaDescription({ name: brand.name, lede: brandRichTextToPlain(brand.lede), productCount: count });
 
   const base = resolveSiteUrl();
   const canonicalUrl = base ? `${base}/brands/${slug}` : undefined;

@@ -25,25 +25,31 @@ function distinctModels(fitments: readonly UIFitment[] | undefined): string[] {
   return [...seen];
 }
 
+/** 「{品牌} {品名}」;品名已含品牌就不疊。標題與 meta description 共用(`lib/seo-description.ts`)。 */
+export function productSeoHead(p: { brand: string; name: string }): string {
+  const brand = p.brand.trim();
+  const name = p.name.trim();
+  return !brand || name.toLowerCase().startsWith(brand.toLowerCase()) ? name : `${brand} ${name}`;
+}
+
+/** 車款段:0 台 ''、1 台原名、2 台「A / B」、3 台以上「A 等 N 款車型」。標題與 meta description 共用。 */
+export function productSeoVehicle(fitments: readonly UIFitment[] | undefined): string {
+  const models = distinctModels(fitments);
+  return models.length === 0
+    ? ''
+    : models.length === 1
+      ? models[0]!
+      : models.length === 2
+        ? `${models[0]} / ${models[1]}`
+        : `${models[0]} 等 ${models.length} 款車型`;
+}
+
 export function productSeoTitle(p: {
   brand: string;
   name: string;
   fitments?: readonly UIFitment[];
 }): string {
-  const brand = p.brand.trim();
-  const name = p.name.trim();
-  // 品名自己已經以品牌開頭(例「Lightech 鋁合金腳踏組」)⇒ 不再疊一次品牌。
-  const head = !brand || name.toLowerCase().startsWith(brand.toLowerCase()) ? name : `${brand} ${name}`;
-
-  const models = distinctModels(p.fitments);
-  const vehicle =
-    models.length === 0
-      ? ''
-      : models.length === 1
-        ? models[0]
-        : models.length === 2
-          ? `${models[0]} / ${models[1]}`
-          : `${models[0]} 等 ${models.length} 款車型`;
-
+  const head = productSeoHead(p);
+  const vehicle = productSeoVehicle(p.fitments);
   return vehicle ? `${head}|${vehicle}${SITE_TITLE_SUFFIX}` : `${head}${SITE_TITLE_SUFFIX}`;
 }

@@ -39,6 +39,11 @@ export type BrandAvailability = {
   slugs: ReadonlySet<string>;
   /** `true` = 撈失敗(≠ 真的零商品)。顯示端據此多印一句,而磚牆照樣泛白。 */
   loadFailed: boolean;
+  /**
+   * 各品牌上架件數(meta description 用, 2026-09-29 Bing「描述太短」)。撈失敗時是空陣列 ⇒ 描述不寫數字。
+   * 選填:只有 meta description 讀它, 其他讀 `slugs` 的地方不受影響。
+   */
+  brands?: readonly { id: string; name: string; count: number }[];
 };
 
 
@@ -136,5 +141,10 @@ export async function fetchBrandsWithProducts(): Promise<BrandAvailability> {
   const { brands, failed } = await tryCatalogBrandTaxonomy();
   // 🔴 這一行**一個字都沒動**:`count > 0` 才算有商品,是 Sean 2026-08-04 的拍板結果。
   //    失敗時 `brands` 是 `[]` ⇒ 集合仍是空的 ⇒ 全部泛白 ⇒ fail-closed 行為 byte 不變。
-  return { slugs: new Set(brands.filter((b) => b.count > 0).map((b) => b.id)), loadFailed: failed };
+  return {
+    slugs: new Set(brands.filter((b) => b.count > 0).map((b) => b.id)),
+    loadFailed: failed,
+    // 2026-09-29:meta description 要各品牌件數;失敗時 `brands` 本來就是 `[]` ⇒ 描述不寫數字。
+    brands: brands.map((b) => ({ id: b.id, name: b.name, count: b.count })),
+  };
 }

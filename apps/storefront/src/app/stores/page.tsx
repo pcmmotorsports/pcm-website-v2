@@ -29,8 +29,11 @@ import { ComingSoon } from '@/components/ComingSoon';
 
 export const metadata: Metadata = {
   title: `合作店家 · 即將上線${SITE_TITLE_SUFFIX}`,
+  // 2026-09-29 Bing「描述太短」(原 50 字):主視窗定乙 —— 維持 08-06「不 noindex」, 只把頁面上的第二句也寫進來(81 字)。
+  //   只寫這頁真的有的事實;Bing 對這頁的警告若仍在, 主視窗已接受。
   description:
-    'PCM 合作店家地圖正在整理中。全台合作車行的名單、地址與各家能做的施工項目，很快就會在這裡查得到。',
+    'PCM 合作店家地圖正在整理中。全台合作車行的名單、地址與各家能做的施工項目，很快就會在這裡查得到。' +
+    '在那之前想找店家安裝，直接用 LINE 跟我們說，我們幫您接。',
   ...canonicalAlternates('/stores'),
 };
 

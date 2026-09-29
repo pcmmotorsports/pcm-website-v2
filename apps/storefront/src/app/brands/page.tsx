@@ -25,6 +25,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { BrandDirectoryRoot } from '@/components/brand/BrandDirectoryRoot';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
+import { brandDirectoryMetaDescription } from '@/lib/seo-description';
 import { resolveSiteUrl } from '@/lib/site-url';
 
 // 標題與描述 = 設計稿 `brand-directory.html:6-7` 逐字(全形直豎線、非半形 |;同 `[slug]` 那支)。
@@ -32,9 +33,10 @@ import { resolveSiteUrl } from '@/lib/site-url';
 //   ——【法定登記名 + 全形直豎線 + 站名在前】,與全站其餘頁的 `X — PCM重機零件販售` 三處都不同。
 //   ⛔ 那是設計稿自己的字面(鐵則 1 原本不擅改), 而 Sean 這一拍**明文推翻它** ⇒ 照全站形狀走。
 const TITLE = `品牌總覽${SITE_TITLE_SUFFIX}`;
-const DESCRIPTION = `依品牌找部品，直接查看 ${SITE_NAME} 各品牌商品。`;
 
 export async function generateMetadata(): Promise<Metadata> {
+  // 2026-09-29 Bing「描述太短」:品牌數與前三大品牌 + 全站事實, 120–150 字(lib/seo-description.ts)。
+  const DESCRIPTION = brandDirectoryMetaDescription((await fetchBrandsWithProducts()).brands ?? []);
   const base = resolveSiteUrl();
   const canonicalUrl = base ? `${base}/brands` : undefined;
   return {
