@@ -205,7 +205,7 @@ export function ManualRefundLedgerSection({
         {RedBanners}
         <p className='text-destructive'>
           {/* ⟦走查 ④⟧ 斷行不可落在一個詞中間:JSX 會把跨行的兩段文字接成一個空白 ⇒ 曾印成「系統 維護」。 */}
-          這張單的現金／匯款退款紀錄載入失敗。請重新整理；若仍無法載入，請聯絡系統管理員。在那之前
+          這張單的現金／匯款退款紀錄載入失敗。請重新整理；若仍無法載入，請通知系統維護。在那之前
           <strong>不要重複登記</strong>，這張單可能已經有你看不到的紀錄。
         </p>
       </section>
@@ -220,7 +220,7 @@ export function ManualRefundLedgerSection({
         <h2 className='text-destructive mb-1 text-sm font-semibold'>現金／匯款退款紀錄</h2>
         {RedBanners}
         <p className='text-destructive'>
-          現金／匯款退款紀錄超過本頁顯示上限，目前不顯示任何紀錄。請聯絡系統管理員查詢完整紀錄。
+          現金／匯款退款紀錄超過本頁顯示上限，目前不顯示任何紀錄。請通知系統維護查詢完整紀錄。
         </p>
       </section>
     );

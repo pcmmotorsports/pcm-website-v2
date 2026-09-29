@@ -335,8 +335,8 @@ export function OrderDetailMoneyTab({
                       role='status'
                       className='rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
                     >
-                      目前環境沒有開放「申請線上退款（TapPay）」。這是系統設定，不是這張單的問題；
-                      要退這張單的款，請聯絡系統管理員開放後再操作。
+                      目前環境沒有開放「發起線上退款（TapPay）」。這是系統設定，不是這張單的問題；
+                      要退這張單的款，請通知系統維護開放後再操作。
                     </p>
                   )}
 

@@ -336,7 +336,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     const notice = flagOffNotice(container);
     expect(notice, '旗標關著時必須有那一句,否則員工看到的是一個空盒子').not.toBeNull();
     // 🔴 兩件都要:不可以只說「沒開放」而不說去找誰 —— 那還是一個死路,只是有字。
-    expect(notice?.textContent).toContain('系統管理員');
+    expect(notice?.textContent).toContain('系統維護');
     // 🔴 刻意不可以寫成「你不能退款」—— 那不是真的(換一個有開旗標的環境就能退)。
     expect(notice?.textContent).not.toContain('你不能退款');
   });
@@ -1749,7 +1749,7 @@ describe('#787:非卡退款登記入口 —— 🟢 2026-09-08 開封後,健康�
     const heading = Array.from(container.querySelectorAll('h1,h2,h3,h4,h5,h6,legend,summary')).find(
       (el) => (el.textContent ?? '').includes('登記現金／匯款退款'),
     );
-    expect(heading, '找不到「登記退款(現金/匯館)」那個標題節點 —— 上面的字串斷言可能撈到別處的字').toBeTruthy();
+    expect(heading, '找不到「登記現金／匯款退款」那個標題節點 —— 上面的字串斷言可能撈到別處的字').toBeTruthy();
     const section = heading?.closest('section,form,details,fieldset,div') ?? null;
     expect(section, '標題在而它不在任何一個容器裡 ⇒ 定位不到表單本體').toBeTruthy();
 
