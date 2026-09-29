@@ -204,12 +204,16 @@ export function HomeHero({ children, banners = [] }: { children?: ReactNode; ban
           // 第 1 張一定要有 src(它是 LCP);其餘等 load 之後才補。
           const load = i === 0 || warmed;
           const priority = i === 0 ? ('high' as const) : undefined;
+          // 2026-09-29 手機速度:第 2 張起在 load 之後才掛進 <picture>, 瀏覽器在看到 <source> 之前就照 img.src
+          //   抓了桌機版 ⇒ 手機兩套都下載(本機 390 寬實測多約 0.7 MB)。lazy 讓瀏覽器等插進 <picture> 之後才選。
+          //   它們疊在畫面裡(opacity 0), lazy 照樣會在掛上去之後馬上載入, 預熱的時機不變。
+          const lazy = i === 0 ? undefined : ('lazy' as const);
           if (s.kind === 'banner') {
             const b = s.banner;
             const img = load && (
               <>
                 {b.imageMobileUrl && <source media={`(max-width: ${NARROW_MAX_W}px)`} srcSet={b.imageMobileUrl} />}
-                <img src={b.imageDesktopUrl} alt="" fetchPriority={priority} />
+                <img src={b.imageDesktopUrl} alt="" fetchPriority={priority} loading={lazy} />
               </>
             );
             // 白底商品照:石墨底 + 白色展示台(稿 #product);情境照:跟實拍同一套(稿 #scene)
@@ -242,7 +246,7 @@ export function HomeHero({ children, banners = [] }: { children?: ReactNode; ban
               {load && (
                 <>
                   <source media={`(max-width: ${NARROW_MAX_W}px)`} srcSet={`/hero/hero-${s.n}-m.jpg`} />
-                  <img src={`/hero/hero-${s.n}.jpg`} alt="" width={2560} height={1200} fetchPriority={priority} />
+                  <img src={`/hero/hero-${s.n}.jpg`} alt="" width={2560} height={1200} fetchPriority={priority} loading={lazy} />
                 </>
               )}
             </picture>

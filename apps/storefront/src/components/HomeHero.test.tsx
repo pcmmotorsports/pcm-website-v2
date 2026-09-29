@@ -196,3 +196,16 @@ describe('HomeHero · 入口板(H5)', () => {
     expect(container.querySelector('.b-dock')).toBeNull();
   });
 });
+
+describe('第 2 到 4 張的載入方式(2026-09-29 手機速度)', () => {
+  // 本機 390 寬實測:第 2 到 4 張在 load 之後才掛進 <picture>, 瀏覽器在看到 <source> 之前就照 img.src 抓了桌機版
+  //   ⇒ 手機桌機版、手機版兩套都下載(多約 0.7 MB)。loading="lazy" 讓瀏覽器等節點插進 <picture> 之後才選圖。
+  it('第 1 張(LCP)不延遲、高優先;第 2 張起一律 loading="lazy"', () => {
+    const { container } = render(<HomeHero />);
+    const imgs = [...container.querySelectorAll('.b-hero-media picture img')];
+    expect(imgs.length).toBeGreaterThan(1);
+    expect(imgs[0]!.getAttribute('loading')).toBeNull();
+    expect(imgs[0]!.getAttribute('fetchpriority')).toBe('high');
+    for (const img of imgs.slice(1)) expect(img.getAttribute('loading')).toBe('lazy');
+  });
+});

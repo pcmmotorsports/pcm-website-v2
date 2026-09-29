@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@vercel/analytics/next', () => ({
   Analytics: () => <script data-testid='vercel-analytics' />,
 }));
+vi.mock('@vercel/speed-insights/next', () => ({
+  SpeedInsights: () => <script data-testid='vercel-speed-insights' />,
+}));
 
 import { SiteAnalytics } from './SiteAnalytics';
 
@@ -18,11 +21,14 @@ describe('SiteAnalytics', () => {
   it('經銷站 ⇒ 不輸出分析程式', () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_MODE', 'b2b');
     expect(renderToStaticMarkup(<SiteAnalytics />)).toBe('');
+    // 2026-09-29 Speed Insights 也一樣:經銷站那個專案沒開, 載入會每頁 404。
   });
 
   it.each(['retail', ''])('一般站(NEXT_PUBLIC_SITE_MODE=%j)⇒ 照常輸出', (mode) => {
     vi.stubEnv('NEXT_PUBLIC_SITE_MODE', mode);
     expect(renderToStaticMarkup(<SiteAnalytics />)).toContain('vercel-analytics');
+    // 2026-09-29 Sean 批甲:一般站加 Vercel Speed Insights(免費版)量真實客人的 LCP / INP / CLS。
+    expect(renderToStaticMarkup(<SiteAnalytics />)).toContain('vercel-speed-insights');
   });
 
   it('layout 只透過 SiteAnalytics 載入,不直接放 <Analytics />', () => {
