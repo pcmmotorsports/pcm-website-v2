@@ -100,7 +100,9 @@ export const VIEW_CHIPS: readonly ViewChipSpec[] = [
         —— 這是減法, 不是再加一個提示。
      ⚠️ `key` 仍是 `'all'`：它是連結與測試的識別碼, 不是給人看的字。 */
   { key: 'all', label: '不限', filter: {}, group: 'view' },
-  { key: 'partial', label: '尾款未收', filter: { paymentStatus: 'partiallyPaid' }, owns: 'paymentStatus', group: 'view' },
+  // 2026-09-30 名稱統一(主視窗 -fe 答甲):原「尾款未收」→「待尾款」, 與首頁「今天要做的事」同名(Sean 批的名稱優先)。
+  //   篩選條件不動;首頁那一格另帶 `pendingOnly`(排除已取消), 這一顆沒帶 —— 已取消的單另有「已取消」那顆。
+  { key: 'partial', label: '待尾款', filter: { paymentStatus: 'partiallyPaid' }, owns: 'paymentStatus', group: 'view' },
   { key: 'refunded', label: '已退款', filter: { paymentStatus: 'refunded' }, owns: 'paymentStatus', group: 'view' },
   // Sean 2026-09-14 線上:預設「未完成」把已取消藏掉,而只看列沒有一顆能把它叫出來。`cancelled_at IS NOT NULL`,零 migration。
   //    🔴 與六顆狀態 chip 互斥(它們都隱含 cancelled_at IS NULL)⇒ `applyViewChip` 對它會把狀態鍵清掉,六顆全不亮。

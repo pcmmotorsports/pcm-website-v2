@@ -54,7 +54,7 @@ export const TODO_LIST_SPECS = {
     label: ORDER_TODO_SPECS['ready-ship'].label,
     filter: { goodsAxes: ['instock'] },
   },
-  /** 待尾款:已收訂金、還沒收齊(列表「只看:尾款未收」同一條);`pendingOnly` 排除已取消 / 已退款。
+  /** 待尾款:已收訂金、還沒收齊(列表「只看:待尾款」同一條, 2026-09-30 起同名);`pendingOnly` 排除已取消 / 已退款。
    *  🔴 **不限貨品軸**(主視窗 2026-09-30 Q2 甲):已出貨而錢沒收齊的單會離開預設「未完成」,最容易被忘記 ⇒ 這一格要看得到它。
    *  plan:`~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-2。 */
   partiallyPaid: {
