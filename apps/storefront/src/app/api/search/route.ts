@@ -46,6 +46,7 @@ import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomyBase } from '
 import { parseSearchFacets } from '@/lib/parse-search-facets';
 import { suggestBrand } from '@/lib/brand-suggestion';
 import { filterFacets } from '@/lib/search-facets';
+import { formatCardFits } from '@/lib/product-card-fits';
 import { searchProducts, SEARCH_OVERLAY_LIMIT } from '@/lib/search';
 import { fetchBrandSynonymFallback } from '@/lib/search-brand-synonym-fallback';
 import type { SearchOverlayItem } from '@/lib/search-shape';
@@ -188,6 +189,9 @@ export async function GET(request: Request) {
     price: p.price,
     ...(p.dealerPriceMissing ? { dealerPriceMissing: true as const } : {}),
     image: p.image ?? null,
+    // 與商品卡片同一句(`ProductCard.tsx` 的 `formatCardFits`):文字搜尋這條路的 `fits` 是 DB 原始字串、帶 `fitments` 陣列,
+    //   品牌俗名退路那條(`catalog-page.ts`)已經是算好的標籤、不帶陣列 ⇒ formatCardFits 兩種都收。陣列本身不外流(R3)。
+    fits: formatCardFits(p.fitments, p.fits),
   }));
   // 🔴 三個 `failed` **各自回**, 不合成一個(`-0a` 明令 + `search-facets.test.ts` 有一發突變守著)。
   //    合成一個在型別上完全合法, 而它壞掉的方式是【品牌查不到 ⇒ 三區都說查不到】。

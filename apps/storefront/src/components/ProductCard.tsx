@@ -20,7 +20,7 @@ import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { Price } from './Price';
-import { formatCardFits } from '@/lib/product-card-fits';
+import { cardFitsLine, formatCardFits } from '@/lib/product-card-fits';
 import { ProductImage } from './ProductImage';
 
 // 2026-08-12 拆檔(鐵則 6:本檔曾 360 行、過 300 警戒):圖區 `ProductImage` 與它三個
@@ -297,7 +297,17 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
         <div className="pcard-name">{p.name}</div>
         {/* S4:同名不同年商品在卡片可區分 —— 單款顯示年份 '18–'24、多款顯示「N 款車型」;
             缺年份降級只顯車款。前綴「適用 」保留 design 字面。 */}
-        {!compact && <div className="pcard-fits">適用 {formatCardFits(p.fitments, p.fits)}</div>}
+        {/* 2026-09-29:客人選好車而這張在「適用這台車」清單裡 ⇒ 伺服器帶 `fitsVehicle`, 直接回答「適不適用我的車」;
+            沒帶 ⇒ 原本那一句(通用款不加「適用」前綴, `cardFitsLine`)。 */}
+        {!compact && (
+          <div className="pcard-fits">
+            {p.fitsVehicle === 'match'
+              ? '適用您的車'
+              : p.fitsVehicle === 'qualified'
+                ? '適用您的車款，請確認年份'
+                : cardFitsLine(formatCardFits(p.fitments, p.fits))}
+          </div>
+        )}
         <div className="pcard-price-row">
           <Price
             price={p.price}

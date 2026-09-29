@@ -68,7 +68,7 @@ import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import { singleFlightStale } from '@/lib/single-flight-stale';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS, parseCatalogQuery } from '@/lib/catalog-query';
-import { catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
+import { cardFitsVehicle, catalogRowToUIProduct, pickFeatured, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -160,7 +160,7 @@ export const CATALOG_REVALIDATE_SECONDS = 60;
  * 車款下拉(`getVehicleTaxonomyRawCached`)**單獨**的秒數 —— 不跟上面那個 60 共用。
  *
  * 🔴 **為什麼要分家**:`CATALOG_REVALIDATE_SECONDS` 同時餵**七支**快取
- * (`catalog-page-v5` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `catalog-facet-counts-v2`(vehicle-facet-counts.ts)/
+ * (`catalog-page-v6` / `catalog-brand-taxonomy-v1` / `category-tree-v1` / `catalog-facet-counts-v2`(vehicle-facet-counts.ts)/
  *  `pdp-product-by-handle-v2` / `pdp-inherited-fitments-v1` / `pdp-recommendations`(recommendations/fetch-recommendations.ts))。
  * ⛔ ~~「四支, 含 `vehicle-taxonomy-v4`」~~ —— 2026-09-14 訂正:那一支【就是】被分出去吃下面這顆 3600 的,
  *    不在 60 秒那一組;而 PDP 那三支是同日 `7f487eb02` / 本片加的。數法:`grep -rn "revalidate: CATALOG_REVALIDATE_SECONDS" apps/storefront/src`。
@@ -713,7 +713,11 @@ async function queryCatalogPage(
 
   return {
     products: result.rows.map((row) => {
-      const p = catalogRowToUIProduct(row.item as CatalogListRow);
+      const item = row.item as CatalogListRow;
+      const card = catalogRowToUIProduct(item);
+      // 「適用這台車」清單才標「適用您的車」;通用款清單與沒選車不標(判不出來時鍵整個不給)。
+      const fitsVehicle = fitScope === 'fit' ? cardFitsVehicle(item.fitments, vehicle) : undefined;
+      const p = fitsVehicle ? { ...card, fitsVehicle } : card;
       // B2B 5d:經銷目錄那條路的 null = 缺經銷價(D1 起不退回一般價)⇒ 卡片說清楚,不是「—」
       return dealer && p.price === null ? { ...p, dealerPriceMissing: true as const } : p;
     }),
@@ -774,7 +778,8 @@ const getCatalogPageCached = unstable_cache(
   //      ⇒ 舊快取裡**現在**應該沒有偽造值 —— 而那是資料剛好, 不是機制。換鍵是保險, 成本 = 一次快取重建。
   // 🔵 v4 → v5(2026-09-28 商品頁乙 P12, Codex R1 建議):卡片多了特價劃線(origPrice / originalPrice / isSale),
   //   而快取存的是 mapper 之後的 UI 物件 ⇒ 不換鍵的話, 上線後命中 v4 舊條目的卡片會暫時照舊不劃線。
-  ['catalog-page-v5'],
+  // v6(2026-09-29):卡片多了 fitsVehicle, 舊條目沒有 ⇒ 換鍵, 上線當下就換字(Fable R1 建議 2)。
+  ['catalog-page-v6'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 

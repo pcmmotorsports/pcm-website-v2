@@ -502,3 +502,27 @@ describe('ProductCard — 取不到經銷價(B2B 5d)', () => {
     expect(container.querySelector('.pcard-price-row')?.textContent).not.toContain('價格暫時無法取得');
   });
 });
+
+describe('卡片那一行:客人選好車時寫「適用您的車」、通用款不加「適用」(2026-09-29)', () => {
+  const 句 = (c: HTMLElement) => c.querySelector('.pcard-fits')?.textContent ?? null;
+
+  it('fitsVehicle=match ⇒「適用您的車」', () => {
+    const { container } = render(<ProductCard p={{ ...product, fits: '5 款車型', fitsVehicle: 'match' }} />);
+    expect(句(container)).toBe('適用您的車');
+  });
+
+  it('fitsVehicle=qualified ⇒「適用您的車款，請確認年份」', () => {
+    const { container } = render(<ProductCard p={{ ...product, fits: '5 款車型', fitsVehicle: 'qualified' }} />);
+    expect(句(container)).toBe('適用您的車款，請確認年份');
+  });
+
+  it('🔵 沒有 fitsVehicle ⇒ 原本那一句不變', () => {
+    const { container } = render(<ProductCard p={{ ...product, fits: '5 款車型', fitments: undefined }} />);
+    expect(句(container)).toBe('適用 5 款車型');
+  });
+
+  it('通用款 ⇒ 只寫「通用款」, 不寫「適用 通用款」', () => {
+    const { container } = render(<ProductCard p={{ ...product, fits: '通用款', fitments: undefined }} />);
+    expect(句(container)).toBe('通用款');
+  });
+});

@@ -1,5 +1,6 @@
 import { hasNoRealImage, parseImageTrim } from '@pcm/domain';
 
+import { checkFitment } from '@/lib/fitment-match';
 import { formatCardFits } from '@/lib/product-card-fits';
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 
@@ -102,7 +103,36 @@ export type CatalogCardProduct = Omit<MockProduct, 'price'> & {
    * 沒有這個旗標的 null(一般價缺)照 Sean 2026-08-25 拍板印「—」。
    */
   dealerPriceMissing?: true;
+  /**
+   * 客人選好車、而這張卡在「適用這台車」清單裡(`fitScope === 'fit'`)時, 伺服器用 `checkFitment` 判的結果
+   * (2026-09-29 計畫 ~/pcm-mailbox/計畫-卡片適用您的車-20260929.md, Fable R1 PASS)。
+   *   · `match` ⇒ 卡片寫「適用您的車」;`qualified` ⇒「適用您的車款，請確認年份」。
+   * 🔴 判不出來(no-match / undetermined / 年份不是數字)⇒ **整個鍵不給**, 卡片維持原本那一句。錯說「適用」比不說更糟。
+   */
+  fitsVehicle?: 'match' | 'qualified';
 };
+
+/**
+ * 目錄卡片的 `fitsVehicle`(見上)。只收 `match` / `qualified`, 其他一律 undefined。
+ * 🔴 年份守門(Fable R1 建議 1):`toCardFitments` 只收數字年份, 字串年份會被丟掉 ⇒ 那筆會被當成「不限年份」
+ *    ⇒ 沒選年份的客人會被錯說 `match`;而 DB trigger 用 `->>` 會把字串 "2018" 當年份。兩邊會分叉 ⇒ 見到就不標。
+ */
+export function cardFitsVehicle(
+  rawFitments: unknown,
+  vehicle: { brand: string; model?: string; year?: number } | null | undefined,
+): 'match' | 'qualified' | undefined {
+  if (!vehicle?.model || !Array.isArray(rawFitments)) return undefined;
+  const badYear = rawFitments.some((el) => {
+    if (!el || typeof el !== 'object') return false;
+    const r = el as Record<string, unknown>;
+    return (r.yearStart != null && typeof r.yearStart !== 'number') || (r.yearEnd != null && typeof r.yearEnd !== 'number');
+  });
+  if (badYear) return undefined;
+  const fitments = toCardFitments(rawFitments);
+  if (!fitments) return undefined;
+  const status = checkFitment(fitments, { kind: 'dict', brandName: vehicle.brand, modelName: vehicle.model, year: vehicle.year });
+  return status === 'match' || status === 'qualified' ? status : undefined;
+}
 
 /** List view → ProductCard 的最小公開 UI shape；不接觸 detail 或 tier price。 */
 export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {

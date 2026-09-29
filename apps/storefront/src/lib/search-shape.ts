@@ -22,6 +22,9 @@ export type SearchOverlayItem = {
   /** B2B 5d:經銷會員而取不到經銷價 ⇒ 疊層印「價格暫時無法取得」(沒有這個旗標的 null 印「—」)。 */
   dealerPriceMissing?: true;
   image: string | null;
+  /** 商品卡片「適用 …」後半段(`catalog-page.ts` 的 `formatCardFits` 算好的顯示字, 例:`5 款車型`)。
+   *  疊層照印, 讓同名同價的商品分得出來(2026-09-29 走查)。舊回應沒有這欄 ⇒ 不印。 */
+  fits?: string;
 };
 
 /**

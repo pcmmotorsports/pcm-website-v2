@@ -91,7 +91,26 @@ describe('/api/search', () => {
   it('R3 回傳只有四欄,重欄位不外流', async () => {
     searchProducts.mockResolvedValue({ items: [FULL_PRODUCT], total: 1, error: false });
     const body = (await (await GET(req('排氣管'))).json()) as { items: object[] };
-    expect(Object.keys(body.items[0] as object).sort()).toEqual(['brand', 'image', 'name', 'price', 'slug']);
+    // 2026-09-29 刻意加 `fits`(卡片那一句「適用 …」的後半, 一個短字串);`fitments` 陣列仍不外流(R3b 守)。
+    expect(Object.keys(body.items[0] as object).sort()).toEqual(['brand', 'fits', 'image', 'name', 'price', 'slug']);
+  });
+
+  it('R3b 帶上卡片那一行「適用 …」的文字(fits),而原始車款陣列 fitments 仍不外流', async () => {
+    // 2026-09-29 走查:疊層裡同名同價的商品成對出現、客人分不出來 ⇒ 疊層要印與卡片相同的「適用 …」。
+    //    文字搜尋這條路的 fits 是 DB 原始字串 + fitments 陣列 ⇒ 要換成卡片那一句(多款 ⇒「N 款車型」、單款 ⇒ 車名加年份)。
+    const multi = { ...FULL_PRODUCT, fits: 'Honda CBR1000RR', fitments: [
+      { motoBrand: 'Honda', modelCode: 'CBR1000RR', yearStart: 2017, yearEnd: 2019 },
+      { motoBrand: 'Honda', modelCode: 'CB1000R', yearStart: 2018, yearEnd: 2020 },
+    ] };
+    const single = { ...FULL_PRODUCT, slug: 'b', fits: 'Honda CBR1000RR', fitments: [
+      { motoBrand: 'Honda', modelCode: 'CBR1000RR', yearStart: 2017, yearEnd: 2019 },
+    ] };
+    // 品牌俗名退路那條(catalog-page)已是算好的標籤、不帶陣列 ⇒ 原樣
+    const labelled = { slug: 'c', brand: 'B', name: 'N', price: 1, image: null, fits: '5 款車型' };
+    searchProducts.mockResolvedValue({ items: [multi, single, labelled], total: 3, error: false });
+    const body = (await (await GET(req('排氣管'))).json()) as { items: Record<string, unknown>[] };
+    expect(body.items.map((i) => i.fits)).toEqual(['2 款車型', "Honda CBR1000RR '17–'19", '5 款車型']);
+    expect(body.items[0]).not.toHaveProperty('fitments');
   });
 
   it('R4 🔴 超長輸入【原樣傳下去、不在這一層截斷】,而且不回 400', async () => {
