@@ -13,6 +13,7 @@ import { CascadeFilterTop } from './CascadeFilterTop';
 import { MobileVehicleSheet } from './MobileVehicleSheet';
 import { FilterDrawerVehicleTab } from './FilterDrawerVehicleTab';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { resetBrandYearsRequestsForTests } from './use-lazy-brand-years';
 
 const SLIM: MockMotoBrand[] = [
   { id: 'yamaha', name: 'Yamaha', models: [{ id: 'r6', name: 'R6', years: [] }], yearsLoaded: false },
@@ -41,6 +42,7 @@ const year = () => screen.getByLabelText('選擇年份') as HTMLInputElement;
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  resetBrandYearsRequestsForTests();
 });
 
 describe('桌機選車列 CascadeFilterTop', () => {
