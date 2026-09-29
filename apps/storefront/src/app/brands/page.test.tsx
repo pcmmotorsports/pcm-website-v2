@@ -54,7 +54,11 @@ describe('/brands · metadata', () => {
     //     ⇒ 期望值換成 `品牌總覽 — PCM重機零件販售`,而**逐字全等這件事沒有放掉**。
     //   ⛔ 全形直豎線那兩條跟著撤 —— 新字面裡沒有豎線,留著等於守一個不存在的東西。
     expect(meta.title).toBe('品牌總覽 — PCM重機零件販售');
-    expect(meta.description).toBe('依品牌找部品，直接查看 PCM重機零件販售 各品牌商品。');
+    // 🔵 2026-09-29 描述改寫(Bing「描述太短」, 原 28 字;主視窗定 120–150 字)⇒ 逐字全等換成規則:
+    //   開頭固定、長度在範圍內。本檔 mock 的品牌清單不帶件數 ⇒ 走「讀不到就不寫數字」那一句。
+    expect(meta.description).toMatch(/^依品牌找進口重機改裝部品/);
+    expect(String(meta.description).length).toBeGreaterThanOrEqual(120);
+    expect(String(meta.description).length).toBeLessThanOrEqual(150);
   });
 
   it('🔴 OG 與 canonical 用同一組字面(不是各寫一份)', async () => {

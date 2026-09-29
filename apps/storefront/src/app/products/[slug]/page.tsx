@@ -37,6 +37,7 @@ import { fetchEffectivePrices, priceKey } from '@/lib/tier-prices';
 import type { VehicleSelection } from '@/lib/recommendations';
 import { resolveVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
+import { productMetaDescription } from '@/lib/seo-description';
 import { productSeoTitle } from '@/lib/product-seo-title';
 import { serializeBreadcrumbJsonLd } from '@/lib/breadcrumb-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
@@ -62,8 +63,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // 🔴 Sean 2026-09-12 拍甲:「{品牌} {品名}|{車款} — PCM」,規則見 `lib/product-seo-title.ts`。
   //    只進 <title> / og:title(twitter:title 由 Next 從 openGraph 繼承);頁面上的商品名不動。
   const title = productSeoTitle(product);
-  // description ← 真 subtitle(M-1-16c-4a plumb);空則 fallback 既有風格字面。
-  const description = product.subtitle?.trim() || `${product.brand} · 適用 ${product.fits}`;
+  // description:2026-09-29 Bing「描述太短」(原本是 subtitle「車款 · 類別」, 25–40 字)⇒ 品名 + 適用車款 + 賣點 + 類別 + 全站事實,
+  //   120–150 字、重點在前 80 字(lib/seo-description.ts;主視窗定甲)。
+  const description = productMetaDescription(product);
 
   // canonical / OG url ← 絕對 URL(prod 未設 NEXT_PUBLIC_SITE_URL 則 undefined、省略、見 site-url.ts)。
   const base = resolveSiteUrl();

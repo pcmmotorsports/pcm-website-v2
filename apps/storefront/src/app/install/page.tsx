@@ -22,8 +22,11 @@ import { ComingSoon } from '@/components/ComingSoon';
 
 export const metadata: Metadata = {
   title: `安裝預約 · 即將上線${SITE_TITLE_SUFFIX}`,
+  // 2026-09-29 Bing「描述太短」(原 54 字):主視窗定乙 —— 維持 08-06「不 noindex」, 只把頁面上的第二句也寫進來(84 字)。
+  //   只寫這頁真的有的事實;Bing 對這頁的警告若仍在, 主視窗已接受。
   description:
-    'PCM 線上安裝預約正在開發中。之後填一次表單，技師一個工作天內就回您工時與費用，零件由 PCM 直送店家。',
+    'PCM 線上安裝預約正在開發中。之後填一次表單，技師一個工作天內就回您工時與費用，零件由 PCM 直送店家。' +
+    '現在要約安裝一樣沒問題，先用 LINE 找我們，照樣幫您排。',
   ...canonicalAlternates('/install'),
 };
 

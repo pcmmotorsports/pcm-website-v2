@@ -222,10 +222,14 @@ describe('/brands/[slug] · metadata', () => {
     }
   });
 
-  it('🔴 description = lede 的純文字 —— 不得殘留 `<strong>` / `<br>` 之類的標記', async () => {
+  it('🔴 description 以 lede 的純文字開頭 —— 不得殘留 `<strong>` / `<br>` 之類的標記', async () => {
+    // 🔵 2026-09-29 Bing「描述太短」:lede 後面再接件數與全站事實(lib/seo-description.ts)⇒ 全等換成「以 lede 開頭、≤150 字」。
     for (const brand of BRAND_CONTENT) {
       const meta = await generateMetadata({ params: params(brand.slug) });
-      expect(meta.description, brand.slug).toBe(brandRichTextToPlain(brand.lede));
+      const lede = brandRichTextToPlain(brand.lede);
+      const d = String(meta.description);
+      expect(d.startsWith(lede.slice(0, Math.min(lede.length, 140))), brand.slug).toBe(true);
+      expect(d.length, brand.slug).toBeLessThanOrEqual(150);
       expect(meta.description, brand.slug).not.toMatch(/<[a-z/]/i);
     }
   });

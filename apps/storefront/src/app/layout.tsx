@@ -43,6 +43,7 @@ import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { serializeOrganizationJsonLd } from '@/lib/org-jsonld';
 import { DEFAULT_OG_IMAGE_PATH, OG_LOCALE, SITE_NAME } from '@/lib/site-config';
+import { HOME_META_DESCRIPTION } from '@/lib/seo-description';
 import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/pcm-menu.css'; // A-手機選單(OD DESIGN-HANDOFF-2026-08-05.md §十一):Header 手機分支的全屏選單面板,序在 header 後(殼的一部分、與 header.css 同層)
@@ -127,10 +128,8 @@ export const metadata: Metadata = {
   //   🛑 **成因與「代理 Akrapovič…」那次一模一樣:為了讓一句話更具體,多宣稱了一件沒查過的事。**
   //     同一天同一支檔犯第二次 ⇒ 改成只寫查得到的:全部 21 家都是國外品牌 ⇒ 「進口」成立。
   //   🔴 守門在 `lib/llms-txt.test.ts`:掃本檔字面,不得出現「日系」。
-  description:
-    'PCM 重機零件販售 —— 專營進口重機改裝部品,可依車款查詢適用零件。' +
-    '全站皆為原廠正品,部分品牌正式代理、部分平行輸入。' +
-    '線上刷卡、全台合作店家安裝,多數商品為接單後向原廠訂購。',
+  // 2026-09-29 Bing「描述太短」(原 89 字)⇒ 120–150 字;「全台合作店家安裝」改成頁面上的現況「需要安裝可先用 LINE 找我們安排」(/stores、/install 仍是即將上線頁)。
+  description: HOME_META_DESCRIPTION,
   openGraph: {
     // 🔵 ⛔ ~~字面 'PCM重機零件販售' / 'zh_TW'~~ ⇒ 改吃 `site-config` 的常數(第5片):
     //   `/brands` 那兩頁也要同樣兩欄,各寫一份字面就是下一個「同一件事兩種說法」。

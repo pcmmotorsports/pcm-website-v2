@@ -394,6 +394,16 @@ describe('/products/[slug] · 分享圖(og / twitter)', () => {
     expect(m.twitter?.images).toEqual(['https://cdn.example.com/a.jpg']);
   });
 
+  it('🔴 description 不再只是副標, 而是 120–150 字的組句(2026-09-29 Bing「描述太短」), og 同一句', async () => {
+    const m = await metaFor([]);
+    const d = String(m.description);
+    expect(d).not.toBe('副標');
+    expect(d.startsWith('TEST 測試商品')).toBe(true);
+    expect(d.length).toBeGreaterThanOrEqual(120);
+    expect(d.length).toBeLessThanOrEqual(150);
+    expect(m.openGraph?.description).toBe(d);
+  });
+
   it('🔵 沒有合格商品圖 ⇒ 本頁不自己指定,退回 layout 的站台預設(不是留一條沒有圖的裸連結)', async () => {
     // 相對路徑不合格(Google 拒收),與絕對網址白名單一致 ⇒ 這一顆等於「沒有圖」。
     const m = await metaFor(['/placeholder-product.png']);
