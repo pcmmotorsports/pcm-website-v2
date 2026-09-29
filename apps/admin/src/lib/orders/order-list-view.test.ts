@@ -2,6 +2,7 @@
 // 訂單專屬:searchParams 白名單守門 / buildOrderListHref / 標籤覆蓋 / 格式化。
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
+import { ORDER_TODO_PARAM } from './order-todo';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
@@ -46,6 +47,7 @@ import {
   GOODS_AXIS_LABEL,
   PANEL_CLOSED,
   buildCarriedUrlValues,
+  hasOrderFilterParams,
   legacyPanelRedirectHref,
 } from './order-list-view';
 
@@ -54,7 +56,7 @@ import {
  * 🔴 本檔多數格子與密度無關 ⇒ 統一給預設值,讓那些格子的斷言維持原意;
  *    密度本身的三條守門在下方自己的 describe 裡,**不靠這個常數**。
  */
-const DEN = { density: ORDER_DENSITY_DEFAULT, boss: false } as const;
+const DEN = { density: ORDER_DENSITY_DEFAULT, boss: false, todo: null } as const;
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
   it('合法四軸值 → filter 帶入(來源/管道 D-1b 多勾選=陣列);page 解析', () => {
@@ -392,13 +394,13 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
   // ⚠️ **第二條最容易被抄漏**:只寫第一條的話,「永遠把 `den=loose` 寫進 URL」也會全綠,
   //    而那會讓每一條連結都掛著雜訊參數。三條缺一都不行。
   it('🔴 片4-1 非預設密度會被帶著走(翻頁不掉)', () => {
-    const href = buildOrderListHref({}, { density: 'tight', boss: false }, 3, PANEL_CLOSED);
+    const href = buildOrderListHref({}, { density: 'tight', boss: false, todo: null }, 3, PANEL_CLOSED);
     expect(href).toContain(`${ORDER_DENSITY_PARAM}=tight`);
     expect(href).toContain('page=3');
   });
 
   it('🔴 片4-2 等於預設值時**不寫進 URL**(否則每條連結都掛著 den=loose 的雜訊)', () => {
-    const href = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: false }, 1, PANEL_CLOSED);
+    const href = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: false, todo: null }, 1, PANEL_CLOSED);
     expect(href).not.toContain(ORDER_DENSITY_PARAM);
     // 前提:這個 fixture 真的走得出一條 href(不然 `not.toContain` 在空字串上恆真)
     expect(href).toBe('/orders');
@@ -433,10 +435,10 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
   });
 
   it('🔴 A1-2 開著會被帶著走(翻頁不掉)、關著不寫進 URL', () => {
-    const on = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: true }, 3, PANEL_CLOSED);
+    const on = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: true, todo: null }, 3, PANEL_CLOSED);
     expect(on).toContain(`${ORDER_BOSS_PARAM}=${ORDER_BOSS_ON}`);
     expect(on).toContain('page=3');
-    expect(buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: false }, 1, PANEL_CLOSED)).toBe('/orders');
+    expect(buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT, boss: false, todo: null }, 1, PANEL_CLOSED)).toBe('/orders');
   });
 
   it('🔴 A1-3 往返:URL → display → URL 逐字回到原樣', () => {
@@ -449,6 +451,28 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
     const { filter } = parseOrderListSearchParams({ [ORDER_BOSS_PARAM]: ORDER_BOSS_ON });
     expect('boss' in filter).toBe(false);
     expect(JSON.stringify(filter)).not.toContain('boss');
+  });
+
+  // ── 2026-09-30 待辦模式(`todo`, 顯示軸):形狀照抄上面 boss 那組 ──
+  it('🔴 TODO-1 `?todo=<格子>` 解析成 display.todo;不認得的值 / 缺 / 重複鍵 ⇒ null(倒向一般列表)', () => {
+    expect(parseOrderListSearchParams({ [ORDER_TODO_PARAM]: 'partial-paid' }).display.todo).toBe('partial-paid');
+    expect(parseOrderListSearchParams({}).display.todo).toBeNull();
+    expect(parseOrderListSearchParams({ [ORDER_TODO_PARAM]: 'nope' }).display.todo).toBeNull();
+    expect(parseOrderListSearchParams({ [ORDER_TODO_PARAM]: ['partial-paid', 'to-order'] }).display.todo).toBeNull();
+  });
+
+  it('🔴 TODO-2 開著會被帶著走(彈窗做完回來、翻頁都不掉)、關著不寫進 URL', () => {
+    const on = buildOrderListHref({ paymentStatus: 'partiallyPaid' }, { ...DEN, todo: 'partial-paid' }, 2, 'x');
+    expect(on).toContain(`${ORDER_TODO_PARAM}=partial-paid`);
+    expect(on).toContain('open=x');
+    expect(buildOrderListHref({}, DEN, 1, PANEL_CLOSED)).toBe('/orders');
+  });
+
+  it('🔴 TODO-3 `todo` 是顯示軸:不進 filter、也不讓進站預設「未完成」失效', () => {
+    const raw = { [ORDER_TODO_PARAM]: 'partial-paid' };
+    const { filter } = parseOrderListSearchParams(raw);
+    expect(JSON.stringify(filter)).not.toContain('todo');
+    expect(hasOrderFilterParams(raw)).toBe(false);
   });
 
   it('L6-6 關著的時候不留空參數在 URL 上', () => {

@@ -2,6 +2,7 @@ import 'server-only';
 import type { AdminOrderFilter } from '@pcm/domain';
 import { getAdminOrderRepository } from '../orders/order-repository';
 import { countOrderList, frozenListHref } from '../orders/order-list-count';
+import { ORDER_TODO_SPECS, type OrderTodoKey } from '../orders/order-todo';
 
 // today-todo-read.ts — 首頁「今天要做的事」裡**走訂單列表篩選**的那四格(IO 層;2026-09-30 加「待尾款」)。
 //    另外兩格(今日新單 / 退款待處理)沿用 `today-read.ts` 的 `loadTodaySummary`,本檔不重查。
@@ -30,31 +31,38 @@ import { countOrderList, frozenListHref } from '../orders/order-list-count';
 // 🔴 `null` = 這一格沒讀到,**不是 0**(同 `today-read.ts` 的地基):零在這頁的意思是「今天沒事做」,
 //    是好消息;讀取失敗偽裝成好消息是最壞的壞法。
 
-/** 三格的定義;`filter` 是**未經列表頁預設**的原始篩選,真正查的是讀回來那份。 */
+/**
+ * 各格的定義;`filter` 是**未經列表頁預設**的原始篩選,真正查的是讀回來那份。
+ * 🆕 2026-09-30 `todo`:點進去是哪一格的待辦模式;`label` 從 `ORDER_TODO_SPECS` 讀(首頁格子與清單標題同一個字)。
+ */
 export const TODO_LIST_SPECS = {
   /** 待收款(匯款):未付款 × 銀行轉帳;`pendingOnly` 帶進列表那條「排除已取消 / 已退款」。 */
   unpaidBankTransfer: {
-    label: '待收款(匯款)',
+    todo: 'unpaid-transfer',
+    label: ORDER_TODO_SPECS['unpaid-transfer'].label,
     filter: { paymentStatus: 'unpaid', paymentChannels: ['bank_transfer'], pendingOnly: true },
   },
   /** 待訂貨:貨品軸「未訂貨」(列表那條 chip;自帶排除已取消 / 已退款)。 */
   notOrdered: {
-    label: '待訂貨',
+    todo: 'to-order',
+    label: ORDER_TODO_SPECS['to-order'].label,
     filter: { goodsAxes: ['none'] },
   },
   /** 到貨待出貨:貨品軸「已到貨」。 */
   instock: {
-    label: '到貨待出貨',
+    todo: 'ready-ship',
+    label: ORDER_TODO_SPECS['ready-ship'].label,
     filter: { goodsAxes: ['instock'] },
   },
   /** 待尾款:已收訂金、還沒收齊(列表「只看:尾款未收」同一條);`pendingOnly` 排除已取消 / 已退款。
    *  🔴 **不限貨品軸**(主視窗 2026-09-30 Q2 甲):已出貨而錢沒收齊的單會離開預設「未完成」,最容易被忘記 ⇒ 這一格要看得到它。
    *  plan:`~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-2。 */
   partiallyPaid: {
-    label: '待尾款',
+    todo: 'partial-paid',
+    label: ORDER_TODO_SPECS['partial-paid'].label,
     filter: { paymentStatus: 'partiallyPaid', pendingOnly: true },
   },
-} as const satisfies Record<string, { label: string; filter: AdminOrderFilter }>;
+} as const satisfies Record<string, { todo: OrderTodoKey; label: string; filter: AdminOrderFilter }>;
 
 export type TodoListKey = keyof typeof TODO_LIST_SPECS;
 
@@ -70,7 +78,7 @@ export type TodayTodoLists = Record<TodoListKey, TodoListCount>;
 
 /** 一格的網址(日期寫死);純函式,給元件與測試用。核心在 `lib/orders/order-list-count.ts`。 */
 export function todoListHref(key: TodoListKey, now: Date): string {
-  return frozenListHref(TODO_LIST_SPECS[key].filter, now);
+  return frozenListHref(TODO_LIST_SPECS[key].filter, now, TODO_LIST_SPECS[key].todo);
 }
 
 /** 整支載入拋掉時的替身:每一格都「讀取失敗」、連結仍指向列表頁本身(數字不藏、不假裝 0)。 */
@@ -93,7 +101,7 @@ export async function loadTodoListCount(
   repo = getAdminOrderRepository(),
 ): Promise<TodoListCount> {
   const spec = TODO_LIST_SPECS[key];
-  const r = await countOrderList(spec.filter, now, repo, spec.label);
+  const r = await countOrderList(spec.filter, now, repo, spec.label, spec.todo);
   return { label: spec.label, ...r };
 }
 

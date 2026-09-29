@@ -1647,3 +1647,75 @@ describe('A1 — ?boss=1 只有 manager 算數(非管理者:參數忽略、勾�
     );
   });
 });
+
+// ── 2026-09-30 待辦模式(`todo=`;plan `~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-3)──
+describe('OrdersPage — 待辦模式(首頁格子點進來)', () => {
+  const PARTIAL_ID = '11111111-2222-4333-8444-666666666666';
+  const PARTIAL = {
+    items: [{ ...ONE_ORDER.items[0]!, id: PARTIAL_ID, paymentStatus: 'partiallyPaid' as const, balanceDue: 7000 }],
+    total: 1,
+  };
+  const PARAMS = { payment_status: 'partiallyPaid', pending: '1', date_from: '2026-03-30', date_to: '2026-09-30' };
+  beforeEach(() => {
+    cookieState.keyword = undefined;
+    mocks.list.mockReset().mockResolvedValue(PARTIAL);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    mocks.detail.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it('🔴 帶 todo ⇒ 畫待辦清單、不畫工具列;鈕是「新增收款」, 連結帶著 todo(做完回到同一格)', async () => {
+    const { container } = await renderPage({ ...PARAMS, todo: 'partial-paid' });
+    expect(container.querySelector('[data-testid="order-toolbar"]')).toBeNull();
+    const list = container.querySelector('[data-testid="order-todo-list"]');
+    expect(list, '沒畫待辦清單 ⇒ 下面的斷言量的是不存在的東西').not.toBeNull();
+    expect(list!.querySelector('h1')!.textContent).toBe('待尾款');
+    const btn = [...list!.querySelectorAll('a')].find((a) => a.textContent === '新增收款');
+    expect(btn).toBeDefined();
+    const href = btn!.getAttribute('href')!;
+    expect(href).toContain(`pay=${PARTIAL_ID}`);
+    expect(href).toContain('todo=partial-paid');
+    expect(list!.textContent).toContain('還差 7,000');
+  });
+
+  it('🔴 todo 是顯示軸:送去查的 filter 跟不帶 todo 時逐字相同(格子上的數字 = 點進去的筆數)', async () => {
+    await renderPage({ ...PARAMS, todo: 'partial-paid' });
+    const withTodo = mocks.list.mock.calls[0]![0];
+    mocks.list.mockClear();
+    cleanup();
+    await renderPage(PARAMS);
+    expect(withTodo).toEqual(mocks.list.mock.calls[0]![0]);
+  });
+
+  it('清單空了 ⇒ 說「這一格目前沒有要處理的單。」, 不是讀取失敗', async () => {
+    mocks.list.mockResolvedValue(EMPTY);
+    const { container } = await renderPage({ ...PARAMS, todo: 'partial-paid' });
+    expect(container.querySelector('[data-testid="order-todo-list"]')!.textContent).toContain('這一格目前沒有要處理的單。');
+    expect(container.textContent).not.toContain('訂單列表載入失敗');
+  });
+
+  it('🔴 做完回來帶 open=<那張單> 而它已不在清單 ⇒ 不去查「被篩選藏起來」(那句話在待辦清單裡是錯的)', async () => {
+    mocks.list.mockResolvedValue(EMPTY);
+    await renderPage({ ...PARAMS, todo: 'partial-paid', open: PARTIAL_ID });
+    expect(mocks.detail).not.toHaveBeenCalled();
+  });
+
+  it('🔴 這個登入還留著搜尋 ⇒ 清單上方講出來, 不讓其他單無聲地不在清單上(R1 F1)', async () => {
+    cookieState.keyword = '王小明';
+    const { container } = await renderPage({ ...PARAMS, todo: 'partial-paid' });
+    const list = container.querySelector('[data-testid="order-todo-list"]')!;
+    expect(list.textContent).toContain('目前只列出符合搜尋「王小明」的單');
+    cookieState.keyword = undefined;
+    cleanup();
+    const again = await renderPage({ ...PARAMS, todo: 'partial-paid' });
+    expect(again.container.querySelector('[data-testid="order-todo-list"]')!.textContent).not.toContain('符合搜尋');
+  });
+
+  it('不認得的 todo 值 ⇒ 一般列表(工具列照畫)', async () => {
+    const { container } = await renderPage({ ...PARAMS, todo: 'nope' });
+    expect(container.querySelector('[data-testid="order-toolbar"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="order-todo-list"]')).toBeNull();
+  });
+});

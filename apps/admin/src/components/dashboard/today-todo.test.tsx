@@ -35,7 +35,7 @@ describe('待尾款那一格(Sean 2026-09-30 批三格;主視窗 Q2 甲)', () =>
     render(<TodayTodo summary={null} lists={lists} amountRequests={null} />);
     const card = screen.getByRole('link', { name: /待尾款 2 筆/ }) as HTMLAnchorElement;
     expect(card.getAttribute('href')).toBe(
-      '/orders?payment_status=partiallyPaid&pending=1&date_from=2026-03-13&date_to=2026-09-13',
+      '/orders?payment_status=partiallyPaid&pending=1&date_from=2026-03-13&date_to=2026-09-13&todo=partial-paid',
     );
     const labels = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
     expect(labels.indexOf('待尾款')).toBe(labels.indexOf('待收款(匯款)') + 1);
