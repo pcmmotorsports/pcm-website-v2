@@ -113,6 +113,18 @@ describe('/api/search', () => {
     expect(body.items[0]).not.toHaveProperty('fitments');
   });
 
+  it('R3c 有特價 ⇒ 多送 originalPrice(卡片劃線那個原價);沒特價、原價不高於售價 ⇒ 不送這一欄', async () => {
+    // 2026-09-29 P14 特價上線後, 疊層只印特價、沒有劃線原價, 與卡片和商品頁不一致。
+    const sale = { ...FULL_PRODUCT, slug: 's', price: 1000, originalPrice: 1200 };
+    const plain = { ...FULL_PRODUCT, slug: 'p', price: 1000, originalPrice: null };
+    const odd = { ...FULL_PRODUCT, slug: 'o', price: 1000, originalPrice: 900 };
+    searchProducts.mockResolvedValue({ items: [sale, plain, odd], total: 3, error: false });
+    const body = (await (await GET(req('排氣管'))).json()) as { items: Record<string, unknown>[] };
+    expect(body.items[0]?.originalPrice).toBe(1200);
+    expect(body.items[1]).not.toHaveProperty('originalPrice');
+    expect(body.items[2]).not.toHaveProperty('originalPrice');
+  });
+
   it('R4 🔴 超長輸入【原樣傳下去、不在這一層截斷】,而且不回 400', async () => {
     // ⛔ ~~舊斷言:`searchProducts` 收到的字串長度 === 100(= route 自己截)~~
     // 🔴 **那一版是錯的**(codex 2026-09-02 must-fix 2):截斷若做在 route,

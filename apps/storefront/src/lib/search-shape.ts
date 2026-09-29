@@ -25,6 +25,8 @@ export type SearchOverlayItem = {
   /** 商品卡片「適用 …」後半段(`catalog-page.ts` 的 `formatCardFits` 算好的顯示字, 例:`5 款車型`)。
    *  疊層照印, 讓同名同價的商品分得出來(2026-09-29 走查)。舊回應沒有這欄 ⇒ 不印。 */
   fits?: string;
+  /** 特價中才有:劃線的原價(與卡片 `Price` 的 originalPrice 同一個值)。沒有特價就不送這一欄(2026-09-29)。 */
+  originalPrice?: number;
 };
 
 /**
