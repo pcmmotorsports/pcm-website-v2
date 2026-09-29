@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { classifyVariantOrphans, orphansToDeleteFor, hazardGroupsToSkip, computeSourceMissing, markSourceMissing, clearSourceMissing, printVariantOrphanReport, formatWithheldOrphans, type VariantOrphan, type VariantOrphanReport } from './rpm-reconcile';
+import { classifyVariantOrphans, fetchHardDeletedSkus, orphansToDeleteFor, hazardGroupsToSkip, computeSourceMissing, markSourceMissing, clearSourceMissing, printVariantOrphanReport, formatWithheldOrphans, type VariantOrphan, type VariantOrphanReport } from './rpm-reconcile';
 
 const tv = (sku: string, externalId: string): VariantOrphan => ({ sku, externalId });
 
@@ -588,5 +588,129 @@ describe('Q4 甲:明確標停產的孤兒不受完整性扣留', () => {
     expect(t).toMatch(/"A-2"/);
     expect(t).toMatch(/這一輪【不會刪】/);
     expect(t).toMatch(/"B-2"/);
+  });
+});
+
+// ── 2026-09-29 Sean「直接把 bug 修好」:報價單【已刪】(product_hard_delete_audit 有紀錄)的孤兒照刪 ──
+//   sourceCompleteness 恆 unknown ⇒ 孤兒一律扣留, 報價單直接刪掉的規格永遠留在網站、客人買得到(DBK 35 個)。
+//   只刪有明確刪除證據的;證據刪除超過該家 5% ⇒ 這一輪一個都不照證據刪, 標 hardDeleteCapped 讓 cron 叫。
+describe('報價單已刪的孤兒照刪, 超過 5% 停手', () => {
+  // 網站上次同步寫到這個規格的時間(product_variants.updated_at);刪除紀錄要晚於它才算數
+  const SYNCED = '2026-09-13T10:00:00Z';
+  const family = Array.from({ length: 100 }, (_, i) => ({ ...tv(`S-${i}`, `G-${i}`), updatedAt: SYNCED }));
+  const srcIds = new Set(family.map((v) => v.externalId));
+  const without = (...gone: string[]) => new Set(family.filter((v) => !gone.includes(v.sku)).map((v) => v.sku));
+  const del = (...skus: string[]) => new Map(skus.map((s) => [s, Date.parse('2026-09-14T05:00:00Z')]));
+
+  it('有刪除紀錄的照刪, 沒紀錄的仍扣留(漏抓不刪)', () => {
+    const r = classifyVariantOrphans(family, without('S-1', 'S-2'), srcIds, { hardDeleted: del('S-1') });
+    expect(r.hardDeleteCapped).toBe(false);
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['S-2']);
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['S-1']);
+  });
+
+  it('剛好 5%(100 個裡 5 個)照刪', () => {
+    const gone = ['S-1', 'S-2', 'S-3', 'S-4', 'S-5'];
+    const r = classifyVariantOrphans(family, without(...gone), srcIds, { hardDeleted: del(...gone) });
+    expect(r.hardDeleteCapped).toBe(false);
+    expect(orphansToDeleteFor(r).map((o) => o.sku).sort()).toEqual([...gone].sort());
+  });
+
+  it('🔴 超過 5%(100 個裡 6 個)⇒ 一個都不照證據刪、標停手;報價單標停產的照舊刪', () => {
+    const gone = ['S-1', 'S-2', 'S-3', 'S-4', 'S-5', 'S-6'];
+    const r = classifyVariantOrphans(family, without(...gone, 'S-9'), srcIds, {
+      hardDeleted: del(...gone),
+      tombstoned: [tv('S-9', 'G-9')],
+    });
+    expect(r.hardDeleteCapped).toBe(true);
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['S-9']);
+    expect(r.withheldOrphans.map((o) => o.sku).sort()).toEqual([...gone].sort());
+  });
+
+  it('比例閘中止 ⇒ 有刪除紀錄的也不刪', () => {
+    const r = classifyVariantOrphans(family, new Set(), srcIds, { hardDeleted: del('S-1') });
+    expect(r.aborted).toBe(true);
+    expect(r.tombstonedOrphans ?? []).toEqual([]);
+  });
+
+  it('刪除紀錄裡的料號還在來源(重新上架)⇒ 不是孤兒, 不刪', () => {
+    const r = classifyVariantOrphans(family, without('S-2'), srcIds, { hardDeleted: del('S-1') });
+    expect(orphansToDeleteFor(r)).toEqual([]);
+  });
+
+  // Fable R1 F2:報價單的料號刪掉後會原樣重生, 舊紀錄不會清 ⇒ 只採計「網站上次同步之後」才刪的紀錄
+  it('🔴 刪除紀錄比網站上次同步還早(料號後來重生過)⇒ 不算證據, 扣留', () => {
+    const stale = new Map([['S-1', Date.parse('2026-09-01T00:00:00Z')]]);
+    const r = classifyVariantOrphans(family, without('S-1'), srcIds, { hardDeleted: stale });
+    expect(orphansToDeleteFor(r)).toEqual([]);
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['S-1']);
+  });
+
+  it('🔴 不知道網站上次同步時間 ⇒ 不算證據, 扣留', () => {
+    const noTime = family.map((v) => (v.sku === 'S-1' ? tv('S-1', 'G-1') : v));
+    const r = classifyVariantOrphans(noTime, without('S-1'), srcIds, { hardDeleted: del('S-1') });
+    expect(orphansToDeleteFor(r)).toEqual([]);
+  });
+
+  // Fable R2:報價單某晚 feed 漏給就硬刪並留紀錄、隔晚重建 ⇒ 紀錄要滿 24 小時才算(漏一晚的會先回來)
+  it('🔴 刪除紀錄還不滿 24 小時 ⇒ 不算證據, 扣留', () => {
+    const now = Date.parse('2026-09-14T05:00:00Z') + 23 * 3600_000;
+    const r = classifyVariantOrphans(family, without('S-1'), srcIds, { hardDeleted: del('S-1'), now });
+    expect(orphansToDeleteFor(r)).toEqual([]);
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['S-1']);
+  });
+
+  it('刪除紀錄剛好滿 24 小時 ⇒ 照刪', () => {
+    const now = Date.parse('2026-09-14T05:00:00Z') + 24 * 3600_000;
+    const r = classifyVariantOrphans(family, without('S-1'), srcIds, { hardDeleted: del('S-1'), now });
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['S-1']);
+  });
+
+  // Fable R1 F1(必修):被標題閘 / 排除名單跳過的群不在這一輪寫入範圍, 刪它的規格會在商品寫入後 throw
+  it('🔴 這一輪不寫的群(writableExternalIds 沒有它)⇒ 有紀錄也不刪, 扣留', () => {
+    const writable = new Set([...srcIds].filter((id) => id !== 'G-1'));
+    const r = classifyVariantOrphans(family, without('S-1', 'S-2'), srcIds, { hardDeleted: del('S-1', 'S-2'), writableExternalIds: writable });
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['S-2']);
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['S-1']);
+  });
+
+  // Fable R1 F3:只補跑幾群(--group / --limit)時, 5% 的分母是整家規格數, 不是這幾群
+  it('只補跑 10 群時, 1 個有紀錄 = 整家 1%, 不停手', () => {
+    const tenGroups = new Set(family.slice(0, 10).map((v) => v.externalId));
+    const r = classifyVariantOrphans(family, without('S-1'), tenGroups, { hardDeleted: del('S-1') });
+    expect(r.hardDeleteCapped).toBe(false);
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['S-1']);
+  });
+});
+
+describe('fetchHardDeletedSkus(讀報價單 product_hard_delete_audit)', () => {
+  const fakeSource = (pages: Array<{ data?: { sku: string; deleted_at: string }[]; error?: { message: string } }>) => {
+    const calls: { eq: [string, string][]; range: [number, number][] } = { eq: [], range: [] };
+    let i = 0;
+    const q = {
+      select: () => q,
+      eq: (c: string, v: string) => (calls.eq.push([c, v]), q),
+      order: () => q,
+      range: async (a: number, b: number) => (calls.range.push([a, b]), pages[i++] ?? { data: [] }),
+    };
+    return { client: { from: () => q } as unknown as SupabaseClient, calls };
+  };
+
+  it('只讀這一家、分頁讀完;同料號多筆取最晚那一次', async () => {
+    const page1 = Array.from({ length: 1000 }, (_, i) => ({ sku: `A${i}`, deleted_at: '2026-09-01T00:00:00Z' }));
+    const { client, calls } = fakeSource([{ data: page1 }, { data: [{ sku: 'A0', deleted_at: '2026-09-20T00:00:00+00:00' }, { sku: 'B', deleted_at: 'not-a-date' }] }]);
+    const skus = await fetchHardDeletedSkus(client, 'dbk');
+    expect(skus.size).toBe(1000);
+    expect(skus.get('A0')).toBe(Date.parse('2026-09-20T00:00:00Z'));
+    expect(skus.has('B')).toBe(false);
+    expect(calls.eq).toEqual([['supplier_slug', 'dbk'], ['supplier_slug', 'dbk']]);
+  });
+
+  it('讀不到 ⇒ 空集合(當成沒有證據, 一個都不照證據刪), 並印一行', async () => {
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { client } = fakeSource([{ error: { message: 'boom' } }]);
+    expect((await fetchHardDeletedSkus(client, 'dbk')).size).toBe(0);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
