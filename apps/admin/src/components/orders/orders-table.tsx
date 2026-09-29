@@ -22,7 +22,7 @@ import {
   type OrderDensity,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
-import { orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
+import { arrivedLineCount, lineArrivalNote, orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
 import type { NextStepDo } from '../../lib/orders/order-return-to';
 import type { PendingBox } from '../../lib/shipping/box-progress';
 import type { OrderItemCostCell, OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
@@ -441,6 +441,11 @@ function OrderGroup({
   const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
   const status = orderStatusView(order);
+  // 2026-09-30 部分到貨(Sean 拍 Q1 甲):每樣商品旁印到貨灰字、下一步可以先出已到的。
+  //   已取消 / 已退款 / 全部出完 ⇒ 不印(整單已經不在流程裡, 或狀態欄已經說完了)。
+  //   `itemsTruncated` ⇒ 不算已到樣數:看不到的那幾樣可能也到了, 算出來的 N 會偏小。
+  const showArrival = status.goodsAxis !== null && status.goodsAxis !== 'shipped';
+  const arrivedLines = order.itemsTruncated ? 0 : arrivedLineCount(order.lines);
   // 🆕 A1:老闆模式 = 有成本格可畫(頁層只在 manager + `?boss=1` 時才給)。
   const boss = costCells !== null;
   const colSpan = headerCount(boss);
@@ -795,6 +800,11 @@ function OrderGroup({
             </td>
             <td className={`${TD} ${CELL.title}`}>
               {line?.title ? <OrderCopyButton text label='複製商品名稱' value={line.title} /> : '—'}
+              {showArrival && line && lineArrivalNote(line) !== null ? (
+                <span className='text-muted-foreground block text-[11px] leading-[1.3]' data-testid='line-arrival'>
+                  {lineArrivalNote(line)}
+                </span>
+              ) : null}
               {expanded !== null && line ? (
                 <span className='order-item-copy'>
                   <OrderCopyButton label='複製商品資料' value={[vehicleText ?? '', line.brand ?? '', line.variantSku ?? '', line.title ?? ''].join(',')} />
@@ -928,7 +938,7 @@ function OrderGroup({
                      📌 「沒有下一步了」與「這張單不在流程裡了」是兩件事。 */}
             {boss ? null : first ? (
               (() => {
-                const next = orderNextStep(status, box);
+                const next = orderNextStep(status, box, arrivedLines);
                 if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
                 if (next.kind === 'done') {
                   return (
@@ -962,7 +972,17 @@ function OrderGroup({
                       } relative z-10`}
                       data-next-do={next.kind === 'goto' ? 'goto' : next.do}
                     >
-                      {next.label}
+                      {/* 2026-09-30 部分到貨「出貨（已到 N 樣）」一行比這一欄寬(1440 實測鈕 114 > 欄 111, 右緣被切)
+                          ⇒ 在括號前斷成兩行「出貨 / （已到 N 樣）」;自動換行會斷在數字後面, 讀起來像兩個東西。 */}
+                      {next.label.includes('（') ? (
+                        <span className='text-left'>
+                          {next.label.slice(0, next.label.indexOf('（'))}
+                          <br />
+                          {next.label.slice(next.label.indexOf('（'))}
+                        </span>
+                      ) : (
+                        next.label
+                      )}
                     </Link>
                   </td>
                 );

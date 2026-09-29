@@ -2161,7 +2161,11 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   it('品項層欄位:物品名稱 / 料號 / 數量 / **單價**(訂貨 n/m 已隨 L3 片1 下架)', () => {
     const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 2, 24000)] })]} />);
 
-    expect(container.querySelector('td.col-title')!.textContent).toBe('排氣管');
+    // 2026-09-30 部分到貨:物品名稱那格下面多一行到貨灰字(這張單還沒下訂 ⇒「待下訂」)⇒ 名稱與灰字分開驗。
+    const titleCell = container.querySelector('td.col-title')!;
+    const note = titleCell.querySelector('[data-testid="line-arrival"]')!;
+    expect(note.textContent).toBe('待下訂');
+    expect(titleCell.textContent!.slice(0, -note.textContent!.length)).toBe('排氣管');
     expect(container.querySelector('td.col-sku')!.textContent).toBe('SKU-001');
     expect(container.querySelector('td.col-qty')!.textContent).toBe('2');
     // 🆕 L3 片2:單價 = 24,000 / 2 = **12,000**,刻意與小計 24,000 **不同**
@@ -2975,5 +2979,34 @@ describe('下一步:現貨而且已建箱 ⇒ 畫出箱子那一步', () => {
     expect(a.textContent).toBe('確認叫車結果');
     expect(a.getAttribute('data-next-do')).toBe('ship');
     expect(a.className).toContain('text-orange-800');
+  });
+});
+
+// ── 2026-09-30 部分到貨(Sean 拍 Q1 甲):一樣到了、一樣還沒到 ────────────────────────
+describe('部分到貨 ⇒ 商品列灰字、下一步先出已到的', () => {
+  const partial = () => order({ lines: [lineAt('l1', 1, 'instock'), lineAt('l2', 1, 'ordered')] });
+
+  it('每樣商品列印到貨灰字', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[partial()]} />);
+    const notes = [...container.querySelectorAll('[data-testid="line-arrival"]')].map((e) => e.textContent);
+    expect(notes).toEqual(['已到 1/1', '等貨']);
+  });
+
+  it('下一步是「出貨（已到 1 樣）」, 開出貨彈窗', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[partial()]} />);
+    const link = container.querySelector('[data-next-do]')!;
+    expect(link.textContent).toBe('出貨（已到 1 樣）');
+    expect(link.getAttribute('data-next-do')).toBe('ship');
+  });
+
+  it('全部出完 ⇒ 不印灰字(狀態欄已經說完了)', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [lineAt('l1', 1, 'shipped')] })]} />);
+    expect(container.querySelector('[data-testid="line-arrival"]')).toBeNull();
+  });
+
+  it('品項被截斷 ⇒ 不算已到樣數, 下一步照舊', () => {
+    const o = { ...partial(), itemsTruncated: true };
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[o]} />);
+    expect(container.querySelector('[data-next-do]')?.textContent).toBe('到貨登記');
   });
 });

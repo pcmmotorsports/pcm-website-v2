@@ -12,6 +12,8 @@ import {
   ORDER_STATUS_LABEL,
   ORDER_STATUS_REFUNDED_LABEL,
   orderNextStep,
+  arrivedLineCount,
+  lineArrivalNote,
   goodsAxisOfLines,
   goodsAxisProgressNote,
   orderDetailGoodsAxis,
@@ -663,3 +665,70 @@ describe('orderNextStep — 現貨而且已經有箱子 ⇒ 看箱子走到哪',
     expect(orderNextStep(ordered, boxAt('dispatch_uncertain'))).toEqual(orderNextStep(ordered, null));
   });
 });
+
+// ── 2026-09-30 部分到貨(Sean 拍 Q1 甲;研究 ~/pcm-mailbox/研究-後台訂單好用度-20260930.md 第二節第 1 點)──
+// 一張單有一樣到貨、另一樣還沒到:列表原本寫「到貨登記」, 已經到的貨可能擱著沒出。
+describe('lineArrivalNote — 每樣商品的到貨灰字', () => {
+  it.each([
+    ['還沒下訂', '待下訂', line(2)],
+    ['訂了還沒到', '等貨', line(2, { ordered: 2 })],
+    ['到了一部分', '已到 1/2', line(2, { ordered: 2, instock: 1 })],
+    ['全到了', '已到 1/1', line(1, { ordered: 1, instock: 1 })],
+    ['全出了', '已出貨', line(1, { ordered: 1, instock: 1, shipped: 1 })],
+    ['取消一件後剩下的全到了(分母扣掉取消)', '已到 2/2', line(3, { ordered: 2, instock: 2, cancelled: 1 })],
+  ] as const)('%s ⇒ %s', (_name, want, l) => {
+    expect(lineArrivalNote(l)).toBe(want);
+  });
+
+  it('整樣都取消了 ⇒ 不印', () => {
+    expect(lineArrivalNote(line(2, { cancelled: 2 }))).toBeNull();
+  });
+
+  it('沒有數量摘要 ⇒ 不印(不猜)', () => {
+    expect(lineArrivalNote({ quantity: 1, quantitySummary: null })).toBeNull();
+  });
+});
+
+describe('arrivedLineCount — 有幾樣已經到貨、還沒出完', () => {
+  it('一樣到、一樣沒到 ⇒ 1', () => {
+    expect(arrivedLineCount([line(1, { ordered: 1, instock: 1 }), line(1, { ordered: 1 })])).toBe(1);
+  });
+  it('到了的已經出掉 ⇒ 不算', () => {
+    expect(arrivedLineCount([line(1, { ordered: 1, instock: 1, shipped: 1 }), line(1, { ordered: 1 })])).toBe(0);
+  });
+  it('到一部分也算', () => {
+    expect(arrivedLineCount([line(2, { ordered: 2, instock: 1 }), line(1, { ordered: 1 })])).toBe(1);
+  });
+});
+
+describe('orderNextStep — 部分到貨 ⇒ 先出已到的', () => {
+  const view = (goodsAxis: OrderGoodsAxis): OrderStatusView => ({
+    label: 'x', capsuleClass: 'x', payAxis: 'unpaid', goodsAxis, cancelled: false,
+  });
+
+  it('全部訂了、到了 1 樣 ⇒「出貨（已到 1 樣）」, 開出貨彈窗', () => {
+    expect(orderNextStep(view('ordered'), null, 1)).toEqual({ kind: 'action', label: '出貨（已到 1 樣）', do: 'ship' });
+  });
+
+  it('全部訂了、一樣都還沒到 ⇒ 照舊「到貨登記」', () => {
+    expect(orderNextStep(view('ordered'), null, 0)).toEqual({ kind: 'action', label: '到貨登記', do: 'receipt' });
+  });
+
+  it('還有一樣沒訂 ⇒ 照舊「跟供應商下訂」(先把沒訂的訂下去)', () => {
+    expect(orderNextStep(view('none'), null, 1)).toEqual({ kind: 'action', label: '跟供應商下訂', do: 'order' });
+  });
+
+  it('全部到齊 ⇒ 照舊「出貨」(不加括號)', () => {
+    expect(orderNextStep(view('instock'), null, 2)).toEqual({ kind: 'action', label: '出貨', do: 'ship' });
+  });
+
+  it('已到的那幾樣已經裝箱 ⇒ 跟著箱子走', () => {
+    const box: PendingBox = { progress: 'needs_number', shipmentId: 's1', createdAt: '2026-09-30T02:00:00Z' };
+    expect(orderNextStep(view('ordered'), box, 1)).toEqual({ kind: 'action', label: '要託運單號', do: 'ship' });
+  });
+
+  it('沒給到貨樣數(舊呼叫端)⇒ 行為不變', () => {
+    expect(orderNextStep(view('ordered'))).toEqual({ kind: 'action', label: '到貨登記', do: 'receipt' });
+  });
+});
+

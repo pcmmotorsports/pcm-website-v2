@@ -343,6 +343,28 @@ export function goodsAxisOfLines(lines: readonly GoodsAxisLine[]): OrderGoodsAxi
 }
 
 /**
+ * 2026-09-30 部分到貨(Sean 拍 Q1 甲;研究 `~/pcm-mailbox/研究-後台訂單好用度-20260930.md` 第二節第 1 點):
+ * 列表每樣商品旁的灰字 —— 整張單的狀態只在「全部到齊」才會變, 看不出「有一樣已經可以出」。
+ * 分母用 `lineNeed`(訂購 − 已取消), 與貨品軸同一個分母。沒有數量摘要或整樣取消 ⇒ 不印(不猜)。
+ */
+export function lineArrivalNote(l: GoodsAxisLine): string | null {
+  const s = l.quantitySummary;
+  if (s === null) return null;
+  const need = lineNeed(l);
+  if (need === 0) return null;
+  if (s.shippedQuantity >= need) return '已出貨';
+  if (s.instockQuantity > 0) return `已到 ${Math.min(s.instockQuantity, need)}/${need}`;
+  if (s.orderedQuantity > 0) return '等貨';
+  return '待下訂';
+}
+
+/** 有幾樣「已經到貨、還沒出完」(到貨 − 已出貨 > 0)。部分到貨時下一步印的 N。 */
+export function arrivedLineCount(lines: readonly GoodsAxisLine[]): number {
+  return lines.filter((l) => (l.quantitySummary?.instockQuantity ?? 0) - (l.quantitySummary?.shippedQuantity ?? 0) > 0)
+    .length;
+}
+
+/**
  * `#514`:**明細頁**的貨品軸。
  *
  * 🔴 **這一格取代了 `orders.fulfillment_status`,而那不是重構、是修一個正在騙人的顯示**:
@@ -685,14 +707,22 @@ const BOX_NEXT_STEP: Record<Exclude<BoxProgress, 'voided' | 'shipped'>, (box: Pe
   dispatched: () => ({ kind: 'action', label: '標記出貨', do: 'ship' }),
 };
 
-export function orderNextStep(view: OrderStatusView, box: PendingBox | null = null): OrderNextStep {
+/**
+ * `arrivedLines`(2026-09-30 部分到貨, Sean 拍 Q1 甲):全部都訂了、其中幾樣已經到 ⇒ 下一步改成
+ * 「出貨（已到 N 樣）」, 開同一個出貨彈窗(彈窗預設只帶到貨減已裝箱的量, 沒到的那樣是 0 並寫原因)。
+ * 🔴 這是 Sean 拍板的新字面, 不是規格 §1 那四個 —— 那條「零新造」守的是自己發明, 這個有拍板。
+ * 🔵 貨品軸是 `none`(還有一樣沒訂)⇒ 照舊「跟供應商下訂」:沒訂的那樣要先訂, 那是更前面的一步。
+ */
+export function orderNextStep(view: OrderStatusView, box: PendingBox | null = null, arrivedLines = 0): OrderNextStep {
   // 🔴 已取消 / 已退款 ⇒ `goodsAxis` 是 `null`（它們不在 2×4 矩陣裡，走 `orderStatusView` 的早退分支）
   //    ⇒ 整格空白。**不要改成印「—」** —— 那一欄的其他格印的是動詞，一個破折號讀起來像「沒資料」。
   if (view.goodsAxis === null) return { kind: 'none' };
   const label = ORDER_NEXT_STEP_LABEL[view.goodsAxis];
   if (view.goodsAxis === 'shipped') return { kind: 'done', label };
-  if (view.goodsAxis === 'instock' && box !== null && box.progress !== 'voided' && box.progress !== 'shipped') {
+  const partial = view.goodsAxis === 'ordered' && arrivedLines > 0;
+  if ((view.goodsAxis === 'instock' || partial) && box !== null && box.progress !== 'voided' && box.progress !== 'shipped') {
     return BOX_NEXT_STEP[box.progress](box);
   }
+  if (partial) return { kind: 'action', label: `出貨（已到 ${arrivedLines} 樣）`, do: NEXT_STEP_DO.instock };
   return { kind: 'action', label, do: NEXT_STEP_DO[view.goodsAxis] };
 }
