@@ -57,6 +57,8 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/Header', () => ({ Header: () => null }));
 vi.mock('@/components/HomeFooter', () => ({ HomeFooter: () => null }));
 // S1b-2:useChargePayment 內部組合 useReconcilePayment(→ reconcile-actions);mock 避免載入 server 依賴。
+const reportUnreadableMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@/app/checkout/price-unreadable-actions', () => ({ reportPriceUnreadableAction: reportUnreadableMock }));
 vi.mock('@/app/checkout/reconcile-actions', () => ({
   reconcileCartSession: reconcileMock,
 }));
@@ -401,6 +403,8 @@ describe('useChargePayment', () => {
     expect(chargeMock).not.toHaveBeenCalled();
     expect(result.current.state).toMatchObject({ status: 'error' });
     expect((result.current.state as { message: string }).message).toContain('價格讀不到');
+    // P-M5 紀錄:前台擋下也要讓伺服器記一行(只送列數與讀不到的列數)
+    expect(reportUnreadableMock).toHaveBeenCalledWith(2, 1);
     // 鎖有釋放:修好之後再按一次會真的送出
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0002' });
     await act(async () => {
