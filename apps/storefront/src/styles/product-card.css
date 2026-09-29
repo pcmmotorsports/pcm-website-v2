@@ -345,6 +345,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 客人選好車而這張適用(「適用您的車」「適用您的車款，請確認年份」):與商品頁適用框同一個綠(Sean 2026-09-29)。 */
+.pcard-fits.is-fit { color: var(--c-fit-match); }
 /* 🔴 2026-08-06(R1 MF3):原本這條寫了**兩次 `margin-top`** —— `auto` 在前、`8px` 在後,
    後者贏 ⇒ OD 要的「價格列貼卡底」整條是**死的**,而畫面上看起來只是「價格離文字近一點」,
    沒有任何測試看得到。照 OD 逐字只留 `margin-top: auto`(配上面補的 `.pcard-info{flex:1}`)。 */
