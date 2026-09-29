@@ -65,11 +65,12 @@ export function OrderTodoList({
           <table className='w-full border-collapse'>
             <thead>
               <tr className='border-border border-b'>
+                {/* 2026-09-30 名稱統一:欄名與訂單列表同一套(客戶 / 下一步;原 客人 / 要做的事)。 */}
                 <th className={TH}>單號</th>
-                <th className={TH}>客人</th>
+                <th className={TH}>客戶</th>
                 <th className={`${TH} hidden md:table-cell`}>商品</th>
                 <th className={`${TH} hidden text-right sm:table-cell`}>金額</th>
-                <th className={TH}>要做的事</th>
+                <th className={TH}>下一步</th>
               </tr>
             </thead>
             <tbody>
