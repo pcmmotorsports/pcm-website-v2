@@ -273,3 +273,9 @@ export {
   SupabaseCatalogSkuMatcher,
   SupabaseSupplierNewProductStore,
 } from './supplier-mail/SupabaseSupplierNewProductStore';
+export {
+  readBingWeekly,
+  formatBingWeeklyLine,
+  type BingReadOutcome,
+  type BingFetch,
+} from './bing/bing-weekly';

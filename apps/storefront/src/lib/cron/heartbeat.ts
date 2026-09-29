@@ -217,6 +217,8 @@ export const CRON_JOB_NAME = {
   settleSweep: 'pcm-settle-sweep',
   /** 🔴 這一支**不走本檔** —— 它是純 SQL、不經 HTTP,心跳在函式自己裡面寫(片2)。列在這裡只為讓名單完整。 */
   expireUnpaidOrders: 'pcm-expire-unpaid-orders',
+  /** 每週一 Bing 週報(2026-09-29,計畫 ~/pcm-mailbox/計畫-Bing週報LINE-20260929.md)。不接 healthchecks, 見 pingTarget。 */
+  bingWeekly: 'pcm-bing-weekly',
 } as const;
 
 export type CronJobName = (typeof CRON_JOB_NAME)[keyof typeof CRON_JOB_NAME];
@@ -295,6 +297,9 @@ export function pingTarget(jobName: CronJobName): {
       //    ⇒ **純 SQL,由 DB 端報到**:`20260916050000` 在排程指令第二句呼叫 `pcm_cron.ping_healthcheck`
       //       (secret 在 Vault `hc_ping_pcm_expire_unpaid_orders`,不是 env)⇒ 本檔照舊不 ping。
       return { envName: '(不適用:純 SQL job)', url: undefined, notApplicable: true };
+    case 'pcm-bing-weekly':
+      // 走 route, 但不接 healthchecks:每週一 Sean 固定收到一則 LINE 週報, 那一則本身就是存活訊號。
+      return { envName: '(不適用:每週通知本身就是存活訊號)', url: undefined, notApplicable: true };
   }
 }
 

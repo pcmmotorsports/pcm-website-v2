@@ -51,6 +51,8 @@ describe('🔴 【十】支排程的門檻是【唯一來源】,而這裡把值�
       ['pcm-net-exposure', 2 * 24 * 60],
       // 🔵 2026-09-28 加(migration 20260928260000 排程紀錄清理)。一天一次(台灣 03:17),與上兩支同一把尺:連漏兩天才叫。
       ['pcm-cron-run-log-purge', 2 * 24 * 60],
+      // 🔵 2026-09-29 Bing 週報:週期 × 2 = 14 天(推算值, 見 cron-jobs.ts 那一列)
+      ['pcm-bing-weekly', 14 * 24 * 60],
     ]);
   });
 
@@ -59,8 +61,8 @@ describe('🔴 【十】支排程的門檻是【唯一來源】,而這裡把值�
    *    ⇒ 一支排程被整個刪掉時,上面那格也會紅 —— 而它紅的訊息會指向「值不對」,
    *      而真正發生的是「那支排程再也沒有人在看了」。**兩個訊息要分得開。**
    */
-  it('剛好【十一】支(2026-09-28 加排程紀錄清理)—— 少一支 = 那支排程再也沒有人在看,而它不會自己出聲', () => {
-    expect(CRON_JOB_WHITELIST.length).toBe(11);
+  it('剛好【十二】支(2026-09-29 加 Bing 週報)—— 少一支 = 那支排程再也沒有人在看,而它不會自己出聲', () => {
+    expect(CRON_JOB_WHITELIST.length).toBe(12);
   });
 
   /**
@@ -186,6 +188,8 @@ describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算
       '0 0 * * *': 1440,
       // 🔵 每天 UTC 19:17(台灣 03:17;20260928260000 排程紀錄清理)
       '17 19 * * *': 1440,
+      // 🔵 每週一 UTC 01:05(台灣 09:05;20260929040000 Bing 週報)
+      '5 1 * * 1': 7 * 1440,
   };
 
   it('🔴 白名單裡每一支的 schedule 都要在對照表上(加 job 或改 schedule ⇒ 當場紅)', () => {
@@ -239,7 +243,7 @@ describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算
    *          判準逐字在 `apps/admin/src/lib/dashboard/cron-heartbeat-read.ts` 的 `minutesAgo > staleMinutes`,
    *          上面那三條時間軸在 `cron-heartbeat-read.test.ts` 有一格真的跑過(不是只寫在註解裡)。
    */
-  it('🔴 【十一】支分成兩種語意 —— 十支答【它停了嗎】, 一支答【它準時嗎】', () => {
+  it('🔴 【十二】支分成兩種語意 —— 十一支答【它停了嗎】, 一支答【它準時嗎】', () => {
     const byMeaning = { 停了嗎: [] as string[], 準時嗎: [] as string[] };
     for (const w of CRON_JOB_WHITELIST) {
       const period = PERIOD_MINUTES_BY_SCHEDULE[w.schedule]!;
@@ -249,7 +253,8 @@ describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算
     // 🔵 2026-09-05:5 ⇒ 6 ⇒ 7 ⇒ **8**(三支新的比值都 >= 2 ⇒ 全是「它停了嗎」)。
     // 🔵 2026-09-08:8 ⇒ **9**(`pcm-net-exposure` 2880/1440 = 2 ⇒ 也是「它停了嗎」)。
     // 🔵 2026-09-28:9 ⇒ **10**(`pcm-cron-run-log-purge` 2880/1440 = 2 ⇒ 也是「它停了嗎」)。
-    expect(byMeaning.停了嗎).toHaveLength(10);
+    // 🔵 2026-09-29:10 ⇒ **11**(`pcm-bing-weekly` 20160/10080 = 2 ⇒ 也是「它停了嗎」)。
+    expect(byMeaning.停了嗎).toHaveLength(11);
     // 🔴 釘住那個【恰好 2.0】—— 它是分界開始承重的那一刻。
     expect(2880 / 1440).toBe(2);
     // 🔴 釘住 2026-09-14 那次「分子分母一起動」:三個值擺在一起, 是要讓下一個人一眼看出
