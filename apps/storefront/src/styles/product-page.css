@@ -2293,8 +2293,8 @@
   color: #fff;
   background: var(--c-text-3);
 }
-.pfc-match { border-color: #16a34a; background: #f0fdf4; }
-.pfc-match .pfc-badge { background: #16a34a; }
+.pfc-match { border-color: var(--c-fit-match); background: #f0fdf4; }
+.pfc-match .pfc-badge { background: var(--c-fit-match); }
 .pfc-no-match { border-color: var(--c-red); background: var(--c-red-soft); }
 .pfc-no-match .pfc-badge { background: var(--c-red); }
 .pfc-qualified .pfc-badge,

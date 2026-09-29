@@ -300,7 +300,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
         {/* 2026-09-29:客人選好車而這張在「適用這台車」清單裡 ⇒ 伺服器帶 `fitsVehicle`, 直接回答「適不適用我的車」;
             沒帶 ⇒ 原本那一句(通用款不加「適用」前綴, `cardFitsLine`)。 */}
         {!compact && (
-          <div className="pcard-fits">
+          <div className={p.fitsVehicle ? 'pcard-fits is-fit' : 'pcard-fits'}>
             {p.fitsVehicle === 'match'
               ? '適用您的車'
               : p.fitsVehicle === 'qualified'

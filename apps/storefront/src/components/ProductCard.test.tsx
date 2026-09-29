@@ -526,3 +526,15 @@ describe('卡片那一行:客人選好車時寫「適用您的車」、通用款
     expect(句(container)).toBe('通用款');
   });
 });
+
+describe('卡片「適用您的車」掛 is-fit(與商品頁同一個綠)', () => {
+  it('match 與 qualified 都掛 is-fit;沒標就不掛', () => {
+    const cls = (fv?: 'match' | 'qualified') => {
+      const { container } = render(<ProductCard p={{ ...product, fits: '5 款車型', fitments: undefined, ...(fv ? { fitsVehicle: fv } : {}) }} />);
+      const c = container.querySelector('.pcard-fits')?.classList.contains('is-fit');
+      cleanup();
+      return c;
+    };
+    expect([cls('match'), cls('qualified'), cls()]).toEqual([true, true, false]);
+  });
+});
