@@ -8,6 +8,7 @@
 // 顯示規則(docs/specs/2026-07-12-search-vehicle-work-plan.md §5、Sean 拍板):
 //   - 單一車款:「{品牌} {車型} {年份}」,年份兩位數緊湊 '18–'24(與 PDP 4 位數值一致、格式較緊)。
 //   - 多車款(Sean Q1=A):「{N} 款車型」——不挑代表款(PCM 既有鐵則)。
+//     各款年份摘要完全相同時加年份「{N} 款車型 '21–'23」(2026-09-29 主視窗定甲的延伸;仍不挑代表款)。
 //   - 缺年份(真實 case、例 bonamici rc08_dv4):降級只顯車款、不杜撰年份。
 //   - 無 fitment 陣列:回退 RPC 衍生 `fits`(第一款字串或 '通用款')。
 //
@@ -69,7 +70,14 @@ export function formatCardFits(fitments: UIFitment[] | undefined, fallback: stri
     else byModel.set(key, [f]);
   }
 
-  if (byModel.size > 1) return `${byModel.size} 款車型`;
+  if (byModel.size > 1) {
+    // 2026-09-29 主視窗定甲:各款年份摘要都算得出、而且完全相同 ⇒ 年份寫出來(Evotech 同名商品只差年份)。
+    //   任一款算不出(不限年份)⇒ 不加, 否則會把那一款說成有年限。仍不挑代表款。
+    const perModel = [...byModel.values()].map(summarizeModelYears);
+    const shared = perModel[0];
+    const same = shared != null && perModel.every((y) => y === shared);
+    return same ? `${byModel.size} 款車型 ${shared}` : `${byModel.size} 款車型`;
+  }
 
   const only = [...byModel.values()][0];
   const first = only?.[0];

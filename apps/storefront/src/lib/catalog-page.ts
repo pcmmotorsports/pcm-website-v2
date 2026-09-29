@@ -158,7 +158,7 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
     //   回應 **4,477,365 bytes**、其中 `motoBrand` 出現 **40,278** 次;不帶車的同一頁 693,655 / 239
     //   ⇒ 每筆 fitment ≈ 95 bytes(兩個獨立車款各算一次:96.5 與 94.5, 對得起來)。
     //   而那整包在清單頁的**唯一**用途, 是 `ProductCard.tsx` 那一行 `formatCardFits(p.fitments, p.fits)`
-    //   ⇒ 它把陣列收成「N 款車型」或「單一車款 + 年份」**一個字串**。
+    //   ⇒ 它把陣列收成「N 款車型」(各款年份相同時加年份)或「單一車款 + 年份」**一個字串**。
     //   ⇒ 📌 **送 40,278 筆進瀏覽器, 產出是四個字。** 而它同時把那頁的 `unstable_cache`
     //   條目推過 2 MB 上限 ⇒ 正式站逐字 `items over 2MB can not be cached (2679379 bytes)`
     //   ⇒ **那個 key 永遠寫不進去**(板列 `⟦search-CATALOGPAGE2MB⟧`)。
