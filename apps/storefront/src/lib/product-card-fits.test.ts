@@ -59,6 +59,51 @@ describe('formatCardFits', () => {
     ).toBe('3 款車型');
   });
 
+  describe('多車款而各款年份一致 ⇒ 年份寫出來(2026-09-29 主視窗定甲:Evotech 同名商品只差年份)', () => {
+    it("兩款同一段閉區間 ⇒ 「2 款車型 '21–'23」", () => {
+      expect(
+        formatCardFits([f({ modelCode: 'MT-09', yearStart: 2021, yearEnd: 2023 }), f({ modelCode: 'MT-09 SP', yearStart: 2021, yearEnd: 2023 })], 'x'),
+      ).toBe("2 款車型 '21–'23");
+    });
+
+    it('兩款同起年的開放年 ⇒ 「2 款車型 2024 年起」(與單款同一個寫法)', () => {
+      expect(
+        formatCardFits([f({ modelCode: 'MT-09', yearStart: 2024, yearEnd: null }), f({ modelCode: 'MT-09 SP', yearStart: 2024, yearEnd: null })], 'x'),
+      ).toBe('2 款車型 2024 年起');
+    });
+
+    it('一款有多年段(中間有空缺)、一款連續, 壓平後相同 ⇒ 仍合併(與單款規則一致, Fable R1 建議)', () => {
+      expect(
+        formatCardFits(
+          [
+            f({ modelCode: 'MT-09', yearStart: 2018, yearEnd: 2019 }),
+            f({ modelCode: 'MT-09', yearStart: 2023, yearEnd: 2024 }),
+            f({ modelCode: 'MT-07', yearStart: 2018, yearEnd: 2024 }),
+          ],
+          'x',
+        ),
+      ).toBe("2 款車型 '18–'24");
+    });
+
+    it('🔵 各款年份不同 ⇒ 照舊只寫款數', () => {
+      expect(
+        formatCardFits([f({ modelCode: 'MT-09', yearStart: 2021, yearEnd: 2023 }), f({ modelCode: 'MT-07', yearStart: 2021, yearEnd: 2024 })], 'x'),
+      ).toBe('2 款車型');
+    });
+
+    it('🔵 開放年與閉區間不混為一談 ⇒ 只寫款數', () => {
+      expect(
+        formatCardFits([f({ modelCode: 'MT-09', yearStart: 2024, yearEnd: null }), f({ modelCode: 'MT-07', yearStart: 2024, yearEnd: 2024 })], 'x'),
+      ).toBe('2 款車型');
+    });
+
+    it('🔵 其中一款沒有年份(不限年份)⇒ 只寫款數, 不能把它說成有年限', () => {
+      expect(
+        formatCardFits([f({ modelCode: 'MT-09', yearStart: 2021, yearEnd: 2023 }), f({ modelCode: 'MT-07', yearStart: undefined, yearEnd: undefined })], 'x'),
+      ).toBe('2 款車型');
+    });
+  });
+
   it('車款名皆空 → 回退 fallback(不顯空「適用 」)', () => {
     expect(formatCardFits([{ motoBrand: '', modelCode: '' }], '通用款')).toBe('通用款');
   });

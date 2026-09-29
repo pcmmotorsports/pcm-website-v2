@@ -295,7 +295,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
           ) : null}
         </div>
         <div className="pcard-name">{p.name}</div>
-        {/* S4:同名不同年商品在卡片可區分 —— 單款顯示年份 '18–'24、多款顯示「N 款車型」;
+        {/* S4:同名不同年商品在卡片可區分 —— 單款顯示年份 '18–'24、多款顯示「N 款車型」(各款年份相同時加年份);
             缺年份降級只顯車款。前綴「適用 」保留 design 字面。 */}
         {/* 2026-09-29:客人選好車而這張在「適用這台車」清單裡 ⇒ 伺服器帶 `fitsVehicle`, 直接回答「適不適用我的車」;
             沒帶 ⇒ 原本那一句(通用款不加「適用」前綴, `cardFitsLine`)。 */}
