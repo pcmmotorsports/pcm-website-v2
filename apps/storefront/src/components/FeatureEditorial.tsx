@@ -110,7 +110,8 @@ export function FeatureEditorial({ focus }: { focus: ResolvedBrandFocus }) {
             (band 影像與 logo 牌的版位樣式都還沒接),這裡先只做第一段 + 不渲染。 */}
         {focus.photo && (
           <div className="ed-feature-media">
-            <img src={focus.photo} alt={focus.name} />
+            {/* 2026-09-29 手機速度:這張在首屏之外(約 214 KB), 不跟首頁大圖搶頻寬。 */}
+            <img src={focus.photo} alt={focus.name} loading="lazy" />
             <div className="ed-feature-caption">
               {/* 🔴 D-136 清尾片(2026-08-06):原寫死英文「Fig. 01」= 舊 design-reference 的字面;
                   OD `.b-feature-cap` 的 mono 小標逐字是中文「品牌焦點」(grep `b-feature-cap` 找)。

@@ -20,7 +20,11 @@ vi.mock('@/lib/search', () => ({ searchProducts, SEARCH_PAGE_LIMIT: 25 }));
 vi.mock('@/components/Header', () => ({ Header: () => <div data-testid="header" /> }));
 vi.mock('@/components/HomeFooter', () => ({ HomeFooter: () => <div data-testid="footer" /> }));
 vi.mock('@/components/ProductCard', () => ({
-  ProductCard: ({ p }: { p: { name: string } }) => <div data-testid="card">{p.name}</div>,
+  ProductCard: ({ p, priority }: { p: { name: string }; priority?: boolean }) => (
+    <div data-testid="card" data-priority={priority ? 'true' : 'false'}>
+      {p.name}
+    </div>
+  ),
 }));
 
 // 品牌俗名退路(Sean 2026-09-15 Q3):taxonomy 與目錄取數 mock 掉;parseSearchFacets 與退路判準用真的。
@@ -143,5 +147,16 @@ describe('/search', () => {
     await renderAt('阿卡');
     expect(fetchCatalogPage).not.toHaveBeenCalled();
     expect(screen.getByText(/暫時無法使用/)).toBeTruthy();
+  });
+});
+
+describe('搜尋結果首屏照片(2026-09-29 手機速度, 與目錄同一個問題)', () => {
+  it('前 4 張卡帶 priority(照片立刻載入、高優先);第 5 張起不帶', async () => {
+    // 本檔的 ProductCard 是 mock ⇒ 這裡驗「頁面有沒有把 priority 傳給前 4 張」;
+    //   priority 怎麼變成 loading / fetchpriority 由 ProductImage.test.tsx 驗。
+    const items = Array.from({ length: 6 }, (_, i) => ({ ...ITEM(`品${i}`), id: i + 1, slug: `s${i}` }));
+    searchProducts.mockResolvedValue({ items, total: 6, error: false });
+    await renderAt('排氣管');
+    expect(screen.getAllByTestId('card').map((c) => c.getAttribute('data-priority'))).toEqual(['true', 'true', 'true', 'true', 'false', 'false']);
   });
 });

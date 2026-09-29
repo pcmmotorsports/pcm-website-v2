@@ -50,9 +50,11 @@ export type ProductCardProps = {
    */
   href?: string;
   onClick?: () => void;
+  /** 首屏那幾張卡:照片立刻載入、高優先(見 ProductImage 的 priority)。只有目錄與搜尋結果的前幾張會給。 */
+  priority?: boolean;
 };
 
-export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact = false, href, onClick }: ProductCardProps) {
+export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact = false, href, onClick, priority = false }: ProductCardProps) {
   const [hover, setHover] = useState(false);
   // M-4b #191:收藏改吃 FavoritesContext(單一資料源)。原本是 `useState(false)` =
   // 純畫面狀態:重新整理就消失、同一件商品在列表與商品頁還互不知道。
@@ -201,6 +203,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
           hover={hover}
           image={p.image}
           trim={p.imageTrim}
+          priority={priority}
           // 🔵 與 `lib/brand-taxonomy.ts:34` 同一個既有形狀:`brandSlug` 是真資料權威 id,
           //    mock / 舊 fixture 省略時以 `brandToSlug(brand)` 衍生。
           //    ⚠️ **衍生值不保證對得上表的 key** ⇒ 對不上 `brandLogoSrc` 回 null ⇒ 退回站內佔位圖, 不會破圖。

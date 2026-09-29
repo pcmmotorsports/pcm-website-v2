@@ -991,3 +991,18 @@ describe('ProductsPage · 分類/品牌讀不到也要講一句(⟦search-SILENT
     expect(screen.getByText(/品牌清單暫時無法載入/)).toBeDefined();
   });
 });
+
+describe('目錄首屏照片(2026-09-29 手機速度)', () => {
+  it('主清單前 4 張卡的照片立刻載入、高優先;第 5 張起照舊延遲', () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({
+      ...FIXTURE[0]!,
+      id: 100 + i,
+      slug: `perf-${i}`,
+      image: `https://cdn.shopify.com/s/files/perf-${i}.jpg`,
+    }));
+    const { container } = render(<ProductsPage products={many} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    const imgs = many.map((p) => container.querySelector(`img[src="${p.image}"]`)!);
+    expect(imgs.map((i) => i.getAttribute('loading'))).toEqual(['eager', 'eager', 'eager', 'eager', 'lazy', 'lazy']);
+    expect(imgs.map((i) => i.getAttribute('fetchpriority'))).toEqual(['high', 'high', 'high', 'high', null, null]);
+  });
+});

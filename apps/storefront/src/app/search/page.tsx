@@ -133,8 +133,9 @@ export default async function SearchRoute({ searchParams }: Props) {
               className="pp-grid"
               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(256px, 1fr))', gap: 14 }}
             >
-              {items.map((p) => (
-                <ProductCard key={p.id} p={p} href={`/products/${p.slug}`} />
+              {/* 2026-09-29 手機速度:前 4 張照片立刻載入、高優先(與商品目錄同一個做法)。 */}
+              {items.map((p, i) => (
+                <ProductCard key={p.id} p={p} href={`/products/${p.slug}`} priority={i < 4} />
               ))}
             </div>
           </>
