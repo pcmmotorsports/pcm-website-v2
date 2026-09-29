@@ -237,6 +237,8 @@ export async function clearSourceMissing(tgt: SupabaseClient, supplierSlug: stri
 
 /** 照報價單刪除紀錄刪孤兒的單家上限(2026-09-29 主視窗:超過 5% 停手告警)。 */
 export const HARD_DELETE_RATIO_CAP = 0.05;
+/** 報價單刪除紀錄要滿這麼久才算證據:報價單某晚 feed 漏給就硬刪、隔晚重建, 漏一晚的會先回到來源(Fable R2)。 */
+export const HARD_DELETE_MIN_AGE_MS = 24 * 3600_000;
 const VARIANT_DELETE_RATIO_ABORT = 0.1; // 單次孤兒刪除比例硬上限(對齊商品下架 10%;疑來源變體殘缺、防誤刪)
 
 /** 這一批 source 是不是完整的。`'unknown'` = 沒有人說得出來(今天恆為它)。 */
@@ -423,6 +425,8 @@ export function classifyVariantOrphans(
     hardDeleted?: ReadonlyMap<string, number>;
     /** 這一輪真的會寫的群。被標題閘 / 排除名單跳過的群不在裡面, 它的規格不照刪除紀錄刪。不給 = 範圍內全部。 */
     writableExternalIds?: ReadonlySet<string>;
+    /** 現在時間(毫秒), 測試用;不給 = Date.now()。 */
+    now?: number;
   } = {},
 ): VariantOrphanReport {
   // 🔴 預設 `'unknown'` —— 而那不是「還沒接上」,是**今天的事實**:
@@ -478,10 +482,17 @@ export function classifyVariantOrphans(
   //   · F2 報價單料號刪掉後會原樣重生、舊紀錄不清 ⇒ 刪除時間要晚於網站上次同步到它的時間才算;
   //        不知道網站同步時間 ⇒ 不算(寧可少刪)。
   //   · F3 5% 的分母是這一家全部規格, 補跑幾群(--group / --limit)不會被誤擋。
+  //   Fable R2:報價單某晚 feed 漏給就硬刪並留紀錄、隔晚重建 ⇒ 紀錄滿 24 小時才算(晚一天刪, 換不誤刪)。
+  const now = opts.now ?? Date.now();
   const hasFreshDeleteRecord = (o: VariantOrphan): boolean => {
     const deletedAt = opts.hardDeleted?.get(o.sku);
     const syncedAt = o.updatedAt ? Date.parse(o.updatedAt) : NaN;
-    return deletedAt !== undefined && Number.isFinite(syncedAt) && deletedAt > syncedAt;
+    return (
+      deletedAt !== undefined &&
+      Number.isFinite(syncedAt) &&
+      deletedAt > syncedAt &&
+      now - deletedAt >= HARD_DELETE_MIN_AGE_MS
+    );
   };
   const hardDeletedOrphans = aborted
     ? []

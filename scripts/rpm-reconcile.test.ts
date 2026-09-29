@@ -652,6 +652,20 @@ describe('報價單已刪的孤兒照刪, 超過 5% 停手', () => {
     expect(orphansToDeleteFor(r)).toEqual([]);
   });
 
+  // Fable R2:報價單某晚 feed 漏給就硬刪並留紀錄、隔晚重建 ⇒ 紀錄要滿 24 小時才算(漏一晚的會先回來)
+  it('🔴 刪除紀錄還不滿 24 小時 ⇒ 不算證據, 扣留', () => {
+    const now = Date.parse('2026-09-14T05:00:00Z') + 23 * 3600_000;
+    const r = classifyVariantOrphans(family, without('S-1'), srcIds, { hardDeleted: del('S-1'), now });
+    expect(orphansToDeleteFor(r)).toEqual([]);
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['S-1']);
+  });
+
+  it('刪除紀錄剛好滿 24 小時 ⇒ 照刪', () => {
+    const now = Date.parse('2026-09-14T05:00:00Z') + 24 * 3600_000;
+    const r = classifyVariantOrphans(family, without('S-1'), srcIds, { hardDeleted: del('S-1'), now });
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['S-1']);
+  });
+
   // Fable R1 F1(必修):被標題閘 / 排除名單跳過的群不在這一輪寫入範圍, 刪它的規格會在商品寫入後 throw
   it('🔴 這一輪不寫的群(writableExternalIds 沒有它)⇒ 有紀錄也不刪, 扣留', () => {
     const writable = new Set([...srcIds].filter((id) => id !== 'G-1'));
