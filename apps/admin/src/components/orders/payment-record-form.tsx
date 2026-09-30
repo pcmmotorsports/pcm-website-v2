@@ -90,8 +90,14 @@ export function PaymentRecordForm({
   fillableDue = null,
   noteSlot,
   historySlot,
+  initialValues,
 }: {
   orderId: string;
+  /**
+   * 匯款對帳小工具帶進來的金額與末五碼(`?pay=…&match_amt=…&match_ref=…`);只在掛載那一次當初值。
+   * 🔴 預填不等於核對過:確認勾照舊預設不勾;「開始下一筆」清空時也不再帶回來。
+   */
+  initialValues?: { amount: string; bankReference: string };
   /**
    * 🆕 B17(2026-09-14)稿 v22 彈窗 1「新增收款」:`dialog` = 不包 <details>、方式改下拉、四格一組 2 欄、
    * 確認勾那句改帶「已收 MM/DD 收 X · 尾 Y」、勾下面印稿的說明句(`noteSlot`)。明細頁不傳 ⇒ 零變化。
@@ -139,7 +145,9 @@ export function PaymentRecordForm({
     recordManualPaymentAction,
     { status: 'idle' },
   );
-  const [values, setValues] = useState<EditableValues>(EMPTY_EDITABLE);
+  const [values, setValues] = useState<EditableValues>(
+    initialValues ? { ...EMPTY_EDITABLE, ...initialValues } : EMPTY_EDITABLE,
+  );
   /** 🔴 員工按「開始下一筆」時**釘住**當下這組 server 章(不是清空)—— 見 `activeStamp`。 */
   const [pinnedStamp, setPinnedStamp] = useState<PaymentFormStamp | null>(null);
   /** 🔴 被按過「開始下一筆」的那個 `state` 物件(用**身分**比,不是比 code/message)。 */

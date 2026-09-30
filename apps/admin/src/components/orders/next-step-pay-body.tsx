@@ -40,7 +40,10 @@ export async function NextStepPayBody({
   returnTo,
   amountDue,
   amountUncomputable,
+  prefill = null,
 }: {
+  /** 匯款對帳小工具帶進來的金額與末五碼;`null` = 一般入口, 表單是空的。 */
+  prefill?: { amount: string; bankReference: string } | null;
   orderId: string;
   /** 動作做完回哪裡 = 列表、而且**展開這一張**(結果橫幅要掛在真的收款的那張單上,codex must-fix ③)。 */
   returnTo: string;
@@ -122,6 +125,7 @@ export async function NextStepPayBody({
         cancelledUnknown={!(detailSettled.status === 'fulfilled' && detailSettled.value !== null)}
         // 這個彈窗整個就是為了這張表單開的 ⇒ 一進來就攤開,不用再點一次「新增收款」。
         formDefaultOpen
+        formInitialValues={prefill ?? undefined}
         // 稿的 [取消][確認] 同一排:取消鈕進表單那一排、殼的 footer 收掉(page 端 `inlineCancel`)。
         cancelSlot={<NextStepCancelButton />}
       />

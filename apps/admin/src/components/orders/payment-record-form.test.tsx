@@ -346,3 +346,24 @@ async function buttonLabelAfterFailure(
     return button.textContent ?? '';
   });
 }
+
+describe('匯款對帳小工具帶進來的預填值(2026-09-30 Sean 批研究 Q2 乙)', () => {
+  afterEach(cleanup);
+
+  it('🔴 金額與末五碼已填好, 方式是銀行匯款;沒勾「我已核對」仍送不出去', () => {
+    const { container } = renderForm({ variant: 'dialog', defaultOpen: true, initialValues: { amount: '7000', bankReference: '12345' } });
+    const form = payload(container);
+    expect(form.get('amount')).toBe('7000');
+    expect(form.get('bank_reference')).toBe('12345');
+    expect(form.get('rail')).toBe('bank_transfer');
+    expect(submitButton(container).disabled, '預填不等於核對過:勾選閘照舊').toBe(true);
+    fireEvent.click(checkbox(container));
+    expect(submitButton(container).disabled).toBe(false);
+  });
+
+  it('沒帶預填 ⇒ 兩格照舊是空的', () => {
+    const { container } = renderForm({ variant: 'dialog', defaultOpen: true });
+    expect(payload(container).get('amount')).toBe('');
+    expect(payload(container).get('bank_reference')).toBe('');
+  });
+});

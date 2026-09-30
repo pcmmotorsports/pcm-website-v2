@@ -32,7 +32,10 @@ export function PaymentSection({
   cancelledUnknown = false,
   cancelAdjusted = false,
   openPendingRefund = null,
+  formInitialValues,
 }: {
+  /** 純轉傳 `PaymentRecordForm.initialValues`(列表收款彈窗從匯款對帳小工具進來時才有)。 */
+  formInitialValues?: { amount: string; bankReference: string };
   /** 純轉傳 `PaymentList.cancelAdjusted`。 */
   cancelAdjusted?: boolean;
   /** 純轉傳 `PaymentList.openPendingRefund`。 */
@@ -90,6 +93,7 @@ export function PaymentSection({
           fillableDue={fillableDue}
           noteSlot={noteSlot}
           historySlot={historySlot}
+          initialValues={formInitialValues}
         />
       )}
     >

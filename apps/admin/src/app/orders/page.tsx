@@ -35,6 +35,18 @@ import { ShipmentMoreRows } from '../../components/orders/shipment-more-rows';
 // 🆕 收款欄可點:`?pay=<id>` ⇒ 「新增收款」彈窗(復用明細頁收款表單)。
 import { NextStepPayBody } from '../../components/orders/next-step-pay-body';
 import { orderAmountDue } from '../../lib/orders/payment-list-view';
+// 🆕 匯款對帳小工具(2026-09-30 Sean 批研究 Q2 乙):待收款兩格的待辦清單上方;收款彈窗讀它帶來的金額與末五碼。
+import { TransferMatchPanel, type TransferMatchResult } from '../../components/orders/transfer-match-panel';
+import {
+  TRANSFER_MATCH_AMOUNT_PARAM,
+  TRANSFER_MATCH_REF_PARAM,
+  matchTransferOrders,
+  parseTransferAmount,
+  parseTransferRef,
+  readPayPrefill,
+  withTransferMatchParams,
+} from '../../lib/orders/transfer-match';
+import { loadTransferCandidates } from '../../lib/orders/transfer-match-read';
 import {
   ORDER_INVOICE_PARAM,
   buildInvoiceHref,
@@ -351,6 +363,8 @@ export default async function OrdersPage({
      **只開表單不寫入** —— 寫入在按「確認」那一刻,走明細頁同一支 `recordManualPaymentAction`。 */
   const payRaw = rawSearchParams[ORDER_PAY_PARAM];
   const payOrderId = typeof payRaw === 'string' && isUuid(payRaw) ? payRaw.toLowerCase() : null;
+  /** 匯款對帳小工具的入帳金額(網址上的);`null` = 沒用小工具或讀不懂。 */
+  const payPrefillAmount = parseTransferAmount(rawSearchParams[TRANSFER_MATCH_AMOUNT_PARAM]);
   /* 🔴 codex must-fix ②(收款欄可點):進彈窗的連結要**保留當下的 open** —— 用 `PANEL_CLOSED` 會讓
      「在展開明細的列表上點收款」一按就把明細收掉,取消回來也是收合的。`next` 那條同款(同一次修)。 */
   const buildPayHref = (orderId: string) => {
@@ -385,6 +399,8 @@ export default async function OrdersPage({
     //    合著用會讓彈窗對後者說「讀取失敗,請重新整理」—— 而**重整幾次都不會變**,
     //    那正是這一片要消滅的那句話,原封不動留在這個入口。⇒ 第三態要自己帶著走。
     let amountUncomputable = listedPayOrder ? listedPayOrder.amountDue === null : false;
+    // 🆕 匯款對帳小工具帶來的單常不在這一頁(待收款那格點進去、配到待尾款的單)⇒ 標題改用補查到的明細, 員工才看得到在收哪一張。
+    let fetchedTitle: string | null = null;
     // 🔵 而「算不出來」不必再補查一次明細 —— 補查那條路是給【不在這一頁】的單用的(見上面那段)。
     if (amountDue === null && !amountUncomputable) {
       try {
@@ -392,6 +408,7 @@ export default async function OrdersPage({
         if (d === null) return null; // 查無 = 單不存在(不是「離開篩選」)⇒ 不開
         amountDue = orderAmountDue(d);
         amountUncomputable = d.amountDue === null;
+        fetchedTitle = `新增收款 · ${d.displayId}${d.customer.name ? ` · ${d.customer.name}` : ''}`;
       } catch (e) {
         /* 🔴 codex R3 must-fix ①:補查 **throw** 時不能收窗 —— 這正是「已入帳、回應斷了、DB 這一刻讀不到」那個時刻,
            收窗 = 表單卸載 = 舊冪等鍵沒了。⇒ 照開,`amountDue=null` 交給 body 鎖送出(彙總印「未知」)。 */
@@ -403,10 +420,19 @@ export default async function OrdersPage({
         // B17:稿標題「新增收款 · 單號 · 買主」(單在這一頁才有得印;補查那條路只印「新增收款」)、殼 wide 800。
         title={(() => {
           const o = orders.find((x) => x.id === payOrderId);
-          return o ? `新增收款 · ${o.displayId}${o.customerName ? ` · ${o.customerName}` : ''}` : '新增收款';
+          return o ? `新增收款 · ${o.displayId}${o.customerName ? ` · ${o.customerName}` : ''}` : (fetchedTitle ?? '新增收款');
         })()}
         wide
-        closeHref={buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)}
+        // 從匯款對帳進來的:關掉彈窗回到對帳結果(還可以挑另一張), 不是空的清單。
+        closeHref={
+          payPrefillAmount === null
+            ? buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED)
+            : withTransferMatchParams(
+                buildOrderListHref(filter, display, page, openOrderId ?? PANEL_CLOSED),
+                payPrefillAmount,
+                parseTransferRef(rawSearchParams[TRANSFER_MATCH_REF_PARAM]),
+              )
+        }
         inlineCancel
       >
         {await NextStepPayBody({
@@ -414,6 +440,7 @@ export default async function OrdersPage({
           returnTo: buildOrderListHref(filter, display, page, payOrderId),
           amountDue,
           amountUncomputable,
+          prefill: readPayPrefill(rawSearchParams),
         })}
       </NextStepDialog>
     );
@@ -725,6 +752,45 @@ export default async function OrdersPage({
           { pay: buildPayHref, next: buildNextHref },
           ORDER_TODO_SPECS[display.todo].action === 'ship' ? await loadPendingBoxes(orders) : null,
         );
+  /* 🆕 匯款對帳小工具(2026-09-30 Sean 批研究 Q2 乙):只畫在「待收款（匯款）」「待尾款」兩格的待辦清單上方
+     (首頁排版不動)。候選 = 這兩格的單, 不限這一頁、不套搜尋 cookie;配對 = 收款欄可點、而且還差金額剛好相符。 */
+  const transferUi = await (async () => {
+    if (display.todo === null || ORDER_TODO_SPECS[display.todo].action !== 'pay') return null;
+    const amountRaw = rawSearchParams[TRANSFER_MATCH_AMOUNT_PARAM];
+    const refRaw = rawSearchParams[TRANSFER_MATCH_REF_PARAM];
+    let result: TransferMatchResult = { kind: 'idle' };
+    if (amountRaw !== undefined) {
+      const amount = parseTransferAmount(amountRaw);
+      const candidates = amount === null ? null : await loadTransferCandidates(now);
+      const ref = parseTransferRef(refRaw);
+      result =
+        amount === null
+          ? { kind: 'invalid' }
+          : candidates === null
+            ? { kind: 'unreadable' }
+            : {
+                kind: 'ok',
+                amount,
+                truncated: candidates.truncated,
+                rows: matchTransferOrders(candidates.orders, amount).map((o) => ({
+                  id: o.id,
+                  displayId: o.displayId,
+                  customerName: o.customerName,
+                  payHref: withTransferMatchParams(buildPayHref(o.id), amount, ref),
+                })),
+              };
+    }
+    return (
+      <TransferMatchPanel
+        formHref={buildOrderListHref(filter, display, 1, PANEL_CLOSED)}
+        // 找不到時去一般訂單列表用客戶名稱搜尋(不帶這一格的篩選, 不然待尾款的單會被「未付款」擋掉)。
+        searchHref='/orders'
+        amountInput={typeof amountRaw === 'string' ? amountRaw : ''}
+        refInput={typeof refRaw === 'string' ? refRaw : ''}
+        result={result}
+      />
+    );
+  })();
   const exportBlocked = orderExportBlockedReason(orders);
   /* 🔴 `filterNote` 這一版一律傳空字串, 而理由(一個恆為 false 的判斷)
      寫在 `order-export-page.ts` 的 `OrderExportContext.filterNote` 旁邊, 此處不複述。 */
@@ -959,6 +1025,7 @@ export default async function OrdersPage({
       ) : todoRows !== null && display.todo !== null ? (
         <>
           <OrderTodoList
+            tool={transferUi}
             title={ORDER_TODO_SPECS[display.todo].label}
             total={total}
             rows={todoRows}
