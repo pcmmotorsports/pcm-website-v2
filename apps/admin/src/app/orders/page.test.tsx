@@ -1728,3 +1728,71 @@ describe('OrdersPage — 待辦模式(首頁格子點進來)', () => {
     expect(container.querySelector('[data-testid="order-todo-list"]')).toBeNull();
   });
 });
+
+// ── 2026-09-30 匯款對帳小工具(Sean 批研究 Q2 乙)──────────────────────────────
+describe('OrdersPage — 匯款對帳小工具', () => {
+  const ID = '11111111-2222-4333-8444-777777777777';
+  const PARAMS = { payment_status: 'partiallyPaid', pending: '1', date_from: '2026-03-30', date_to: '2026-09-30' };
+  beforeEach(() => {
+    cookieState.keyword = undefined;
+    mocks.list.mockReset().mockResolvedValue({
+      ...ONE_ORDER,
+      items: [{ ...ONE_ORDER.items[0]!, id: ID, paymentStatus: 'partiallyPaid' as const, balanceDue: 7000 }],
+      total: 1,
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    mocks.detail.mockReset();
+    vi.restoreAllMocks();
+  });
+  const panel = (c: HTMLElement) => c.querySelector('[data-testid="transfer-match"]');
+
+  it('🔴 只畫在收款兩格的待辦清單;其他格與一般列表不畫', async () => {
+    expect(panel((await renderPage({ ...PARAMS, todo: 'partial-paid' })).container)).not.toBeNull();
+    cleanup();
+    expect(panel((await renderPage({ ...PARAMS, todo: 'to-order' })).container)).toBeNull();
+    cleanup();
+    expect(panel((await renderPage(PARAMS)).container)).toBeNull();
+  });
+
+  it('🔴 金額相符 ⇒ 列出那張單,「新增收款」連到帶好金額與末五碼的收款彈窗;候選查兩格(待收款匯款 + 待尾款)、不套搜尋', async () => {
+    cookieState.keyword = 'someone';
+    const { container } = await renderPage({ ...PARAMS, todo: 'unpaid-transfer', match_amt: '7,000', match_ref: '12345' });
+    const btn = [...panel(container)!.querySelectorAll('a')].find((a) => a.textContent === '新增收款');
+    expect(btn, '相符的單沒列出來').toBeDefined();
+    const href = new URL(btn!.getAttribute('href')!, 'http://x').searchParams;
+    expect(href.get('pay')).toBe(ID);
+    expect(href.get('match_amt')).toBe('7000');
+    expect(href.get('match_ref')).toBe('12345');
+    // 候選那兩發用小工具自己的上限(100);其他呼叫是清單本身與計數。
+    const candidateFilters = mocks.list.mock.calls.filter((c) => c[1]?.limit === 100).map((c) => c[0]);
+    expect(candidateFilters).toHaveLength(2);
+    expect(candidateFilters.map((f) => f.paymentStatus).sort()).toEqual(['partiallyPaid', 'unpaid']);
+    expect(candidateFilters.every((f) => f.keyword === undefined), '對帳不該只找符合上一次搜尋的單').toBe(true);
+  });
+
+  it('金額不符 ⇒ 說清楚可能少匯或多匯', async () => {
+    const { container } = await renderPage({ ...PARAMS, todo: 'partial-paid', match_amt: '6999' });
+    expect(panel(container)!.textContent).toContain('沒有金額剛好相符的單，可能少匯或多匯，請用客戶名稱搜尋。');
+  });
+
+  it('🔴 收款彈窗從小工具進來 ⇒ 金額與末五碼已填好;關掉彈窗回到對帳結果', async () => {
+    mocks.detail.mockResolvedValueOnce({ total: { amount: 7000 } });
+    const { container } = await renderPage({ ...PARAMS, todo: 'partial-paid', pay: ID, match_amt: '7000', match_ref: '12345' });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.querySelector<HTMLInputElement>('input[name="amount"]')!.value).toBe('7000');
+    expect(dlg.querySelector<HTMLInputElement>('input[name="bank_reference"]')!.value).toBe('12345');
+    const close = new URL(container.querySelector('[data-close-href]')!.getAttribute('data-close-href')!, 'http://x').searchParams;
+    expect(close.get('match_amt')).toBe('7000');
+    expect(close.get('match_ref')).toBe('12345');
+    expect(close.has('pay')).toBe(false);
+  });
+
+  it('一般收款入口(沒帶小工具的參數)⇒ 表單照舊是空的', async () => {
+    mocks.detail.mockResolvedValueOnce({ total: { amount: 7000 } });
+    const { container } = await renderPage({ ...PARAMS, todo: 'partial-paid', pay: ID });
+    const dlg = container.querySelector('[data-testid="next-step-dialog"]')!;
+    expect(dlg.querySelector<HTMLInputElement>('input[name="amount"]')!.value).toBe('');
+  });
+});

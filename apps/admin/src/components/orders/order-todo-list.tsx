@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import type { OrderTodoRow } from '../../lib/orders/order-todo-view';
 import { ORDER_TODO_EMPTY } from '../../lib/orders/order-todo';
 
@@ -26,7 +27,10 @@ export function OrderTodoList({
   fullListHref,
   keyword,
   description,
+  tool,
 }: {
+  /** 標題與說明下面、清單上面的小工具(待收款兩格的匯款對帳);沒有就不印。 */
+  tool?: ReactNode;
   /** 格子名稱(`ORDER_TODO_SPECS[todo].label`)。 */
   title: string;
   total: number;
@@ -55,6 +59,7 @@ export function OrderTodoList({
       {description !== undefined && (
         <p className='m-0 text-[13px] leading-[1.4] text-(--fg-2)'>{description}</p>
       )}
+      {tool}
       {/* 🔴 R1 F1:列表頁與首頁格子都套搜尋 cookie, 而待辦模式不畫工具列(看不到「搜尋「x」」那句)
           ⇒ 不講的話, 其他符合這一格的單會無聲地不在清單上。清除要到完整列表的搜尋框。 */}
       {keyword !== null && (
