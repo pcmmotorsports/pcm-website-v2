@@ -27,8 +27,13 @@ describe('查詢條件', () => {
   it('target 格式 = product:<id>(與兩支 RPC 寫入的一致)', () => {
     expect(productHistoryTarget('p-1')).toBe('product:p-1');
   });
-  it('只讀商品頁會改的三種動作(商品頁乙 C4 加分類)', () => {
-    expect([...PRODUCT_HISTORY_ACTIONS].sort()).toEqual(['product.category.change', 'product.listing.change', 'product.override.change']);
+  it('只讀商品頁會改的四種動作(商品頁乙 C4 加分類、P8 加價格)', () => {
+    expect([...PRODUCT_HISTORY_ACTIONS].sort()).toEqual([
+      'product.category.change',
+      'product.listing.change',
+      'product.override.change',
+      'product.price.change',
+    ]);
   });
 });
 
@@ -96,5 +101,26 @@ describe('商品頁乙 C4:分類變更', () => {
       new Map([['c2', '引擎部品 · 排氣管']]),
     );
     expect(rows[0]).toMatchObject({ field: '分類', from: '另一個分類(跟著同步)', to: '引擎部品 · 排氣管(員工設定)' });
+  });
+});
+
+describe('商品頁乙 P8:價格變更', () => {
+  it('寫出改前改後的一般價與經銷價;有特價才寫特價', () => {
+    const rows = toProductHistoryRows(
+      [
+        log({
+          action: 'product.price.change',
+          before: { variant_id: 'v1', price_general: 6800, price_store: null, sale_price_general: null },
+          after: { variant_id: 'v1', price_general: 7200, price_store: 6000, sale_price_general: 5000 },
+        }),
+      ],
+      [],
+      new Map(),
+    );
+    expect(rows[0]).toMatchObject({
+      field: '價格',
+      from: '一般價 NT$ 6,800 · 經銷價 未設定',
+      to: '一般價 NT$ 7,200 · 經銷價 NT$ 6,000 · 特價 NT$ 5,000',
+    });
   });
 });

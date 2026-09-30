@@ -34,3 +34,65 @@ export async function createManualProduct(args: {
   if (typeof id !== 'string') throw new Error('admin_create_manual_product RPC 回傳非預期形狀');
   return id;
 }
+
+/** 商品頁乙 P9:價格區的一個規格(手動商品)。一般價、經銷價是員工改的,特價由 P14 另外設。 */
+export type ManualVariantPriceRow = {
+  id: string;
+  sku: string;
+  label: string;
+  priceGeneral: number | null;
+  priceStore: number | null;
+  salePrice: number | null;
+};
+
+/**
+ * 商品頁乙 P9:讀一件手動商品(supplier_slug = 'pcm')全部規格的價格,給編輯頁「價格」區用。
+ * 經銷價在後台給員工看(Sean 2026-08-31 拍甲:後台可顯示經銷價),只在 server 端讀。
+ */
+export async function loadManualProductPrices(productId: string): Promise<ManualVariantPriceRow[]> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('product_variants')
+    .select('id, sku, spec, price_general, price_store, sale_price_general')
+    .eq('product_id', productId)
+    .order('sku', { ascending: true });
+  if (error) throw new Error(`規格價格讀取失敗: ${error.message}`);
+  return (data ?? []).map((v) => {
+    const style = v.spec && typeof v.spec === 'object' && !Array.isArray(v.spec) ? (v.spec as Record<string, unknown>).style : undefined;
+    return {
+      id: v.id,
+      sku: v.sku,
+      label: typeof style === 'string' ? style : v.sku,
+      priceGeneral: v.price_general,
+      priceStore: v.price_store,
+      salePrice: v.sale_price_general,
+    };
+  });
+}
+
+/** 送進 admin_set_variant_prices 的一筆(鍵名照 RPC 的 p_changes;這一片只改一般價與經銷價)。 */
+export type VariantPriceChange = { variant_id: string; price_general: number; price_store: number | null };
+
+/** 商品頁乙 P8:呼叫 20260928220000 `admin_set_variant_prices`。回每個規格的結果;資料庫明確拒絕時丟錯。 */
+export async function setVariantPrices(args: {
+  productId: string;
+  changes: readonly VariantPriceChange[];
+  actor: string;
+  requestId: string;
+}): Promise<{ variantId: string; outcome: 'UPDATED' | 'NO_CHANGE' }[]> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_variant_prices', {
+    p_product_id: args.productId,
+    p_changes: [...args.changes],
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) throw error;
+  const results = (data as { results?: unknown } | null)?.results;
+  if (!Array.isArray(results)) throw new Error('admin_set_variant_prices RPC 回傳非預期形狀');
+  return results.map((r) => {
+    const row = r as { variant_id?: unknown; outcome?: unknown };
+    if (typeof row.variant_id !== 'string' || (row.outcome !== 'UPDATED' && row.outcome !== 'NO_CHANGE')) {
+      throw new Error('admin_set_variant_prices RPC 回傳非預期形狀');
+    }
+    return { variantId: row.variant_id, outcome: row.outcome };
+  });
+}
