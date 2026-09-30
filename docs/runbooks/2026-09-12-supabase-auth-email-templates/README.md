@@ -37,13 +37,18 @@ Supabase 後台 → 專案 → 左邊選單 **Authentication** → **Emails**(�
 
 ## 範本對照
 
+> 🔴 **2026-09-30 更正(網站A)**:註冊驗證、邀請、忘記密碼三支的連結改成 `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=…`。
+> 理由:員工後台寄的重設密碼信、邀請信, 以及「電腦註冊、手機開信」的客人, 都不是在發起的那個瀏覽器開信, 舊的 `{{ .ConfirmationURL }}` 那種連結會失敗
+> (`apps/storefront/src/app/auth/confirm/route.ts` 檔頭)。下面第 19–23 行「舊範本是 ConfirmationURL 就可以貼」那段, 對這三支已不適用。
+> 計畫:`~/pcm-mailbox/計畫-註冊Email驗證-20260930.md`。
+
 | Supabase 範本 | 檔案 | 建議主旨 | 用到的變數 |
 |---|---|---|---|
-| Confirm sign up(註冊驗證) | `1-confirm-signup.html` | PCM 會員 Email 驗證 | `{{ .ConfirmationURL }}` |
-| Invite user(邀請) | `2-invite-user.html` | PCM 會員邀請 | `{{ .ConfirmationURL }}` |
+| Confirm sign up(註冊驗證) | 🔴 **改貼 `docs/email-templates/supabase-confirm-signup.html`**(本資料夾的 `1-confirm-signup.html` 已作廢) | 請確認您的 PCM 會員 Email | `{{ .SiteURL }}` `{{ .TokenHash }}`(連結 `/auth/confirm?token_hash=…&type=email`) |
+| Invite user(邀請) | `2-invite-user.html` | PCM 會員邀請 | `{{ .SiteURL }}` `{{ .TokenHash }}`(連結 `/auth/confirm?token_hash=…&type=invite`) |
 | Magic link or OTP(免密碼登入) | `3-magic-link.html` | PCM 會員登入連結 | `{{ .ConfirmationURL }}` |
 | Change email address(換信箱) | `4-change-email.html` | PCM 會員 Email 更換確認 | `{{ .ConfirmationURL }}` `{{ .Email }}` `{{ .NewEmail }}` |
-| Reset password(忘記密碼) | `5-reset-password.html` | PCM 會員重設密碼 | `{{ .ConfirmationURL }}` |
+| Reset password(忘記密碼) | `5-reset-password.html` | PCM 會員重設密碼 | `{{ .SiteURL }}` `{{ .TokenHash }}`(連結 `/auth/confirm?token_hash=…&type=recovery`) |
 | Reauthentication(再次驗證) | `6-reauthentication.html` | PCM 會員驗證碼 | `{{ .Token }}` |
 
 最先要貼的是 **5 忘記密碼** 和 **1 註冊驗證**,這兩支客人一定會收到。2、3、4、6 網站目前有沒有用到,**窗 A 未查**;貼了沒有壞處(沒用到就不會寄)。
