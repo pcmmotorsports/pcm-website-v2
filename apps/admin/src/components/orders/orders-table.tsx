@@ -22,7 +22,7 @@ import {
   type OrderDensity,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
-import { orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
+import { arrivedLineCount, lineArrivalNote, orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
 import type { NextStepDo } from '../../lib/orders/order-return-to';
 import type { PendingBox } from '../../lib/shipping/box-progress';
 import type { OrderItemCostCell, OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
@@ -441,6 +441,11 @@ function OrderGroup({
   const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
   const status = orderStatusView(order);
+  // 2026-09-30 部分到貨(Sean 拍 Q1 甲):每樣商品旁印到貨灰字、下一步可以先出已到的。
+  //   已取消 / 已退款 / 全部出完 ⇒ 不印(整單已經不在流程裡, 或狀態欄已經說完了)。
+  //   `itemsTruncated` ⇒ 不算已到樣數:看不到的那幾樣可能也到了, 算出來的 N 會偏小。
+  const showArrival = status.goodsAxis !== null && status.goodsAxis !== 'shipped';
+  const arrivedLines = order.itemsTruncated ? 0 : arrivedLineCount(order.lines);
   // 🆕 A1:老闆模式 = 有成本格可畫(頁層只在 manager + `?boss=1` 時才給)。
   const boss = costCells !== null;
   const colSpan = headerCount(boss);
@@ -743,17 +748,36 @@ function OrderGroup({
                      可點的那顆 = `.act.payb{transparent;border 0;padding 0;color:inherit;font:inherit}`(看起來就是字,不藍不底線)。
                      🔴 可點的邏輯與 `?pay=` 目的地一個字沒動,只換長相;`relative z-10` / `data-pay-open` 照舊。 */
                 const warn = text === PAY_COLUMN_LABEL.none;
+                /* 2026-09-30 後台三小改 ②(研究 `~/pcm-mailbox/研究-後台訂單好用度-20260930.md` 第二節第 4 點):
+                   「需確認」原本不可點, 員工不知道要確認什麼、去哪裡確認 ⇒ 改連到**明細頁的收款 · 退款分頁**。
+                   🔴 仍然【不】給 `?pay=`(新增收款)—— 算不出餘額, 照著一個不存在的「還差」收款是錯的錢;
+                      收款分頁有收款紀錄與退款紀錄, 是「確認」的地方。同一顆 Link, 不另開第二個 z-10(守門數的是它)。 */
+                const payHref = orderPayActionable(order.balanceDue, ambiguous)
+                  ? buildPayHref(order.id)
+                  : text === PAY_COLUMN_LABEL.unknown
+                    ? `/orders/${order.id}?tab=money`
+                    : null;
+                /* 「還差 N」/「多收 N」在 1440 寬會被截成「還差 22,…」(研究第 7 點)⇒ 金額換到第二行, 字面不變。 */
+                const amountLine = /^(還差|多收) (.+)$/.exec(text);
+                const shown = amountLine ? (
+                  <>
+                    {amountLine[1]} <br />
+                    {amountLine[2]}
+                  </>
+                ) : (
+                  text
+                );
                 return (
                   <td
                     className={`${TD} ${CELL.pay} ${warn ? 'pay-warn' : 'text-muted-foreground'}`}
                     data-l='收款'
                   >
-                    {orderPayActionable(order.balanceDue, ambiguous) ? (
-                      <Link href={buildPayHref(order.id)} className='relative z-10 text-current no-underline' data-pay-open=''>
-                        {text}
+                    {payHref !== null ? (
+                      <Link href={payHref} className='relative z-10 text-current no-underline' data-pay-open=''>
+                        {shown}
                       </Link>
                     ) : (
-                      text
+                      shown
                     )}
                   </td>
                 );
@@ -795,6 +819,11 @@ function OrderGroup({
             </td>
             <td className={`${TD} ${CELL.title}`}>
               {line?.title ? <OrderCopyButton text label='複製商品名稱' value={line.title} /> : '—'}
+              {showArrival && line && lineArrivalNote(line) !== null ? (
+                <span className='text-muted-foreground block text-[11px] leading-[1.3]' data-testid='line-arrival'>
+                  {lineArrivalNote(line)}
+                </span>
+              ) : null}
               {expanded !== null && line ? (
                 <span className='order-item-copy'>
                   <OrderCopyButton label='複製商品資料' value={[vehicleText ?? '', line.brand ?? '', line.variantSku ?? '', line.title ?? ''].join(',')} />
@@ -890,6 +919,14 @@ function OrderGroup({
                      形狀(方角 / 12px / 700)照舊走 `.cap-*`。「未知」那一格不帶 data-st ⇒ 灰。 */
                   <span className={status.capsuleClass} data-st={status.label}>{status.label}</span>
                 )}
+                {/* 2026-09-30 後台三小改 ②(Sean 拍 Q2 甲):收了訂金、還差尾款 ⇒ 膠囊旁小字「訂金」;八個狀態名稱都不動。
+                    `payAxis === null` = 已取消 / 已退款, 那兩種膠囊已經說完了 ⇒ 不印。 */}
+                {order.paymentStatus === 'partiallyPaid' && status.payAxis !== null ? (
+                  /* 放在膠囊下面一行:狀態欄寬度只夠膠囊, 放旁邊會被截成「…」(1440 實測)。 */
+                  <span className='text-muted-foreground mt-0.5 block text-[11px] leading-[1.3]' data-testid='deposit-tag'>
+                    訂金
+                  </span>
+                ) : null}
               </td>
             ) : (
               <td className={`${TD} ${CELL.status}`} />
@@ -928,7 +965,7 @@ function OrderGroup({
                      📌 「沒有下一步了」與「這張單不在流程裡了」是兩件事。 */}
             {boss ? null : first ? (
               (() => {
-                const next = orderNextStep(status, box);
+                const next = orderNextStep(status, box, arrivedLines);
                 if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
                 if (next.kind === 'done') {
                   return (
@@ -962,7 +999,17 @@ function OrderGroup({
                       } relative z-10`}
                       data-next-do={next.kind === 'goto' ? 'goto' : next.do}
                     >
-                      {next.label}
+                      {/* 2026-09-30 部分到貨「出貨（已到 N 樣）」一行比這一欄寬(1440 實測鈕 114 > 欄 111, 右緣被切)
+                          ⇒ 在括號前斷成兩行「出貨 / （已到 N 樣）」;自動換行會斷在數字後面, 讀起來像兩個東西。 */}
+                      {next.label.includes('（') ? (
+                        <span className='text-left'>
+                          {next.label.slice(0, next.label.indexOf('（'))}
+                          <br />
+                          {next.label.slice(next.label.indexOf('（'))}
+                        </span>
+                      ) : (
+                        next.label
+                      )}
                     </Link>
                   </td>
                 );

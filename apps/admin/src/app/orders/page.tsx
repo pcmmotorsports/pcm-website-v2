@@ -82,6 +82,9 @@ import {
   orderPageExportFilename,
 } from '../../lib/orders/order-export-page';
 import { OrderToolbar } from '../../components/orders/order-toolbar';
+import { OrderTodoList } from '../../components/orders/order-todo-list';
+import { buildOrderTodoRows } from '../../lib/orders/order-todo-view';
+import { ORDER_TODO_SPECS, orderTodoDescription } from '../../lib/orders/order-todo';
 import { OrdersStickyOffset } from '../../components/orders/orders-sticky-offset';
 import { countOrderList, type OrderListCount } from '../../lib/orders/order-list-count';
 import { STATUS_CHIPS, applyStatusChip } from '../../lib/orders/order-toolbar-view';
@@ -634,8 +637,10 @@ export default async function OrdersPage({
         之間那張單被刪的競態 —— 那時印一句「找不到」比整頁 404 好。
      📌 稿 §3-e 的四種落空,**這條路只會遇到「不在這一頁」與「不存在」兩種** —— 「在別頁」「在別月」
         對 server 端撈單而言與「不在這一頁」是同一件事(都是不在 `orders[]`),不另立分支。 */
+  /* 🆕 2026-09-30 待辦模式(`todo=`):不就地展開 —— 待辦清單只有一列一顆鈕;做完回來 `open=<那張單>`,
+     結果由上面 `ResultBanner` 講(`expanded === null` 那條), 不另外畫展開的標題列。 */
   const expanded =
-    openOrderId === null || !openInList
+    openOrderId === null || !openInList || display.todo !== null
       ? null
       : {
           orderId: openOrderId,
@@ -676,7 +681,8 @@ export default async function OrdersPage({
     cancelledAt: string | null;
     paymentStatus: AdminOrderDetail['paymentStatus'] | null;
   } | null = null;
-  if (openOrderId !== null && !openInList) {
+  /* 🆕 待辦模式不問「那張單在不在這一頁」:做完的單本來就該離開清單, 說它「被篩選藏起來」是錯的訊息。 */
+  if (openOrderId !== null && !openInList && display.todo === null) {
     const wantsCancelResult = isCancelPanelResultCode(resultCode);
     try {
       const d = await getAdminOrderRepository().findAdminOrderDetail(openOrderId);
@@ -707,6 +713,18 @@ export default async function OrdersPage({
         而那正是 `CLAUDE.md` Server 端鐵則點名的東西。⇒ 這樣做讓那條前向風險**結構上消失**。
      🔴 **`dataAsOf` 用的是這一次 render 的時刻**(code-reviewer `C2`):它與 `orders` 同時定版
         ⇒ 檔案上那個時間講的是【資料的時刻】,不是【按鈕被按的時刻】。 */
+  /* 🆕 2026-09-30 待辦模式(plan `~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-3):一張單一列、一顆鈕。
+     🔴 鈕走列表既有的 `buildPayHref` / `buildNextHref`(網址帶著 `todo=`)⇒ 彈窗做完回到同一格的清單。
+     🔴 出貨那格要箱子進度(同列表下一步那一格);其他格不查。 */
+  const todoRows =
+    display.todo === null
+      ? null
+      : buildOrderTodoRows(
+          orders,
+          display.todo,
+          { pay: buildPayHref, next: buildNextHref },
+          ORDER_TODO_SPECS[display.todo].action === 'ship' ? await loadPendingBoxes(orders) : null,
+        );
   const exportBlocked = orderExportBlockedReason(orders);
   /* 🔴 `filterNote` 這一版一律傳空字串, 而理由(一個恆為 false 的判斷)
      寫在 `order-export-page.ts` 的 `OrderExportContext.filterNote` 旁邊, 此處不複述。 */
@@ -772,6 +790,7 @@ export default async function OrdersPage({
           `-mx-6 px-6`:蓋滿內容區左右的 padding,列捲上來時邊緣不會露出來。 */}
       {/* ⚠️ `data-orders-sticky-head` 是字面不是常數:從 'use client' 模組 import 常數到 server component 會變成
           「client reference」、渲染時炸(2026-09-13 鑽機實測)。`orders-sticky-offset.tsx` 用同一個字面查它。 */}
+      {display.todo === null && (
       <div
         data-orders-sticky-head=''
         className='bg-background sticky top-0 z-30 -mx-6 -mt-6 px-6 pt-6 pb-2'
@@ -815,6 +834,7 @@ export default async function OrdersPage({
         }
       />
       </div>
+      )}
 
       {expanded === null && <ResultBanner code={resultCode} />}
 
@@ -936,6 +956,25 @@ export default async function OrdersPage({
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
           訂單列表載入失敗,請稍後再試或聯絡系統維護。
         </div>
+      ) : todoRows !== null && display.todo !== null ? (
+        <>
+          <OrderTodoList
+            title={ORDER_TODO_SPECS[display.todo].label}
+            total={total}
+            rows={todoRows}
+            fullListHref={buildOrderListHref(filter, { ...display, todo: null }, 1, PANEL_CLOSED)}
+            keyword={keyword}
+            description={orderTodoDescription(display.todo)}
+          />
+          <ListPagination
+            page={page}
+            total={total}
+            pageSize={ORDERS_PAGE_SIZE}
+            shownCount={orders.length}
+            buildHref={(p) => buildOrderListHref(filter, display, p, PANEL_CLOSED)}
+            unit='筆'
+          />
+        </>
       ) : (
         <>
           {/* 2b-1:勾選狀態的 client provider。**只包住表格**,頁面其餘部分仍是純 server render。

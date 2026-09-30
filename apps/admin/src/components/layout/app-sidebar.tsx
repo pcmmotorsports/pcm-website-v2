@@ -106,7 +106,8 @@ function formatSyncedAtTaipei(iso: string): string {
  *    用標籤當 key 的話,哪天有人把「訂單」改成「訂單管理」,這一列會**安靜地消失**(查表落空)。
  */
 const COUNT_QUALIFIER: Partial<Record<NavItem['key'], string>> = {
-  orders: '未訂貨',
+  // 2026-09-30 Sean Q3 甲:與首頁、篩選列同名(原「未訂貨」;同樣 3 個字, 寬度不變)。
+  orders: '待下訂',
   // 🔵🔵 **2026-08-30 更正(Sean 逐字推翻下面整段;只加不刪,舊字面留著讓搜舊句的人同一發撞到)**
   //    他這一輪逐字:「那側邊欄位的卡住數字現在是只要一筆資料存在就一直持續在上面,
   //    **應該變成尚未處理(尚未判定)才在上面**」⇒ 拍【甲】。

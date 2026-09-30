@@ -20,6 +20,7 @@ import {
   statusChipActive,
   viewChipActive,
 } from './order-toolbar-view';
+import { ORDER_TODO_SPECS } from './order-todo';
 
 const NOW = new Date('2026-09-13T04:00:00Z');
 const byKey = (k: string) => STATUS_CHIPS.find((c) => c.key === k)!;
@@ -31,6 +32,11 @@ describe('狀態 chip(第一列)= 既有 URL 參數的映射', () => {
   it('六顆各釘一個 filter;未完成 = 三值、待收款 = unpaid × pending、已完成 = shipped', () => {
     expect(applyStatusChip({}, byKey('open')).goodsAxes).toEqual(['none', 'ordered', 'instock']);
     expect(applyStatusChip({}, byKey('unpaid'))).toMatchObject({ paymentStatus: 'unpaid', pendingOnly: true });
+    // 🆕 2026-09-30:從「有貨可先出 / 逾期未到」的完整列表按任一顆狀態 chip ⇒ 那兩個篩選要被清掉(否則疊出空集合)
+    const fromTodo = applyStatusChip({ partialArrivedOnly: true, overdueArrivalOnly: true }, byKey('instock'));
+    expect(fromTodo.partialArrivedOnly).toBeUndefined();
+    expect(fromTodo.overdueArrivalOnly).toBeUndefined();
+    expect(fromTodo.goodsAxes).toEqual(['instock']);
     expect(applyStatusChip({}, byKey('to-order')).goodsAxes).toEqual(['none']);
     expect(applyStatusChip({}, byKey('ordered')).goodsAxes).toEqual(['ordered']);
     expect(applyStatusChip({}, byKey('instock')).goodsAxes).toEqual(['instock']);
@@ -83,7 +89,7 @@ describe('只看 chip(第三列)', () => {
     expect(f.paymentChannels).toEqual(['bank_transfer']);
   });
 
-  it('尾款未收 = partiallyPaid,會讓第一列「待收款」熄掉(兩者互斥,是對的)', () => {
+  it('待尾款(原「尾款未收」)= partiallyPaid,會讓第一列「待收款」熄掉(兩者互斥,是對的)', () => {
     const f = applyViewChip(applyStatusChip({}, byKey('unpaid')), viewByKey('partial'));
     expect(f.paymentStatus).toBe('partiallyPaid');
     expect(statusChipActive(byKey('unpaid'), f)).toBe(false);
@@ -178,3 +184,13 @@ describe('只看 · 已取消(Sean 2026-09-14 線上:預設「未完成」把已
     expect(Object.values(f).every((v) => v === undefined)).toBe(true);
   });
 });
+
+// 2026-09-30 名稱統一(主視窗 -fe 答甲):同一條篩選(已收訂金、還沒收齊)在首頁與訂單頁只用一個名字。
+describe('待尾款:首頁格子與訂單頁「只看」那顆同名', () => {
+  it('只看列 partial 那顆的字 = 首頁待尾款那一格的字', () => {
+    const chip = VIEW_CHIPS.find((c) => c.key === 'partial')!;
+    expect(chip.label).toBe(ORDER_TODO_SPECS['partial-paid'].label);
+    expect(chip.label).toBe('待尾款');
+  });
+});
+

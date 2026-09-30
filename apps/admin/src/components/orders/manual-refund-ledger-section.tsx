@@ -201,12 +201,12 @@ export function ManualRefundLedgerSection({
   if (loadFailed) {
     return (
       <section className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
-        <h2 className='text-destructive mb-1 text-sm font-semibold'>非卡退款登記</h2>
+        <h2 className='text-destructive mb-1 text-sm font-semibold'>現金／匯款退款紀錄</h2>
         {RedBanners}
         <p className='text-destructive'>
           {/* ⟦走查 ④⟧ 斷行不可落在一個詞中間:JSX 會把跨行的兩段文字接成一個空白 ⇒ 曾印成「系統 維護」。 */}
-          這張單的「非卡退款登記」讀不出來(不是沒有,是讀不到)。請重新整理;持續失敗請通知系統維護,而在那之前
-          <strong>不要重複登記</strong>——這張單可能已經有你看不到的紀錄。
+          這張單的現金／匯款退款紀錄載入失敗。請重新整理；若仍無法載入，請通知系統維護。在那之前
+          <strong>不要重複登記</strong>，這張單可能已經有你看不到的紀錄。
         </p>
       </section>
     );
@@ -217,10 +217,10 @@ export function ManualRefundLedgerSection({
   if (rowsTruncated) {
     return (
       <section className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
-        <h2 className='text-destructive mb-1 text-sm font-semibold'>非卡退款登記</h2>
+        <h2 className='text-destructive mb-1 text-sm font-semibold'>現金／匯款退款紀錄</h2>
         {RedBanners}
         <p className='text-destructive'>
-          非卡退款登記超過本頁顯示上限，目前不顯示任何紀錄。請通知系統維護查詢完整紀錄。
+          現金／匯款退款紀錄超過本頁顯示上限，目前不顯示任何紀錄。請通知系統維護查詢完整紀錄。
         </p>
       </section>
     );
@@ -236,7 +236,7 @@ export function ManualRefundLedgerSection({
   if (rows.length === 0) {
     return (
       <section className='bg-card text-card-foreground rounded-lg border p-4'>
-        <h2 className='text-muted-foreground mb-3 text-xs font-medium'>非卡退款登記</h2>
+        <h2 className='text-muted-foreground mb-3 text-xs font-medium'>現金／匯款退款紀錄</h2>
         {RedBanners}
       </section>
     );
@@ -247,7 +247,7 @@ export function ManualRefundLedgerSection({
 
   return (
     <section className='bg-card text-card-foreground rounded-lg border p-4'>
-      <h2 className='text-muted-foreground mb-3 text-xs font-medium'>非卡退款登記</h2>
+      <h2 className='text-muted-foreground mb-3 text-xs font-medium'>現金／匯款退款紀錄</h2>
       {RedBanners}
       <div className='overflow-x-auto'>
         <table className='w-full border-collapse'>

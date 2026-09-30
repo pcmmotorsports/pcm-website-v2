@@ -335,9 +335,8 @@ export function OrderDetailMoneyTab({
                       role='status'
                       className='rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
                     >
-                      這個環境沒有開放「線上退款(TapPay)」的操作入口 ——
-                      這是系統設定,不是這張單的問題。要退這張單的款,
-                      請通知系統維護開放之後再操作。
+                      目前環境沒有開放「發起線上退款（TapPay）」。這是系統設定，不是這張單的問題；
+                      要退這張單的款，請通知系統維護開放後再操作。
                     </p>
                   )}
 
@@ -462,7 +461,7 @@ export function OrderDetailMoneyTab({
                   ✅ 改成**說出來並指路** —— 一句話要能被結束:告訴他去哪裡處理。 */}
               {orderAmountDue(detail) === null && (
                 <p className='border-destructive/30 bg-destructive/5 text-destructive mb-3 rounded-lg border p-3 text-sm'>
-                  系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 上面的應收金額
+                  系統<strong>算不出</strong>這張單取消後還該收多少，所以上面的應收金額
                   <strong>不可採信</strong>,請人工計算。已經收過錢的話,「退款異常」頁也會列出這張單。
                 </p>
               )}

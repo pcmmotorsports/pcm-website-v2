@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import type { AdminOrderFilter } from '@pcm/domain';
 import { getAdminOrderRepository } from './order-repository';
 import { ORDER_KEYWORD_COOKIE, readOrderKeywordCookie } from './order-keyword-cookie';
+import type { OrderTodoKey } from './order-todo';
 import {
   ORDER_DENSITY_DEFAULT,
   PANEL_CLOSED,
@@ -29,7 +30,7 @@ export type OrderListCount = {
   count: number | null;
 };
 
-const DISPLAY = { density: ORDER_DENSITY_DEFAULT, boss: false } as const;
+const DISPLAY = { density: ORDER_DENSITY_DEFAULT, boss: false, todo: null } as const;
 
 /** 網址 → parser 吃的形狀(同鍵多值收成陣列;`goods_axis` 會重複)。 */
 export function hrefToRaw(href: string): Record<string, string | string[]> {
@@ -41,11 +42,14 @@ export function hrefToRaw(href: string): Record<string, string | string[]> {
   return raw;
 }
 
-/** filter → 網址 → 讀回(套預設)→ 再產網址(日期寫死)。純函式,給元件與測試用。 */
-export function frozenListHref(filter: AdminOrderFilter, now: Date): string {
+/**
+ * filter → 網址 → 讀回(套預設)→ 再產網址(日期寫死)。純函式,給元件與測試用。
+ * 🆕 2026-09-30 `todo`:首頁格子要連到**待辦模式**時帶上(顯示軸, 不影響讀回來的 filter ⇒ 數字照舊等於點進去的筆數)。
+ */
+export function frozenListHref(filter: AdminOrderFilter, now: Date, todo: OrderTodoKey | null = null): string {
   const first = buildOrderListHref(filter, DISPLAY, 1, PANEL_CLOSED);
   const parsed = parseOrderListSearchParams(hrefToRaw(first), { now }).filter;
-  return buildOrderListHref(parsed, DISPLAY, 1, PANEL_CLOSED);
+  return buildOrderListHref(parsed, { ...DISPLAY, todo }, 1, PANEL_CLOSED);
 }
 
 export async function countOrderList(
@@ -54,9 +58,11 @@ export async function countOrderList(
   repo = getAdminOrderRepository(),
   /** 失敗時 log 用的名字。 */
   label = '訂單列表計數',
+  /** 🆕 2026-09-30:連結要進哪一格的待辦模式(首頁格子才帶;工具列 chip / 側欄不帶)。 */
+  todo: OrderTodoKey | null = null,
 ): Promise<OrderListCount> {
   const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
-  const href = frozenListHref(filter, now);
+  const href = frozenListHref(filter, now, todo);
   const parsed = parseOrderListSearchParams(hrefToRaw(href), { now }).filter;
   const effective: AdminOrderFilter = keyword === null ? parsed : { ...parsed, keyword };
   let count: number | null = null;

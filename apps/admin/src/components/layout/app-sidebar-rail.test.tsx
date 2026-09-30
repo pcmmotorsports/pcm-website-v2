@@ -300,7 +300,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       outOfStockProductCount: 5,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
-    expect(visibleTextOf('訂單')).toContain('未訂貨');
+    expect(visibleTextOf('訂單')).toContain('待下訂');
     expect(visibleTextOf('商品')).toContain('缺貨');
   });
 
@@ -316,7 +316,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     const sr = railCellFor('訂單').querySelector('.sr-only');
-    expect(sr?.textContent?.trim()).toBe('未訂貨 12 筆');
+    expect(sr?.textContent?.trim()).toBe('待下訂 12 筆');
     // 負向對照:那個數字槽本身仍然是 aria-hidden(視覺版不該被唸第二次)
     const slot = railCellFor('訂單').querySelector('[data-testid="rail-count-slot"]');
     expect(slot?.getAttribute('aria-hidden')).not.toBeNull();
@@ -351,7 +351,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     for (const [label, qualifier] of [
-      ['訂單', '未訂貨'],
+      ['訂單', '待下訂'],
       ['商品', '缺貨'],
     ] as const) {
       const cell = railCellFor(label).cloneNode(true) as HTMLElement;
@@ -380,7 +380,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     });
     expect(railCellFor('商品').querySelector('.sr-only')).toBeNull();
     // 正向對照:同一發裡非 0 的那格【要】唸得出來 —— 少了它,把 sr-only 整個拿掉也會綠
-    expect(railCellFor('訂單').querySelector('.sr-only')?.textContent?.trim()).toBe('未訂貨 12 筆');
+    expect(railCellFor('訂單').querySelector('.sr-only')?.textContent?.trim()).toBe('待下訂 12 筆');
   });
 
   // 🔴 負向對照:沒有這一條的話,上面那條在「每一格都無條件印限定詞」時照樣綠。
@@ -398,7 +398,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     // 客戶 / 供應商 / 總覽:count 本身是 null ⇒ 不該有任何限定詞
     for (const label of ['客戶', '供應商', '總覽']) {
       const t = railCellFor(label).textContent ?? '';
-      expect(t, `${label} 不該有限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
+      expect(t, `${label} 不該有限定詞`).not.toMatch(/待下訂|待處理|缺貨/);
     }
   });
 
@@ -418,7 +418,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     });
     for (const label of ['訂單', '商品']) {
       const t = railCellFor(label).textContent ?? '';
-      expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
+      expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/待下訂|待處理|缺貨/);
     }
   });
 

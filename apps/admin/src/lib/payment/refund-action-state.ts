@@ -247,7 +247,7 @@ const FAILURE_MESSAGES: Record<RefundFailureCode, string> = {
   exceeds_remaining:
     '退款金額超過這張單目前可受理的上限,退款沒有發起、錢沒有動。請降低金額後重新發起。',
   exceeds_in_flight:
-    '另一筆處理中或已失敗但待人工判定的退款仍占用額度，本次退款未發起、錢沒有動。請先到下方「退款紀錄」處理該筆退款，再回來發起。',
+    '另一筆處理中或已失敗但待人工判定的退款仍占用額度，本次退款未發起、錢沒有動。請先到下方「線上退款紀錄」處理該筆退款，再回來發起。',
   // 🔴 關卡2 nit:這裡**不准用 Markdown 粗體** —— `refund-section.tsx` 是
   //    `<p role='alert'>{state.message}</p>` 純文字輸出,沒有任何 renderer
   //    ⇒ 寫 `**不是**` 員工會看到字面上的星號。動錢路徑的訊息不留這種雜訊。

@@ -153,6 +153,13 @@ const ALLOWED_IMPORTERS = [
   //      ⇒ 所以 `order-export.ts` 那一側也寫了同一段(兩邊都寫,因為讀的人只會讀到其中一邊)。
   //      🔴 **若哪天有人拿那一欄去做篩選、對帳判斷或自動化 ⇒ 這條判斷當場作廢,要重做。**
   'lib/orders/order-export.ts',
+  // 🔴 2026-09-30 網站A 加入(首頁「今天要做的事」待辦模式, plan `~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-3)。**判斷:**
+  //   用途:`order-todo-view.ts` 取 `orderStatusView(o)` 只為了餵 `orderNextStep`, 決定待辦清單那一顆鈕的**字與連結**
+  //        —— 與 `orders-table.tsx` 下一步那一格同一支、同一組輸入(含箱子進度), 兩個畫面同一張單的鈕一定一樣。
+  //   ✅ **不餵任何守門 / 上限 / 可否取消的判斷**:鈕只是 `?next=&do=` 連結, 打開的彈窗自己讀明細、自己算上限(`| null` 原型那條路)。
+  //   ✅ 收款那兩格不經過這支:走 `orderPayActionable`(`balanceDue`), 與 `?? 0` 無關。
+  //   🔴 哪天有人拿這支的結果去擋一顆按鈕或算數量 ⇒ 這條判斷作廢, 本閘不會紅(同上方第 ③④ 條)。
+  'lib/orders/order-todo-view.ts',
   // 🔴 2026-09-11 窗 B 加入(⟦走查 F2⟧ 出貨彈窗那一列)。**判斷:**
   //   用途:印刷品項沒摘要時, 對回 `detail.items` 那一項取 `summaryOrUntouched`, 決定那一列的 `blockedReason`。
   //   ⚠️ **它不是純顯示 —— `remaining`(出貨數量上限)也從同一個 summary 算**。而補出來的 instock 是 0,

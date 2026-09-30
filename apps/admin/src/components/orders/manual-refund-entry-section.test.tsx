@@ -122,14 +122,14 @@ describe('⟦b4-SETTLEDFORMVANISHES⟧ 帳本已結清時, 有話要說才留下
   it('🟢 未結清 + idle ⇒ 表單在(正對照 —— 少了它, 一個【永遠回 null】的實作會讓下面兩格全綠)', () => {
     const { container } = renderSection(false);
     expect(container.textContent, '正常單看不到登記表單 ⇒ 這一片把功能關掉了').toContain(
-      '登記退款(現金/匯款)',
+      '登記現金／匯款退款',
     );
   });
 
   it('🔴 已結清 + idle(沒話要說)⇒ 不渲染', () => {
     const { container } = renderSection(true);
     expect(container.textContent, '帳本沒東西可登記而表單還在 ⇒ 回到那張填什麼都會被擋的表單').not.toContain(
-      '登記退款(現金/匯款)',
+      '登記現金／匯款退款',
     );
   });
 
@@ -140,7 +140,7 @@ describe('⟦b4-SETTLEDFORMVANISHES⟧ 帳本已結清時, 有話要說才留下
     const { container } = renderSection(true);
     const text = container.textContent ?? '';
     expect(text, '有失敗要講而表單消失 ⇒ 他按下送出之後什麼都看不到').toContain(
-      '登記退款(現金/匯款)',
+      '登記現金／匯款退款',
     );
     expect(text, '表單留著而那句失敗訊息不見 ⇒ 留了一個空殼, 他一樣不知道發生什麼事').toContain(
       '登記失敗',

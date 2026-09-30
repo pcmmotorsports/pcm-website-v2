@@ -393,7 +393,7 @@ export function PaymentList({
         {amountUncomputable ? (
           // 🔴 [R1 M1] 算不出來 ≠ 讀不到:這一種重整幾次都不會變,他要的是人工計算。
           <p className='text-destructive text-xs'>
-            系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 應收金額不可採信,請人工計算。
+            系統<strong>算不出</strong>這張單取消後還該收多少，所以應收金額不可採信，請人工計算。
           </p>
         ) : summary.kind === 'unknown' ? (
           // 讀不到明細時「已收」不能算 ⇒ 印「未知」而不是一個假的 0(與 page 版面 SummaryLine 同一條規則);表單那半自己會鎖。
@@ -418,7 +418,7 @@ export function PaymentList({
         // 🔴 [R1 C5] 這一態 `summary.kind` 也是 `unknown`,而 `SummaryLine` 對 unknown 印的是
         //    「(收款或退款明細沒載入)」—— **那是錯的理由**,員工會去重整。⇒ 這裡先接走。
         <p className='text-destructive mb-3 text-xs'>
-          系統<strong>算不出</strong>這張單取消後還該收多少 ⇒ 應收金額不可採信,請人工計算。
+          系統<strong>算不出</strong>這張單取消後還該收多少，所以應收金額不可採信，請人工計算。
         </p>
       ) : (
         <SummaryLine

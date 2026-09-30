@@ -66,7 +66,7 @@ export function RefundLedgerSection({
   if (loadFailed) {
     return (
       <section className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
-        <h2 className='text-destructive mb-1 text-sm font-semibold'>退款紀錄</h2>
+        <h2 className='text-destructive mb-1 text-sm font-semibold'>線上退款紀錄</h2>
         <p className='text-destructive'>
           退款帳本載入失敗 —— 這張單可能有看不見的退款紀錄(含處理中的),
           請重新整理;持續失敗請通知系統維護,勿在此期間發起退款。
@@ -86,7 +86,7 @@ export function RefundLedgerSection({
   if (unregisteredFailed && rows.length === 0) {
     return (
       <section className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
-        <h2 className='text-destructive mb-1 text-sm font-semibold'>退款紀錄</h2>
+        <h2 className='text-destructive mb-1 text-sm font-semibold'>線上退款紀錄</h2>
         {/* 🔴 Sean 08-13 定調「使用上直覺、好用即可」⇒ 要回答:發生什麼 / 錢有沒有動 / 他該做什麼。
             ⚠️ **不得宣稱「退款按鈕被關掉了」** —— 本區塊刻意不吃退款入口旗標(見檔頭 :17-19),
             也看不到 channel 與 payment status ⇒ 轉帳/現金單、未付款單、或旗標關著時,
@@ -115,7 +115,7 @@ export function RefundLedgerSection({
   if (rowsTruncated) {
     return (
       <section className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
-        <h2 className='text-destructive mb-1 text-sm font-semibold'>退款紀錄</h2>
+        <h2 className='text-destructive mb-1 text-sm font-semibold'>線上退款紀錄</h2>
         {/* 文案要回答三件(Sean 08-11「操作直覺化」):發生什麼 / 現在能不能信這一頁 / 他該做什麼。
             🔴🔴 **不得宣稱「錢沒有變動」或「沒有退款被取消」** —— codex 2026-08-18 關卡2 抓到:
                本元件只知道「列被截斷」,它【看不到被藏起來的那些列】⇒ 那兩句它證明不了,
@@ -151,7 +151,7 @@ export function RefundLedgerSection({
   return (
     <section className='bg-card text-card-foreground rounded-lg border p-4'>
       <div className='mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1'>
-        <h2 className='text-muted-foreground text-xs font-medium'>退款紀錄</h2>
+        <h2 className='text-muted-foreground text-xs font-medium'>線上退款紀錄</h2>
         <span className='text-sm'>
           帳本未登記額:
           {/* 四態(codex MF2/MF3):讀失敗≠查無(前者=系統問題勿操作、後者=資料不在);

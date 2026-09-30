@@ -444,7 +444,8 @@ describe('超額三句話 → state(而它們今天走的是 445b 的 PCM 碼,�
     const msg = (
       refundFailure('exceeds_in_flight', EMPTY_REFUND_INPUT, TOKEN) as { message: string }
     ).message;
-    expect(msg).toContain('退款紀錄');
+    // 2026-09-30 標題改名「線上退款紀錄」:訊息引號內要逐字對得到那個標題(子字串「退款紀錄」擋不住漏改)。
+    expect(msg).toContain('「線上退款紀錄」');
     expect(msg).toContain('錢沒有動');
     expect(msg).not.toMatch(/還能退|剩餘可退/);
     expect(msg).not.toContain('**');

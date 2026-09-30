@@ -138,9 +138,12 @@ beforeEach(() => {
     unreadableReason: null,
   });
   mocks.loadTodayTodoLists.mockResolvedValue({
-    unpaidBankTransfer: { label: '待收款(匯款)', href: '/orders?a=1', count: 3 },
-    notOrdered: { label: '待訂貨', href: '/orders?b=1', count: 0 },
-    instock: { label: '到貨待出貨', href: '/orders?c=1', count: 5 },
+    unpaidBankTransfer: { label: '待收款（匯款）', href: '/orders?a=1', count: 3 },
+    notOrdered: { label: '待下訂', href: '/orders?b=1', count: 0 },
+    instock: { label: '可出貨', href: '/orders?c=1', count: 5 },
+    partiallyPaid: { label: '待尾款', href: '/orders?d=1', count: 1 },
+    partialArrived: { label: '有貨可先出', href: '/orders?e=1', count: 4 },
+    overdueArrival: { label: '逾期未到', href: '/orders?f=1', count: 2 },
   });
   mocks.loadInvoiceMonthStats.mockResolvedValue({
     month: '2026-09',
@@ -161,7 +164,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', () => {
-  it('六格都在(G1 甲 09-27 加改價待審)、零印 0、退款非 0 走紅、每格帶連結;工程數字收在 details 裡', async () => {
+  it('八格兩排都在(G1 甲 09-27 加改價待審;09-30 加待尾款、有貨可先出, 錢一排貨一排)、零印 0、退款非 0 走紅、每格帶連結;工程數字收在 details 裡', async () => {
     const { container } = render(await AdminHomePage());
     const todo = container.querySelector('[data-testid="today-todo"]');
     expect(todo).not.toBeNull();
@@ -169,22 +172,28 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     expect(links.map((a) => a.getAttribute('href'))).toEqual([
       '/orders?date_from=2026-08-14&date_to=2026-08-14&show_unpaid_card=1',
       '/orders?a=1',
-      '/orders?b=1',
-      '/orders?c=1',
+      '/orders?d=1',
       '/orders/refund-exceptions',
       '/orders/amount-requests',
+      '/orders?b=1',
+      '/orders?f=1',
+      '/orders?e=1',
+      '/orders?c=1',
     ]);
     expect(links.map((a) => a.textContent)).toEqual([
       '新單7',
-      '待收款(匯款)3',
-      '待訂貨0',
-      '到貨待出貨5',
+      '待收款（匯款）3',
+      '待尾款1',
       '退款待處理2',
       '改價待審2',
+      '待下訂0',
+      '逾期未到2品項已取消、採購沒作廢的也算',
+      '有貨可先出4',
+      '可出貨5',
     ]);
+    expect(links[3]!.querySelector('p')!.className).toContain('text-destructive');
     expect(links[4]!.querySelector('p')!.className).toContain('text-destructive');
-    expect(links[5]!.querySelector('p')!.className).toContain('text-destructive');
-    expect(links[2]!.querySelector('p')!.className).not.toContain('text-destructive');
+    expect(links[5]!.querySelector('p')!.className).not.toContain('text-destructive');
     // 版面順序:今天要做的事 → 今日對帳 → 發票月統計 → details(工程數字)
     const html = container.innerHTML;
     const at = (needle: string) => html.indexOf(needle);
@@ -248,8 +257,9 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     const { container } = render(await AdminHomePage());
     const todo = container.querySelector('[data-testid="today-todo"]')!;
     const links = Array.from(todo.querySelectorAll('a'));
-    expect(links).toHaveLength(6);
-    expect(links[1]!.textContent).toBe('待收款(匯款)讀取失敗');
+    expect(links).toHaveLength(9);
+    expect(links[1]!.textContent).toBe('待收款（匯款）讀取失敗');
+    expect(links[2]!.textContent).toBe('待尾款讀取失敗');
     expect(links[1]!.getAttribute('href')).toContain('/orders?');
     expect(links[0]!.textContent).toBe('新單7');
     expect(container.textContent).toContain('今日實收');
@@ -274,8 +284,9 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     const links = Array.from(container.querySelectorAll('[data-testid="today-todo"] a'));
     expect(links[0]!.textContent).toBe('新單讀取失敗');
     expect(links[0]!.getAttribute('href')).toBe('/orders');
-    expect(links[4]!.textContent).toBe('退款待處理讀取失敗');
-    expect(links[1]!.textContent).toBe('待收款(匯款)3');
+    expect(links[3]!.textContent).toBe('退款待處理讀取失敗');
+    expect(links[1]!.textContent).toBe('待收款（匯款）3');
+    expect(links[2]!.textContent).toBe('待尾款1');
     spy.mockRestore();
   });
 });

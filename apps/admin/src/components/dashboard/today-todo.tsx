@@ -2,10 +2,12 @@ import Link from 'next/link';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
 import type { TodayTodoLists } from '../../lib/dashboard/today-todo-read';
 import { newOrdersHref } from './today-summary';
+import { ORDER_TODO_SPECS } from '../../lib/orders/order-todo';
 
-// today-todo.tsx — 首頁最上面那一列「今天要做的事」六格(Sean 2026-09-13 拍前五格:
+// today-todo.tsx — 首頁最上面「今天要做的事」(2026-09-30 起兩排九格)(Sean 2026-09-13 拍前五格:
 //    新單 · 待收款(匯款) · 待訂貨 · 到貨待出貨 · 退款待處理,每格帶連結,零也印 0 不藏;
-//    2026-09-27 G1 甲加第六格「改價待審」⇐ `listPendingAmountRequests`)。
+//    2026-09-27 G1 甲加第六格「改價待審」⇐ `listPendingAmountRequests`;
+//    2026-09-30 加第七格「待尾款」⇐ `loadTodayTodoLists`, 同另外三格的算法)。
 //
 // 🔴 五格數字**兩個來源、零自寫判準**:
 //    · 新單 / 退款待處理 ⇐ `loadTodaySummary`(與下面「今日對帳」同一份,不重查)
@@ -76,15 +78,16 @@ export function TodayTodo({
   return (
     <section aria-label='今天要做的事' data-testid='today-todo'>
       <h2 className='mb-2 text-[13px] leading-[1.4] font-semibold text-(--fg-2)'>今天要做的事</h2>
-      <div className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6'>
+      {/* 2026-09-30 兩排(plan `~/pcm-mailbox/計畫-後台今天要做的事-20260930.md` §2-1):錢一排、貨一排。 */}
+      <div data-todo-row='money' className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5'>
         <TodoCard
           label='新單'
           count={summary?.newOrderCount ?? null}
           href={summary === null ? '/orders' : newOrdersHref(summary.ymd)}
         />
         <TodoCard {...lists.unpaidBankTransfer} />
-        <TodoCard {...lists.notOrdered} />
-        <TodoCard {...lists.instock} />
+        {/* Sean 2026-09-30 批「今天要做的事＋三格」:收了訂金、還差尾款(含已出貨);與「待收款(匯款)」並排, 錢的事放一起。 */}
+        <TodoCard {...lists.partiallyPaid} />
         {/* 🔴 兩個旗標跟 `today-summary.tsx` 同一份:截斷 ⇒ 數字是下限(黏 `+`);
             更正紀錄讀不到 ⇒ 這個數退化成全部筆數(含已判定的),要講出來。 */}
         <TodoCard
@@ -110,6 +113,14 @@ export function TodayTodo({
           suffix={amountRequests?.truncated ? '+' : ''}
           note={amountRequests?.truncated ? '已達上限,實際可能更多' : undefined}
         />
+      </div>
+      <div data-todo-row='goods' className='mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5'>
+        <TodoCard {...lists.notOrdered} />
+        {/* 2026-09-30 逾期未到(貼板 256):規則寫在格子上(主視窗板 256 Q1 甲)。 */}
+        <TodoCard {...lists.overdueArrival} note={ORDER_TODO_SPECS.overdue.tileNote} />
+        {/* 2026-09-30:還沒到齊、有一樣到了(`has_arrived_unshipped`, 貼板 255)。 */}
+        <TodoCard {...lists.partialArrived} />
+        <TodoCard {...lists.instock} />
       </div>
     </section>
   );

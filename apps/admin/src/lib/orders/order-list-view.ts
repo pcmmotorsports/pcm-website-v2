@@ -28,6 +28,7 @@ import {
 // #350d:面板判準要 uuid 閘;一次性參數清單與 `order-return-to.ts` 共用單一來源
 // (兩邊各寫一份 = 補了 `rt` 卻只補一邊,症狀是重複鍵讓取消面板永遠讀不到)。
 import { isUuid } from './note-action-state';
+import { ORDER_TODO_PARAM, readOrderTodoKey, type OrderTodoKey } from './order-todo';
 import { ORDER_PANEL_PARAM, ORDER_OPEN_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
 // #347-3c-1:曆面日 ↔ 絕對時刻的換算只有 domain 一份(自己拼 `new Date(ymd)` 是 UTC 午夜、差 8 小時)。
 import {
@@ -62,6 +63,12 @@ export const CUSTOMER_TIER_PARAM = 'tier';
 /** Q5 乙:多樣的單 `?multi_item=1`(唯一開關值 '1',其餘一律不篩 —— 同 `pending` / `show_unpaid_card` 那族)。 */
 export const MULTI_ITEM_PARAM = 'multi_item';
 export const MULTI_ITEM_ON = '1';
+/** 有貨可先出(2026-09-30):唯一開關值 '1'(同 `multi_item`)。 */
+export const PARTIAL_ARRIVED_PARAM = 'partial_arrived';
+export const PARTIAL_ARRIVED_ON = '1';
+/** 逾期未到(2026-09-30):唯一開關值 '1'。 */
+export const OVERDUE_ARRIVAL_PARAM = 'overdue';
+export const OVERDUE_ARRIVAL_ON = '1';
 /** 只看已取消 `?cancelled=1`(2026-09-14;同一族的唯一開關值)。 */
 export const CANCELLED_ONLY_PARAM = 'cancelled';
 export const CANCELLED_ONLY_ON = '1';
@@ -140,6 +147,8 @@ export type OrderListDisplayState = {
   density: OrderDensity;
   /** 🆕 A1:老闆:成本模式(見 `ORDER_BOSS_PARAM`)。**必填**:漏帶 = 翻頁 / 換篩選時模式靜默掉, `tsc` 要能叫。 */
   boss: boolean;
+  /** 🆕 2026-09-30 待辦模式(`order-todo.ts`):首頁格子點進來時是哪一格;`null` = 一般列表。**必填**, 理由同 `boss`。 */
+  todo: OrderTodoKey | null;
 };
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
@@ -455,6 +464,8 @@ export function parseOrderListSearchParams(
     // Q5 乙:客人身分(view 的 tier_at_checkout),白名單守門同上;不認得的值丟掉、不整軸 fail-open。
     customerTiers: pickEnumMulti(raw[CUSTOMER_TIER_PARAM], MEMBER_TIER_VALUES),
     multiItemOnly: firstValue(raw[MULTI_ITEM_PARAM]) === MULTI_ITEM_ON,
+    partialArrivedOnly: firstValue(raw[PARTIAL_ARRIVED_PARAM]) === PARTIAL_ARRIVED_ON,
+    overdueArrivalOnly: firstValue(raw[OVERDUE_ARRIVAL_PARAM]) === OVERDUE_ARRIVAL_ON,
     cancelledOnly: firstValue(raw[CANCELLED_ONLY_PARAM]) === CANCELLED_ONLY_ON,
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
     includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
@@ -479,6 +490,8 @@ export function parseOrderListSearchParams(
       density: pickEnum(raw[ORDER_DENSITY_PARAM], ORDER_DENSITY_VALUES) ?? ORDER_DENSITY_DEFAULT,
       // 🆕 A1:唯一開關值 '1';其餘一律 false。頁層再閘 manager(見 `ORDER_BOSS_PARAM` docstring)。
       boss: firstValue(raw[ORDER_BOSS_PARAM]) === ORDER_BOSS_ON,
+      // 🆕 待辦模式:白名單;不認得 / 重複鍵 ⇒ null(一般列表)。
+      todo: readOrderTodoKey(raw[ORDER_TODO_PARAM]),
     },
     datePresetOptions: dateRange.options,
     /** 篩選列要把哪一格顯示成選中(= 真正生效的那段期間;兩者同源,不可能對不上)。 */
@@ -674,6 +687,8 @@ export const ORDER_FILTER_URL_KEYS = [
   PAYMENT_CHANNEL_PARAM,
   CUSTOMER_TIER_PARAM,
   MULTI_ITEM_PARAM,
+  PARTIAL_ARRIVED_PARAM,
+  OVERDUE_ARRIVAL_PARAM,
   CANCELLED_ONLY_PARAM,
   SHOW_UNPAID_CARD_PARAM,
   PENDING_ONLY_PARAM,
@@ -689,6 +704,8 @@ const ORDER_DISPLAY_URL_KEYS = [
   ORDER_DENSITY_PARAM,
   // 🆕 A1:老闆:成本(顯示軸, 與 `den` 同組;必進表, 否則翻頁就掉 —— 本檔 :80-83 記過同款坑兩次)。
   ORDER_BOSS_PARAM,
+  // 🆕 2026-09-30 待辦模式(顯示軸;必進表, 否則彈窗做完回來就變回一般列表)。
+  ORDER_TODO_PARAM,
   // 🆕 P-b:就地展開的那張單。⛔ 拆面板(2026-09-13)起 `panel` / `customer` 不在表上:
   //    列表不再產它們, 舊書籤 `?panel=<id>` 由 `orders/page.tsx` 導成 `?open=<id>`。
   ORDER_OPEN_PARAM,
@@ -870,6 +887,8 @@ export function buildOrderListHref(
     paymentChannels: [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
     customerTiers: [CUSTOMER_TIER_PARAM, filter.customerTiers],
     multiItemOnly: [MULTI_ITEM_PARAM, filter.multiItemOnly ? MULTI_ITEM_ON : undefined],
+    partialArrivedOnly: [PARTIAL_ARRIVED_PARAM, filter.partialArrivedOnly ? PARTIAL_ARRIVED_ON : undefined],
+    overdueArrivalOnly: [OVERDUE_ARRIVAL_PARAM, filter.overdueArrivalOnly ? OVERDUE_ARRIVAL_ON : undefined],
     cancelledOnly: [CANCELLED_ONLY_PARAM, filter.cancelledOnly ? CANCELLED_ONLY_ON : undefined],
     // 🔴 L6 的開關必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
     //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
@@ -913,6 +932,7 @@ export function buildOrderListHref(
     ],
     // 🆕 A1:關著時不寫進 URL(同 `den` 等於預設不寫那條)。
     boss: [ORDER_BOSS_PARAM, display.boss ? ORDER_BOSS_ON : undefined],
+    todo: [ORDER_TODO_PARAM, display.todo ?? undefined],
   };
   // 🔴🔴 **表上 11 格逐格填**(`#742` 殘餘)。少一格 `tsc` 直接紅 —— 而**另一個 producer
   //    (`order-filter-controls.tsx` 的 `href()`)填的是同一張表**,所以它也會紅。
@@ -926,6 +946,8 @@ export function buildOrderListHref(
     // 🔴 Q5 乙:`byFilterKey` 那張表漏列會 tsc 紅,而【這張】漏列只會靜靜不產 —— 往返測試守這一格。
     [CUSTOMER_TIER_PARAM]: byFilterKey.customerTiers[1],
     [MULTI_ITEM_PARAM]: byFilterKey.multiItemOnly[1],
+    [PARTIAL_ARRIVED_PARAM]: byFilterKey.partialArrivedOnly[1],
+    [OVERDUE_ARRIVAL_PARAM]: byFilterKey.overdueArrivalOnly[1],
     [CANCELLED_ONLY_PARAM]: byFilterKey.cancelledOnly[1],
     [SHOW_UNPAID_CARD_PARAM]: byFilterKey.includeUnpaidCardOrders[1],
     [PENDING_ONLY_PARAM]: byFilterKey.pendingOnly[1],
@@ -933,6 +955,7 @@ export function buildOrderListHref(
     [DATE_TO_PARAM]: byFilterKey.createdTo[1],
     [ORDER_DENSITY_PARAM]: byDisplayKey.density[1],
     [ORDER_BOSS_PARAM]: byDisplayKey.boss[1],
+    [ORDER_TODO_PARAM]: byDisplayKey.todo[1],
     // 🆕 P-b:就地展開寫 `open`。參數**名字**還叫 `panelOrderId` —— 那是 7 個呼叫端
     //    與 `PANEL_CLOSED` 那套「刻意 vs 忘了」機制的接口,先不改名。
     //    📌 讀法:`panelOrderId` = 「這條連結要讓哪張單在列表上【展開】」。

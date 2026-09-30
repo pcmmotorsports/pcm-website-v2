@@ -170,7 +170,7 @@ export function ManualOrderTotalPreview() {
         /* 🔴 **除不盡時【不編一個數字出來】** —— 那筆單送出去會被擋,
             而這裡顯示一個總額會讓他以為填得對。訊息與送出時擋下來的那句是同一件事。 */
         <p className='text-destructive' role='status'>
-          {state.at}的 {state.taxed.toLocaleString()} 標成含稅,換算回未稅不是整數 ⇒
+          {state.at}的 {state.taxed.toLocaleString()} 標成含稅,換算回未稅不是整數，
           這張單送出去會被擋。請跟對方問到未稅金額。
         </p>
       ) : (

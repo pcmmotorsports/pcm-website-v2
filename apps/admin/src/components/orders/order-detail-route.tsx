@@ -101,7 +101,10 @@ export async function OrderDetailRoute({
   buildCustomerHref,
   section,
   refundPrefill = null,
+  openMoneyTab = false,
 }: {
+  /** 2026-09-30 後台三小改 ②:`?tab=money`(列表「需確認」)⇒ 開在收款 · 退款;只給整頁明細。 */
+  openMoneyTab?: boolean;
   /** 退貨收回第 3 片:退款表單預填(頁層已驗格式);只給整頁明細, 其他呼叫端不傳。 */
   refundPrefill?: ReturnRefundPrefill | null;
   /**
@@ -613,7 +616,7 @@ export async function OrderDetailRoute({
               className='text-primary underline underline-offset-4'
               data-testid='open-invoice-cheatsheet'
             >
-              抬頭 / 統編要改 ⇒ 開發票小抄
+              要改抬頭或統編，請開發票小抄
             </Link>
           </p>
         )}
@@ -848,6 +851,7 @@ export async function OrderDetailRoute({
           manualRefundRailCap={manualRefundRailCap}
           orderReturns={orderReturns}
           refundPrefill={refundPrefill}
+          openMoneyTab={openMoneyTab}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
           customerHref={
             // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是

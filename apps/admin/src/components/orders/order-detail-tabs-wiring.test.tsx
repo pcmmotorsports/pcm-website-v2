@@ -535,3 +535,20 @@ describe('🔴 must-fix 1:`OrderDetailTabs` 必須帶 `key={detail.id}`', () => 
     expect(SRC).toMatch(/const\s*\{[^}]*moneyTabMustSee[^}]*\}\s*=\s*resolveOrderDetailTabFlags/);
   });
 });
+
+// 2026-09-30 後台三小改 ②:列表收款欄「需確認」點下去 ⇒ 明細頁直接開在「收款 · 退款」。
+describe('openMoneyTab ⇒ 開單就停在收款 · 退款', () => {
+  it('帶了 ⇒ money', () => {
+    const { container } = render(
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} openMoneyTab />,
+    );
+    expect(visible(container)).toEqual(['money']);
+  });
+
+  it('沒帶 ⇒ 照舊停在第一頁', () => {
+    const { container } = render(
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' canDeleteNotes='no' payments={OK} />,
+    );
+    expect(visible(container)).toEqual(['items']);
+  });
+});

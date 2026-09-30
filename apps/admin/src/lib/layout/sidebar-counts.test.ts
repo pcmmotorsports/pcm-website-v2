@@ -63,10 +63,10 @@ function setup(over: Over = {}) {
   });
   if (over.orderError) {
     // 那支自己接住錯誤回 count: null(不 reject);這裡照它的契約模擬
-    mocks.loadTodoListCount.mockResolvedValue({ label: '待訂貨', href: '/orders?goods_axis=none', count: null });
+    mocks.loadTodoListCount.mockResolvedValue({ label: '待下訂', href: '/orders?goods_axis=none', count: null });
   } else {
     mocks.loadTodoListCount.mockResolvedValue({
-      label: '待訂貨',
+      label: '待下訂',
       href: '/orders?goods_axis=none',
       count: over.orderCount ?? null,
     });
@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe('loadSidebarCounts — 查詢形狀', () => {
-  it('🔴 訂單那格 = 首頁「待訂貨」同一支(loadTodoListCount notOrdered),本層不再自己查 admin_order_list_v', async () => {
+  it('🔴 訂單那格 = 首頁「待下訂」同一支(loadTodoListCount notOrdered),本層不再自己查 admin_order_list_v', async () => {
     const { orders } = setup({ orderCount: 7 });
     const out = await loadSidebarCounts();
     expect(mocks.loadTodoListCount).toHaveBeenCalledTimes(1);
