@@ -65,10 +65,11 @@ export function ManualOrderVehicleField() {
   };
 
   return (
-    <fieldset className='border-border rounded-lg border p-3'>
-      <legend className='text-muted-foreground px-1 text-xs'>
-        車輛(這張單一台車;照你平常的寫法打, 有對到字典就帶入, 沒有就照存)
-      </legend>
+    // 🆕 2026-10-01 建單簡化(Sean Q1 甲, 計畫 S2):預設收起, 點「車輛(選填)」才展開。
+    //    🔴 收起的 `<details>` 裡的欄位照樣送出(text + hidden pick 兩格), 解析端看到的與改版前相同。
+    <details className='border-border rounded-lg border p-3' data-testid='manual-order-vehicle'>
+      <summary className='text-muted-foreground cursor-pointer text-xs'>車輛(選填)</summary>
+      <p className='text-muted-foreground mt-2 text-xs'>這張單一台車;照平常的寫法打,對到字典就帶入,沒有就照存。</p>
       <label className={`${MANUAL_FIELD_LABEL} relative`}>
         車種
         <input
@@ -132,6 +133,6 @@ export function ManualOrderVehicleField() {
           </ul>
         )}
       </label>
-    </fieldset>
+    </details>
   );
 }
