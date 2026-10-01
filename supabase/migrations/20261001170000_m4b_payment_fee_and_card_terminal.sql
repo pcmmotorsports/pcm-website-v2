@@ -36,6 +36,28 @@
 BEGIN;
 SET LOCAL lock_timeout = '5s';   -- 拿不到表鎖就停, 不在正式庫排隊卡住別人
 
+-- ═══ 前置閘:本支以正式庫 2026-10-01 唯讀原文為底重寫 8 支函式 ⇒ 貼之前任何一支被別人改過就整筆停(不覆蓋別人的改動)═══
+DO $pre$
+DECLARE
+  v_got text;
+  v_want constant text :=
+    'admin_create_manual_order=8e1005fa67086c1e0ecca8216312e9f3,admin_list_order_payments=38fcf5f1e5021cf8e98c4a3b643894ad,'
+    'admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,'
+    'admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,'
+    'pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b';
+BEGIN
+  SELECT pg_catalog.string_agg(p.proname || '=' || pg_catalog.md5(p.prosrc), ',' ORDER BY p.proname) INTO v_got
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE (n.nspname, p.proname) IN (('public','admin_create_manual_order'), ('public','admin_list_order_payments'),
+                                    ('public','admin_record_manual_payment'), ('public','admin_record_manual_refund'),
+                                    ('public','admin_today_payment_total'), ('pcm_cron','expire_unpaid_orders'),
+                                    ('public','pcm_d3d_manual_refund_immutable'), ('public','pcm_op2b_immutable_columns'));
+  IF v_got IS DISTINCT FROM v_want THEN
+    RAISE EXCEPTION '貼板 262 前置閘:要重寫的函式與 2026-10-01 的正式庫版本不同(有人改過或多了重載)⇒ 停止, 先以新版本為底重做本支。實得 %', v_got;
+  END IF;
+END
+$pre$;
+
 -- ═══ ① 費率表 ═══
 CREATE TABLE public.payment_fee_rates (
   id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

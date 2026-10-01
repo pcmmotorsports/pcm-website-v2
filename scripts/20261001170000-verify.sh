@@ -70,6 +70,7 @@ cell "回滾後函式本體 = 正式庫" "$(Q "$MD5Q")" "admin_create_manual_ord
 cell "回滾後建單 RPC 沒有殘留本次的註解(Fable R1 nit 1)" "$(Q "select coalesce(obj_description(p.oid, 'pg_proc'), '') like '%貼板 262%' from pg_proc p where proname = 'admin_create_manual_order'")" "f"
 cell "回滾後新欄與新表都不在" "$(Q "select count(*) from information_schema.columns where table_schema='public' and column_name in ('payment_instrument','fee_rate','fee_amount')")|$(Q "select count(*) from pg_tables where tablename='payment_fee_rates'")" "0|0"
 P -f "$MIG" >/dev/null || { echo "🔴 回滾後再套失敗"; exit 1; }
+cell "函式已不是 10-01 正式庫版本(例:已貼過)⇒ 前置閘整筆擋" "$(P -f "$MIG" 2>&1 | grep -c '貼板 262 前置閘')" "1"
 
 cat > "$D/tools.sql" <<'SQL'
 INSERT INTO public.staff (id, label, is_active) VALUES ('probe_q1', '測試員', true);
