@@ -1237,7 +1237,11 @@ B. ⟦b4-PARTPAIDNOCANCEL1⟧ :1321 open「收訂金的匯款單不能取消」
 > ①「取消而只退一部分」的信:migration `20260912020000` 已貼、文案 `b72ef4fe1` 在 main,板列 09-22 已收(`24fbb6b39`)。
 > ② Q14 甲附帶的「部分取消過的匯款單被刷卡取代會誤寄」:plan `2026-09-15-unpaid-cancel-email-staff-full-cancel-evidence` 批甲、實作 `8d454b15b`、貼板 185 `20260916030000` 已貼(`dda5e5eec`)。
 > 🔴 **而「部分取消補寄信」(員工取消部分品項後寄的信,`order_partially_cancelled`)要分開講**:碼 `266e13035` 已上線、view `pcm_partially_cancelled_email_pending` 正式庫已存在(10-02 唯讀查到);
->    **上膛要在 Vercel 顧客站 production 設 `PARTIAL_CANCEL_EMAIL_CUTOFF`,這一格【未確認】**(Vercel 工具未連線、CLI 未 link)。正式庫 `email_outbox` 這一型 0 列 —— 分不出是沒上膛還是還沒有符合條件的取消。
+>    **上膛**:主視窗 10-02 用 Vercel CLI 列名稱(不解密值)確認顧客站 production **有** `PARTIAL_CANCEL_EMAIL_CUTOFF`,約 17 天前設的 ⇒ ✅ 已上膛。
+>    **為什麼寄出 0 封**(10-02 網站B 唯讀查,service key 只 select):09-15 之後 `order_cancellations` 共 2 列、2 列都有品項(= 部分取消),
+>    都在 09-21(`C9C83B` 網站單、`8HSMDP` 手動電話單),而**兩張後來都整單取消了** ⇒ 依 view 條件「單還沒整單取消」不寄部分取消信、改走整單取消信。
+>    `email_outbox` 的 `order_partially_cancelled` / `bank_order_amount_changed` 都是 0 列。⇒ **0 封是對的:上膛之後還沒有一筆符合條件的部分取消。**
+>    ⚠️ 射程:cutoff 的值沒讀(只知道約 17 天前設);兩筆都在 09-21,不論 cutoff 落在 09-15 前後的哪一天,結論都一樣(整單已取消 ⇒ 本來就不寄)。
 
 **🔴 線外而活的(窗A 順手撞到, 沒往下查, 該派給前台線):**
 ```
@@ -1435,7 +1439,7 @@ Materya 品牌頁文案(他已拍甲要更新,**而今天一整天沒有人做**
 - B 窗 `~/pcm-ops`(agent/ops-6)⇒ `接手-B窗-0913.md`;等 Sean 答補寄信三題。
 
 **🔴 等 Sean 答的:** ① 部分取消補寄信:取消兩次寄兩封? 用過券金額變高照寄? 文案先看? ② 設計窗那批做完後的驗收。
-> ✅ **[2026-10-02 網站B]** ① 已答:Sean 2026-09-14 拍甲甲甲(每次取消各寄一封 / 券金額變高照寄、寫清新金額 / 文案先給他看),逐字在 `supabase/migrations/20260915150000_m4b_partially_cancelled_email_pending.sql` 檔頭;碼 `266e13035` 已上線。剩「上膛 env `PARTIAL_CANCEL_EMAIL_CUTOFF` 設了沒」未確認(見上方 ⟦auth-PARTIALREFUNDCANCELGAP⟧ 那格的註記)。
+> ✅ **[2026-10-02 網站B]** ① 已答:Sean 2026-09-14 拍甲甲甲(每次取消各寄一封 / 券金額變高照寄、寫清新金額 / 文案先給他看),逐字在 `supabase/migrations/20260915150000_m4b_partially_cancelled_email_pending.sql` 檔頭;碼 `266e13035` 已上線。上膛 env 已確認有設;寄出 0 封是因為之後還沒有符合條件的部分取消(見上方 ⟦auth-PARTIALREFUNDCANCELGAP⟧ 那格的註記)。
 **🔴 已知系統缺口(Sean 已拍要排):** 刷卡全額退款成功**不會**自動標已取消(他 09-12 拍板要有,系統至今沒做);另 4 件見 `~/pcm-mailbox/0912-後台UX/方向稿說明-v10.md` §7。
 
 ## 🟢 2026-09-12 03:0x 白天那包提前上完 —— **從這裡接**
