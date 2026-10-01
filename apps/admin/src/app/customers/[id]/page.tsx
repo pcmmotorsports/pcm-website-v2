@@ -114,6 +114,8 @@ export default async function CustomerDetailPage({
             ordersLoadFailed={data.ordersLoadFailed}
             addresses={data.addresses}
             addressesLoadFailed={data.addressesLoadFailed}
+            shopeeAccounts={data.shopeeAccounts}
+            shopeeAccountsLoadFailed={data.shopeeAccountsLoadFailed}
             vehicles={data.vehicles}
             vehiclesLoadFailed={data.vehiclesLoadFailed}
             emailVerification={data.emailVerification}

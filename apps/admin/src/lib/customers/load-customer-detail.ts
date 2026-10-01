@@ -29,6 +29,7 @@ import {
   type EmailVerification,
   type EmailVerificationInput,
 } from './email-verification';
+import { listShopeeAccounts, type ShopeeAccount } from './shopee-accounts';
 
 // load-customer-detail.ts — 客戶明細五路取數的**單一實作**(OD 片 3a 從 `app/customers/[id]/page.tsx` 抽出)。
 //
@@ -88,6 +89,9 @@ export type CustomerDetailData = {
   addressesLoadFailed: boolean;
   vehicles: CustomerVehicle[];
   vehiclesLoadFailed: boolean;
+  /** 貼板 261:蝦皮帳號(一位客人可記多個)。 */
+  shopeeAccounts: ShopeeAccount[];
+  shopeeAccountsLoadFailed: boolean;
   /**
    * 板 :437 —— Email 驗證狀態。
    * 🔴 **它自己就帶得出「讀不到」那一態**(`kind: 'unknown'`)⇒ 呼叫端**不需要**再看一個
@@ -134,6 +138,7 @@ export async function loadCustomerDetail(
     vehiclesSettled,
     emailVerificationSettled,
     lineSettled,
+    shopeeSettled,
   ] = await Promise.allSettled([
       (async () => getAdminCustomerRepository().findById(id))(),
       (async () =>
@@ -152,6 +157,8 @@ export async function loadCustomerDetail(
       (async () => readEmailVerification(id))(),
       // 🆕 LINE 綁定狀態(第二發;不併進客戶投影 —— 那是具名白名單)。
       (async () => loadCustomerLineStatus([id]))(),
+      // 貼板 261:蝦皮帳號(讀失敗只影響那一小塊)。
+      (async () => listShopeeAccounts(id))(),
     ]);
 
   const customerResult = settle<Customer | null>(customerSettled, null, '客戶明細');
@@ -163,6 +170,7 @@ export async function loadCustomerDetail(
   const orders = settle<OrderListItem[]>(ordersSettled, [], '訂單歷史');
   const addresses = settle<CustomerAddress[]>(addressesSettled, [], '收件地址');
   const vehicles = settle<CustomerVehicle[]>(vehiclesSettled, [], '車庫');
+  const shopeeAccounts = settle<ShopeeAccount[]>(shopeeSettled, [], '蝦皮帳號');
   // 🔴 fallback 是 `null` ⇒ 判讀成 `unknown`(讀不到),**不是** `unverified`。
   //    這一路整個 throw 掉時,畫面要說「讀不到」,不能說「這個客人沒驗證」。
   const emailVerificationRaw = settle<EmailVerificationInput | null>(
@@ -184,6 +192,8 @@ export async function loadCustomerDetail(
     addressesLoadFailed: addresses.failed,
     vehicles: vehicles.value,
     vehiclesLoadFailed: vehicles.failed,
+    shopeeAccounts: shopeeAccounts.value,
+    shopeeAccountsLoadFailed: shopeeAccounts.failed,
     emailVerification: classifyEmailVerification(emailVerificationRaw.value),
     emailAuthProviders: emailVerificationRaw.value?.authProviders ?? null,
     // 讀失敗 / 欄位還沒貼 ⇒ `null`(顯示層印「讀不到」);讀到但這個人沒有列也是 `null` —— 兩者都不是「沒綁」。

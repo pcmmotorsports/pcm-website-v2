@@ -308,6 +308,14 @@ export function OrderInfoCards({ detail }: { detail: AdminOrderDetail }) {
             label='來源 · 管道'
             value={`${ORDER_SOURCE_LABEL[detail.orderSource]} · ${PAYMENT_CHANNEL_LABEL[detail.paymentChannel]}`}
           />
+          {/* 貼板 261(Sean 2026-10-01 蝦皮帳號 Q2、Q4 甲):蝦皮單才出這兩格;沒填印「—」(Field 的 null)。
+              帳號是建單當下的快照, 客人之後換帳號這裡不變。 */}
+          {detail.orderSource === 'manual_shopee' && (
+            <>
+              <Field label='蝦皮帳號' value={detail.shopeeUsername} />
+              <Field label='蝦皮訂單編號' value={detail.shopeeOrderNo} />
+            </>
+          )}
           <Field
             label='付款時間'
             value={detail.paidAt ? formatOrderDateTime(detail.paidAt) : null}
