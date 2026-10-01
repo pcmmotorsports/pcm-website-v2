@@ -1608,4 +1608,38 @@ SELECT o.id AS order_id,
            FROM email_outbox e
           WHERE e.order_id = o.id AND e.event_type = 'order_cancelled'::text AND (COALESCE(e.last_error_code, ''::text) <> ALL (ARRAY['shipment_voided'::text, 'tracking_superseded'::text, 'bank_order_not_mailable_at_send'::text, 'bank_order_snapshot_stale'::text, 'recipient_stale_at_send'::text])))) AND (NULLIF(btrim(o.notification_email, pcm_js_trim_whitespace()), ''::text) IS NOT NULL OR NULLIF(btrim(c.email, pcm_js_trim_whitespace()), ''::text) IS NOT NULL) AND (o.order_source IS NULL OR (o.order_source <> ALL (ARRAY['manual_phone'::text, 'manual_line'::text, 'manual_other'::text])) OR NULLIF(btrim(o.notification_email, pcm_js_trim_whitespace()), ''::text) IS NOT NULL);
 
+DO $post$
+DECLARE v text;
+BEGIN
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_cancelled_email_pending'::regclass, true));
+  IF v <> '688a6fa51fce2f1f60f550a6baad5d8d' THEN RAISE EXCEPTION '還原後置閘:pcm_cancelled_email_pending md5 = %,不是貼 260 之前那一版(688a6fa5…)', v; END IF;
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_manual_no_email_excluded'::regclass, true));
+  IF v <> '5e4c5935522dabe39748321904dbfffa' THEN RAISE EXCEPTION '還原後置閘:pcm_manual_no_email_excluded md5 = %,不是貼 260 之前那一版(5e4c5935…)', v; END IF;
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_order_created_email_pending'::regclass, true));
+  IF v <> 'a768ef07ed1eec269c3ede78df1e11e5' THEN RAISE EXCEPTION '還原後置閘:pcm_order_created_email_pending md5 = %,不是貼 260 之前那一版(a768ef07…)', v; END IF;
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_partially_cancelled_email_pending'::regclass, true));
+  IF v <> 'a8b6b2c5501267fc43f9959f5a04accc' THEN RAISE EXCEPTION '還原後置閘:pcm_partially_cancelled_email_pending md5 = %,不是貼 260 之前那一版(a8b6b2c5…)', v; END IF;
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_return_received_email_pending'::regclass, true));
+  IF v <> '82257c3e77f1f54e71f7543b16b69979' THEN RAISE EXCEPTION '還原後置閘:pcm_return_received_email_pending md5 = %,不是貼 260 之前那一版(82257c3e…)', v; END IF;
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_shipped_email_pending'::regclass, true));
+  IF v <> 'dbbc19ee4e20300731402202d99fb299' THEN RAISE EXCEPTION '還原後置閘:pcm_shipped_email_pending md5 = %,不是貼 260 之前那一版(dbbc19ee…)', v; END IF;
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_tracking_correction_candidates'::regclass, true));
+  IF v <> '1b6488f5c051c1681b969cea5a83c46e' THEN RAISE EXCEPTION '還原後置閘:pcm_tracking_correction_candidates md5 = %,不是貼 260 之前那一版(1b6488f5…)', v; END IF;
+  v := pg_catalog.md5(pg_catalog.pg_get_viewdef('public.pcm_unpaid_cancelled_email_pending'::regclass, true));
+  IF v <> 'bc74e696b28afbb91bd7078545e9b0a5' THEN RAISE EXCEPTION '還原後置閘:pcm_unpaid_cancelled_email_pending md5 = %,不是貼 260 之前那一版(bc74e696…)', v; END IF;
+  SELECT pg_catalog.md5(p.prosrc) INTO v FROM pg_catalog.pg_proc p WHERE p.oid = 'public.admin_create_manual_order'::regproc;
+  IF v IS DISTINCT FROM 'cac71377c0ab732f87156ddc20378aab' THEN RAISE EXCEPTION '還原後置閘:admin_create_manual_order md5 = %,不是貼 260 之前那一版(cac71377…)', v; END IF;
+  SELECT pg_catalog.md5(p.prosrc) INTO v FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_order_created_gap_counts'::regproc;
+  IF v IS DISTINCT FROM '961d6805e295693ecd682b27ddda826b' THEN RAISE EXCEPTION '還原後置閘:get_order_created_gap_counts md5 = %,不是貼 260 之前那一版(961d6805…)', v; END IF;
+  SELECT pg_catalog.md5(p.prosrc) INTO v FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_order_created_stuck_count'::regproc;
+  IF v IS DISTINCT FROM '3892179f754093d44c6db5832b117de5' THEN RAISE EXCEPTION '還原後置閘:get_order_created_stuck_count md5 = %,不是貼 260 之前那一版(3892179f…)', v; END IF;
+  SELECT pg_catalog.md5(p.prosrc) INTO v FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_order_unpaid_cancelled_gap_counts'::regproc;
+  IF v IS DISTINCT FROM '7563f81f71e8835643f82dd35f4e7ddb' THEN RAISE EXCEPTION '還原後置閘:get_order_unpaid_cancelled_gap_counts md5 = %,不是貼 260 之前那一版(7563f81f…)', v; END IF;
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conname = 'orders_shopee_no_notification_email') THEN
+    RAISE EXCEPTION '還原後置閘:orders_shopee_no_notification_email 還在';
+  END IF;
+  RAISE NOTICE '✅ 260 還原:CHECK、8 支 view、4 支函式都回到貼之前那一版(md5 逐支相符)';
+END
+$post$;
+
 COMMIT;
