@@ -352,6 +352,9 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   resolved_at: '標記已處理的時間',
   resolved_by: '標記已處理的人',
   resolution_note: '處理說明',
+  // ── 首頁大圖的 FB / IG 文字(`20261001120000` home_banner.social_update)────────────
+  fb_text: 'FB 貼文文字',
+  ig_text: 'IG 貼文文字',
 };
 
 /**
