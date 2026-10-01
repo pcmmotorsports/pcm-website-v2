@@ -47,6 +47,15 @@ function nullableStr(v: unknown, field: string): string | null {
   return v;
 }
 
+/** 同 `nullableStr`:鍵不存在 ⇒ 拋(貼板 262 沒貼就上程式碼會在這裡現形,不會靜默畫成沒手續費)。 */
+function nullableInt(v: unknown, field: string): number | null {
+  if (v === null) return null;
+  if (typeof v !== 'number' || !Number.isSafeInteger(v)) {
+    throw new PaymentListShapeError(`admin_list_order_payments:${field} 不是整數或 null`);
+  }
+  return v;
+}
+
 /**
  * 逐欄驗形狀。
  *
@@ -84,6 +93,8 @@ function parseRow(raw: unknown, index: number): OrderPaymentRow {
     reversesPaymentId: nullableStr(r.reverses_payment_id, `第 ${index} 列的 reverses_payment_id`),
     reversalReason: nullableStr(r.reversal_reason, `第 ${index} 列的 reversal_reason`),
     isReversal,
+    paymentInstrument: nullableStr(r.payment_instrument, `第 ${index} 列的 payment_instrument`),
+    feeAmount: nullableInt(r.fee_amount, `第 ${index} 列的 fee_amount`),
   };
 }
 

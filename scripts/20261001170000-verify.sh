@@ -63,9 +63,9 @@ cell "pcm_noncard_settle_recompute 本體" "$(Q "select md5(prosrc) from pg_proc
 P -f "$MIG" >/dev/null || { echo "🔴 migration 套不上"; exit 1; }
 
 echo "── 回滾來回(空資料):回滾後 6 支函式與正式庫 2026-10-01 逐字相同, 再套一次 ──"
-MD5Q="select string_agg(proname || '=' || md5(prosrc), ',' order by proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname, proname) in (('public','admin_record_manual_payment'),('public','admin_record_manual_refund'),('public','admin_today_payment_total'),('public','pcm_d3d_manual_refund_immutable'),('public','pcm_op2b_immutable_columns'),('pcm_cron','expire_unpaid_orders'))"
+MD5Q="select string_agg(proname || '=' || md5(prosrc), ',' order by proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname, proname) in (('public','admin_list_order_payments'),('public','admin_record_manual_payment'),('public','admin_record_manual_refund'),('public','admin_today_payment_total'),('public','pcm_d3d_manual_refund_immutable'),('public','pcm_op2b_immutable_columns'),('pcm_cron','expire_unpaid_orders'))"
 P -f "$DOWN" >/dev/null 2>&1 || { echo "🔴 空資料時回滾失敗"; FAIL=1; }
-cell "回滾後函式本體 = 正式庫" "$(Q "$MD5Q")" "admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b"
+cell "回滾後函式本體 = 正式庫" "$(Q "$MD5Q")" "admin_list_order_payments=38fcf5f1e5021cf8e98c4a3b643894ad,admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b"
 cell "回滾後新欄與新表都不在" "$(Q "select count(*) from information_schema.columns where table_schema='public' and column_name in ('payment_instrument','fee_rate','fee_amount')")|$(Q "select count(*) from pg_tables where tablename='payment_fee_rates'")" "0|0"
 P -f "$MIG" >/dev/null || { echo "🔴 回滾後再套失敗"; exit 1; }
 
@@ -152,6 +152,7 @@ cell "蝦皮單總額 7900" "$(total_of "$O5")" "7900"
 cell "蝦皮進帳 7016 登記成功" "$(pay s1 "$O5" "$(uuid)" cash 7900 "'shopee'" 7016)" "OK"
 cell "手續費 = 7900 − 7016 = 884" "$(fee_of "$O5")" "884"
 cell "蝦皮單已收齊(不出現未收 884)" "$(status_of "$O5")" "paid"
+cell "收款明細回付款方式標記與手續費" "$(Q "select (e->>'payment_instrument') || '/' || (e->>'fee_amount') from jsonb_array_elements(public.admin_list_order_payments('$O5')) e")" "shopee/884"
 # Sean Q47 甲:蝦皮調整金額 ⇒ 沖銷原進帳、重新登記一筆
 PIDS="$(Q "select id from public.order_payments where order_id = '$O5'")"
 Q "select public.admin_reverse_manual_payment('$PIDS', 'probe_q1', '蝦皮調整金額')" >/dev/null

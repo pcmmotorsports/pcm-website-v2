@@ -1058,6 +1058,55 @@ BEGIN
 END;
 $function$;
 
+-- 收款明細:回到本次之前(正式庫原文)
+CREATE OR REPLACE FUNCTION public.admin_list_order_payments(p_order_id uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  -- 🔴 **快照一致性來自 `STABLE`,不是來自「只有一句」**(關卡2 codex 更正我原本寫的理由):
+  --    `LANGUAGE sql` **不保證**單一 statement;而 STABLE 函式裡的每一句都共用**呼叫查詢的快照**
+  --    ⇒ 就算日後變成多句,函式內仍看到同一個快照。
+  --    ⇒ 檔尾對 `prolang` 的斷言**不是**在證「單句」,它證的是「沒被換成 plpgsql」
+  --      (plpgsql 的 VOLATILE 子查詢會各自取快照)。原本那句「單一 statement ⇒ 一個快照」是**錯的推論**。
+  -- 🔴 每個名稱全限定 `public.…`:`search_path = ''` 只讓未限定名稱**壞掉**,不等於保護。
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM public.orders o WHERE o.id = p_order_id)
+      THEN NULL                     -- 訂單不存在:回 NULL,不造一個假的空陣列
+    ELSE COALESCE(
+      (SELECT pg_catalog.jsonb_agg(
+                pg_catalog.jsonb_build_object(
+                  'id',                  p.id,
+                  'rail',                p.rail,
+                  'amount',              p.amount,
+                  'received_at',         p.received_at,
+                  'created_at',          p.created_at,
+                  'actor',               p.actor,
+                  'bank_reference',      p.bank_reference,
+                  'rec_trade_id',        p.rec_trade_id,
+                  -- 🔴 是 `payer_note` 不是 `note`:OP5 的 INSERT 欄位表逐字
+                  --    `(order_id, rail, amount, received_at, bank_reference, request_id, payer_note, actor)`
+                  --    ⇒ **員工在表單打的備註存進 payer_note,`note` 這欄 OP5 根本不寫**。
+                  --    讀錯欄的症狀是每一筆都顯示「無備註」,而員工明明打了字。
+                  'payer_note',          p.payer_note,
+                  'reverses_payment_id', p.reverses_payment_id,
+                  'reversal_reason',     p.reversal_reason,
+                  -- 🔴 具名旗標,呼叫端**不准用正負號判斷是不是沖銷**:
+                  --    「沖銷之沖銷」的金額可以是正的(`20260810100000` 檔頭逐字:500−500+500=500)
+                  --    ⇒ 看正負會把一筆沖銷讀成收款。
+                  'is_reversal',         (p.reverses_payment_id IS NOT NULL)
+                )
+                -- 🔴 排序寫在**聚合函式裡面**:子查詢的 ORDER BY 不保證聚合結果的順序。
+                --    三段是決定性排序 —— 同一秒入帳兩筆時少了 `id` 這個 tie-breaker,
+                --    畫面順序會在兩次重整之間跳動,而員工正拿它跟銀行對帳。
+                ORDER BY p.received_at DESC, p.created_at DESC, p.id DESC)
+         FROM public.order_payments p
+        WHERE p.order_id = p_order_id),
+      '[]'::jsonb)                  -- 存在但零收款:`jsonb_agg` 回 NULL ⇒ 收斂成空陣列
+  END
+$function$;
+
 DROP TRIGGER order_payments_fee_snapshot_bi ON public.order_payments;
 DROP FUNCTION public.pcm_order_payment_fee_snapshot();
 DROP FUNCTION public.pcm_payment_fee_rate(text, timestamptz);

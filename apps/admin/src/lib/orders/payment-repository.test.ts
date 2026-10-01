@@ -42,6 +42,9 @@ const ROW = {
   reverses_payment_id: null,
   reversal_reason: null,
   is_reversal: false,
+  // 貼板 262(報價單Q1 2026-10-01)之後 RPC 多回的兩個鍵
+  payment_instrument: null,
+  fee_amount: 0,
 };
 
 beforeEach(() => {
@@ -113,6 +116,22 @@ describe('形狀 fail-closed(錢的帳不寬容)', () => {
   it('🔴 nullable 欄位的**鍵不存在** ⇒ 拋(那是欄位沒回來,不是「這筆沒填」)', async () => {
     const { payer_note: _note, ...noNote } = ROW;
     makeClient({ data: [noNote], error: null });
+    await expect(listOrderPayments('o1')).rejects.toBeInstanceOf(PaymentListShapeError);
+  });
+
+  it('付款標記與手續費:照收;fee_amount 可為 null(缺費率)', async () => {
+    makeClient({ data: [{ ...ROW, payment_instrument: 'card_terminal', fee_amount: 77 }], error: null });
+    expect((await listOrderPayments('o1'))?.[0]).toMatchObject({ paymentInstrument: 'card_terminal', feeAmount: 77 });
+    makeClient({ data: [{ ...ROW, fee_amount: null }], error: null });
+    expect((await listOrderPayments('o1'))?.[0]?.feeAmount).toBeNull();
+  });
+
+  it('沒有 payment_instrument / fee_amount 鍵(貼板 262 沒貼)⇒ 拋,不畫成沒手續費', async () => {
+    const { payment_instrument: _pi, ...noInstr } = ROW;
+    makeClient({ data: [noInstr], error: null });
+    await expect(listOrderPayments('o1')).rejects.toBeInstanceOf(PaymentListShapeError);
+    const { fee_amount: _fee, ...noFee } = ROW;
+    makeClient({ data: [noFee], error: null });
     await expect(listOrderPayments('o1')).rejects.toBeInstanceOf(PaymentListShapeError);
   });
 

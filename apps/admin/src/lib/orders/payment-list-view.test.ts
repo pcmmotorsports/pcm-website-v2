@@ -393,3 +393,31 @@ describe('orderAmountDueAdjusted:算不出來時不下那個斷言', () => {
     expect(orderAmountDueAdjusted(order(9220))).toBe(true);
   });
 });
+
+describe('刷卡 / 蝦皮進帳標記與手續費(報價單Q1 2026-10-01)', () => {
+  const entry = (over: Partial<OrderPaymentRow>) => toPaymentListEntry({ ...ROW, ...over }, NONE_REVERSED);
+
+  it('標籤:刷卡、蝦皮進帳取代「現金」;無標記照舊', () => {
+    expect(entry({ paymentInstrument: 'card_terminal', feeAmount: 77 }).railLabel).toBe('刷卡');
+    expect(entry({ paymentInstrument: 'shopee', feeAmount: 884 }).railLabel).toBe('蝦皮進帳');
+    expect(entry({ paymentInstrument: null, feeAmount: 0 }).railLabel).toBe('現金');
+  });
+
+  it('扣款說明:刷卡 / TapPay 叫手續費,蝦皮叫蝦皮扣款;沖銷列帶負號;0 不印', () => {
+    expect(entry({ paymentInstrument: 'card_terminal', feeAmount: 77 }).feeLabel).toBe('手續費 77元');
+    expect(entry({ paymentInstrument: 'shopee', feeAmount: 884 }).feeLabel).toBe('蝦皮扣款 884元');
+    expect(entry({ paymentInstrument: 'shopee', feeAmount: -884, isReversal: true }).feeLabel).toBe('蝦皮扣款 -884元');
+    expect(entry({ rail: 'card', feeAmount: 77 }).feeLabel).toBe('手續費 77元');
+    expect(entry({ feeAmount: 0 }).feeLabel).toBeNull();
+  });
+
+  it('該扣卻缺費率 ⇒ 說出來,不畫成 0;現金缺值不印', () => {
+    expect(entry({ rail: 'card', feeAmount: null }).feeLabel).toBe('手續費未計算(缺費率)');
+    expect(entry({ feeAmount: null }).feeLabel).toBeNull();
+  });
+
+  it('刷卡 / 蝦皮進帳走現金軌 ⇒ 可以沖銷(蝦皮調整金額的更正路徑)', () => {
+    expect(entry({ paymentInstrument: 'shopee', feeAmount: 884 }).canReverseByRow).toBe(true);
+    expect(entry({ paymentInstrument: 'card_terminal', feeAmount: 77 }).canReverseByRow).toBe(true);
+  });
+});
