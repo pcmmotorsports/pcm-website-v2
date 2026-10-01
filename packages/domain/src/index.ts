@@ -21,6 +21,11 @@ export type * from './sync/types';
 export { FITMENT_STALE_DAYS, FITMENT_STALE_HOURS } from './sync/fitment-freshness';
 // 首頁新品大圖的版面規矩數字(字數 / 動畫時間 / 標題分層)—— storefront 與 admin 共用同一份。
 export { HOME_BANNER_TEXT_MAX, HOME_BANNER_MOTION_MS, HOME_BANNER_MAX_SLIDES, splitHomeBannerTitle } from './catalog/home-banner-rules';
+// 首頁大圖與 FB / IG 草稿的紅字檢查、新品貼文範本 —— 建草稿的程式與後台共用同一份(每日自動新品草稿, 2026-10-01)。
+export { checkSocialCopy, checkSocialCopyFields, checkBannerCopy, BANNER_BLOCKED_PATTERN } from './catalog/social-copy-rules';
+export type { SocialCopyIssue } from './catalog/social-copy-rules';
+export { buildNewProductPost, socialUtmUrl, utmCampaign } from './catalog/social-post-template';
+export type { NewProductPost, NewProductPostInput, SocialPlatform } from './catalog/social-post-template';
 // 經銷商申請表的欄位規則 —— 前台申請表與後台「新增經銷帳號」共用同一份(B2B 計畫 §9.9 片 D4a)。
 export { TAIWAN_REGIONS, EMPTY_DEALER_APPLY, NOTE_MAX, normalizeDealerApply, validateDealerApply } from './identity/dealer-apply-rules';
 export type { DealerApplyField, DealerApplyValues, DealerApplyFieldErrors, ValidateResult } from './identity/dealer-apply-rules';
