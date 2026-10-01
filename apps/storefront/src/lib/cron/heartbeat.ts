@@ -303,6 +303,14 @@ export function pingTarget(jobName: CronJobName): {
   }
 }
 
+/**
+ * 外部報到第一發的上限(毫秒)。成功的 ping 量過最慢 1,056ms(2026-09-22, 見 `HEARTBEAT_DB_MS` 上方),
+ * 2,000 留一倍餘裕;剩下的預算(成功訊號是 3,200 − 2,000 = 1,200)給重送那一發。
+ */
+export const PING_FIRST_ATTEMPT_MS = 2_000;
+/** 第一發失敗後, 剩下不到這麼多時間就不重送(送了也來不及回)。 */
+export const PING_RETRY_MIN_MS = 300;
+
 /** ping URL 只接受這個前綴。**env 是可以被改的東西,而這一行讓它改不成「叫我方伺服器去打任意網址」。** */
 const PING_URL_PREFIX = 'https://hc-ping.com/';
 
@@ -365,7 +373,22 @@ export async function pingExternalHeartbeat(
       console.error(`[heartbeat] ${jobName} 外部存活訊號:預算已用完,這一輪不送`);
       return;
     }
-    const res = await fetchImpl(pingUrlFor(url, opts), { method: 'GET', signal: AbortSignal.timeout(ms) });
+    // 🔴 2026-10-01 逾時重送一次(主視窗批):9 月 Healthchecks 斷線多數是「工作做完、這一發報到逾時」
+    //    (09-04、09-21 route 全回 200、db_result=ok, 只有這一發 TimeoutError)。
+    //    兩發吃【同一個】截止時刻:第一發最多 `PING_FIRST_ATTEMPT_MS`, 剩下的給重送 ⇒ 最壞仍是 `deadlineAt`。
+    const send = (timeoutMs: number) =>
+      fetchImpl(pingUrlFor(url, opts), { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+    let res: Response;
+    try {
+      res = await send(Math.min(ms, PING_FIRST_ATTEMPT_MS));
+    } catch (firstErr) {
+      const left = deadlineAt - Date.now();
+      if (left < PING_RETRY_MIN_MS) throw firstErr;
+      res = await send(left);
+      // 只印分類名(理由見下方 catch:錯誤物件可能夾帶 ping 網址)。
+      const kind = firstErr instanceof Error ? firstErr.name : typeof firstErr;
+      console.log(`[heartbeat] ${jobName} 外部存活訊號${kindLabel}第一發失敗(${kind}),重送一次`);
+    }
     // 🔴 **非 2xx 也要出聲** —— 否則「送出去了」與「送到一個 404」印同一個安靜。
     if (!res.ok) console.error(`[heartbeat] ${jobName} 外部存活訊號${kindLabel}回 ${res.status}`);
   } catch (err) {

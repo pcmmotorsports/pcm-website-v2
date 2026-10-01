@@ -884,3 +884,80 @@ describe('⟦b4-CRON60SDOGPILE⟧ 片 1 · 失敗訊號 /fail', () => {
     spy.mockRestore();
   }, 10_000);
 });
+
+// ══ 2026-10-01 逾時重送一次(主視窗批;Healthchecks 9 月斷線多數是「工作做完、報到逾時」)══
+describe('外部存活訊號 · 逾時重送一次', () => {
+  const ENV = 'HEALTHCHECKS_PING_URL_PCM_SETTLE_SWEEP';
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('[r1] 🔴 第一發失敗、第二發成功 ⇒ 送兩次,而且不印「送出失敗」', async () => {
+    vi.stubEnv(ENV, 'https://hc-ping.com/aaaa-bbbb');
+    const logs: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => {
+      logs.push(a.map(String).join(' '));
+    });
+    let n = 0;
+    const fake = (async () => {
+      n += 1;
+      if (n === 1) throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+      return { ok: true, status: 200 } as Response;
+    }) as unknown as typeof fetch;
+
+    await expect(pingExternalHeartbeat(CRON_JOB_NAME.settleSweep, Date.now() + 2000, fake)).resolves.toBeUndefined();
+    // 🔴 怎麼會紅:拿掉重送 ⇒ 只送 1 次, 而且會印「送出失敗(TimeoutError)」。
+    expect(n).toBe(2);
+    expect(logs.some((l) => l.includes('送出失敗'))).toBe(false);
+  });
+
+  it('[r2] 兩發都失敗 ⇒ 只印一行「送出失敗」、不拋', async () => {
+    vi.stubEnv(ENV, 'https://hc-ping.com/aaaa-bbbb');
+    const logs: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => {
+      logs.push(a.map(String).join(' '));
+    });
+    let n = 0;
+    const fake = (async () => {
+      n += 1;
+      throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    }) as unknown as typeof fetch;
+
+    await expect(pingExternalHeartbeat(CRON_JOB_NAME.settleSweep, Date.now() + 2000, fake)).resolves.toBeUndefined();
+    expect(n).toBe(2);
+    expect(logs.filter((l) => l.includes('送出失敗(TimeoutError)'))).toHaveLength(1);
+  });
+
+  it('[r3] 🔴 重送也吃同一個截止時刻:第二發掛著不回 ⇒ 預算到了就收掉', async () => {
+    vi.stubEnv(ENV, 'https://hc-ping.com/aaaa-bbbb');
+    let n = 0;
+    const fake = ((_u: unknown, init?: { signal?: AbortSignal }) => {
+      n += 1;
+      if (n === 1) return Promise.reject(new TypeError('fetch failed'));
+      return new Promise<Response>((_res, rej) => {
+        init?.signal?.addEventListener('abort', () => rej(new Error('AbortError')));
+      });
+    }) as unknown as typeof fetch;
+
+    const t0 = Date.now();
+    await expect(pingExternalHeartbeat(CRON_JOB_NAME.settleSweep, Date.now() + 500, fake)).resolves.toBeUndefined();
+    expect(n).toBe(2);
+    // 🔴 怎麼會紅:第二發另給一份完整預算 ⇒ 這裡超過 500ms + 餘裕。
+    expect(Date.now() - t0).toBeLessThan(500 + 300);
+  });
+
+  it('[r4] 剩下的時間不夠重送 ⇒ 不重送', async () => {
+    vi.stubEnv(ENV, 'https://hc-ping.com/aaaa-bbbb');
+    let n = 0;
+    const fake = ((_u: unknown, init?: { signal?: AbortSignal }) => {
+      n += 1;
+      return new Promise<Response>((_res, rej) => {
+        init?.signal?.addEventListener('abort', () => rej(new Error('AbortError')));
+      });
+    }) as unknown as typeof fetch;
+
+    await pingExternalHeartbeat(CRON_JOB_NAME.settleSweep, Date.now() + 150, fake);
+    expect(n).toBe(1);
+  });
+});
