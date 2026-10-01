@@ -137,6 +137,9 @@ export const CRON_JOB_WHITELIST = [
   //    (推算值, 沒有人拍過板, 可以改;計畫 ~/pcm-mailbox/計畫-Bing週報LINE-20260929.md 第 14 節第 7 點)。
   //    每週一 Sean 固定收到一則 LINE 週報, 沒收到本身就是比這個門檻更早的訊號。
   { jobName: 'pcm-bing-weekly', label: 'Bing 週報', schedule: '5 1 * * 1', staleMinutes: 14 * 24 * 60, wiredAt: '20260929040000(查法 bash scripts/is-migration-applied.sh 20260929040000)' },
+  // 每日自動新品草稿(Sean 2026-10-01 Q6 甲):每天台灣 09:05(UTC 01:05;錯開 09:00 那一輪異常告警)。門檻與其他每日排程同一把尺:連漏兩天才叫
+  //   (少一天的草稿不是急事);旗標關掉時 route 不寫心跳 ⇒ 這一格會亮, 那是對的:排程在跑而功能是關的。
+  { jobName: 'pcm-new-product-drafts', label: '每日新品草稿', schedule: '5 1 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '20261001130000(查法 bash scripts/is-migration-applied.sh 20261001130000)' },
 ] as const;
 
 /**

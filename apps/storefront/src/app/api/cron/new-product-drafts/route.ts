@@ -4,8 +4,11 @@
  *
  * ## 🔴 預設關
  * - `NEW_PRODUCT_DRAFTS_ENABLED` 不是 `on` ⇒ 200 + `skipped:'disabled'`, 什麼都不建。
- * - 正式網址(NEXT_PUBLIC_SITE_URL)沒設 ⇒ 200 + `skipped:'missing_site_url'`:連結組不出來就不建。
- * - 排程(pg_cron 每天 09:00 呼叫本 route)開旗標那天另外交(計畫片 6);在那之前沒有人會打這支。
+ * - 正式網址(NEXT_PUBLIC_SITE_URL)沒設 ⇒ 503 + `skipped:'missing_site_url'` + 失敗心跳:連結組不出來就不建(設定錯誤, 要看得到)。
+ * - 排程:pg_cron `pcm-new-product-drafts` 每天台灣 09:05 呼叫本 route(migration 20261001130000, 計畫片 6)。
+ *
+ * ## 心跳(後台排程健康頁讀)
+ * 跑完 ⇒ 成功;正式網址沒設或整輪失敗 ⇒ 失敗;旗標關 ⇒ 不寫(過期會亮, 讓人看得出「排程在跑而功能是關的」)。
  *
  * ## 認證與限流
  * 照 supplier-newproduct-drafts:`CRON_SECRET` Bearer + `timingSafeEqual`;env 未設 / 弱 ⇒ 500、
@@ -21,6 +24,7 @@
  */
 import { timingSafeEqual } from 'node:crypto';
 import { draftNewProductPosts } from '@pcm/use-cases';
+import { CRON_JOB_NAME, recordHeartbeatFailure, recordHeartbeatSuccess } from '@/lib/cron/heartbeat';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { getNewProductDraftDeps } from '@/lib/new-product-drafts/composition';
 import { resolveSiteUrl } from '@/lib/site-url';
@@ -64,16 +68,21 @@ export async function GET(request: Request): Promise<Response> {
   const siteUrl = resolveSiteUrl();
   if (!siteUrl) {
     console.warn('[new-product-drafts] 正式網址沒設 ⇒ 不建草稿', { reason: 'missing_site_url' });
-    return json({ ok: true, enabled: true, skipped: 'missing_site_url' }, 200);
+    await recordHeartbeatFailure(CRON_JOB_NAME.newProductDrafts);
+    return json({ ok: false, enabled: true, skipped: 'missing_site_url' }, 503);
   }
 
+  let result: Awaited<ReturnType<typeof draftNewProductPosts>>;
   try {
-    const result = await draftNewProductPosts(getNewProductDraftDeps(siteUrl));
-    console.info('[new-product-drafts] 一輪完成', result);
-    return json({ ok: true, enabled: true, ...result }, 200);
+    result = await draftNewProductPosts(getNewProductDraftDeps(siteUrl));
   } catch (error) {
     const code = (error as { code?: unknown } | null)?.code;
     console.error('[new-product-drafts] 🔴 整輪失敗', { code: typeof code === 'string' ? code : 'unknown' });
+    await recordHeartbeatFailure(CRON_JOB_NAME.newProductDrafts);
     return json({ ok: false, error: typeof code === 'string' ? code : 'unknown' }, 503);
   }
+  // 成功心跳放在 try 外(同 bing-weekly):心跳本身出事不能被當成「整輪失敗」
+  console.info('[new-product-drafts] 一輪完成', result);
+  await recordHeartbeatSuccess(CRON_JOB_NAME.newProductDrafts);
+  return json({ ok: true, enabled: true, ...result }, 200);
 }

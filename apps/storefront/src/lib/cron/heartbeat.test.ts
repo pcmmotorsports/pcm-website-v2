@@ -68,6 +68,8 @@ describe('CRON_JOB_NAME', () => {
       'pcm-expire-unpaid-orders',
       // 2026-09-29 Bing 週報(20260929040000)
       'pcm-bing-weekly',
+      // 2026-10-01 每日新品草稿(20261001130000)
+      'pcm-new-product-drafts',
     ]);
   });
 });
@@ -231,7 +233,9 @@ describe('外部存活訊號', () => {
     expect(
       Object.values(CRON_JOB_NAME)
         // Bing 週報也不接 healthchecks(每週通知本身就是存活訊號), 在下面另外驗。
-        .filter((n) => n !== CRON_JOB_NAME.expireUnpaidOrders && n !== CRON_JOB_NAME.bingWeekly)
+        // 每日新品草稿同樣不接(後台排程健康頁看心跳就夠), 下面另外驗。
+        .filter((n) => n !== CRON_JOB_NAME.expireUnpaidOrders && n !== CRON_JOB_NAME.bingWeekly
+          && n !== CRON_JOB_NAME.newProductDrafts)
         .map((n) => pingTarget(n).envName),
     ).toEqual([
       'HEALTHCHECKS_PING_URL_PCM_ANOMALY_ALERT',
@@ -959,5 +963,13 @@ describe('外部存活訊號 · 逾時重送一次', () => {
 
     await pingExternalHeartbeat(CRON_JOB_NAME.settleSweep, Date.now() + 150, fake);
     expect(n).toBe(1);
+  });
+});
+
+describe('每日新品草稿不接外部存活訊號(2026-10-01)', () => {
+  it('明文標「不適用」, 不是忘了設 env', () => {
+    expect(pingTarget(CRON_JOB_NAME.newProductDrafts)).toEqual({
+      envName: '(不適用:後台排程健康頁看心跳就夠)', url: undefined, notApplicable: true,
+    });
   });
 });
