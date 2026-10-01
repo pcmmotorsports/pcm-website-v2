@@ -4,11 +4,11 @@
 // 驗「render 不報錯 + hover 切換不報錯」。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { CartProvider } from '@/contexts/CartContext';
 import { ProductCard } from './ProductCard';
@@ -30,6 +30,15 @@ const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 const product = { ...MOCK_PRODUCTS[0]!, variantCount: 0 };
 
 afterEach(cleanup);
+
+// 2026-10-01 計畫甲:單一規格的卡片按「+ 加入購物車」會先問伺服器(`/api/catalog/quick-add`)。
+//   測試裡把 fetch 換成固定回「可以加, 規格 v-1」;伺服器那一端另有 app/api/catalog/quick-add/route.test.ts。
+const QUICK_ADD_VARIANT = 'v-1';
+const single = { ...MOCK_PRODUCTS[0]!, variantCount: 1 };
+function stubQuickAddServer() {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'add', variantId: QUICK_ADD_VARIANT }) })));
+}
+afterEach(() => vi.unstubAllGlobals());
 
 describe('ProductCard', () => {
   it('should render a product card without crashing', () => {
@@ -64,18 +73,19 @@ describe('ProductCard', () => {
   //    「收藏鈕點擊」那條沒傳 href、「href 存在」那條沒點按鈕 ⇒ 少了 `preventDefault` 也全綠。
   //    量的是 `defaultPrevented`(瀏覽器是否會執行 `<a>` 的 default action),
   //    不是「有沒有呼叫某個函式」—— 後者是形狀、前者才是行為。
-  // 🛑 skip:卡片直加那條路今天不可達(零變體不賣 ⇒ 沒有商品走得到)。理由全文見 product-card-quick-add.test.tsx 檔頭。
-  it.skip.each([
+  // 🔴 2026-10-01 計畫甲:加購那一列改用【單一規格】商品(零變體不賣, 它的鈕本來就該導頁)。
+  it.each([
     ['收藏', 'pcard-heart'],
     ['+ 加入購物車', 'pcard-quick-btn'],
-  ])('有 href 時點「%s」不得觸發外層 <a> 的原生導航(defaultPrevented)', (label, cls) => {
-    const { container } = render(<ProductCard p={product} href={`/products/${product.slug}`} />);
+  ])('有 href 時點「%s」不得觸發外層 <a> 的原生導航(defaultPrevented)', async (label, cls) => {
+    stubQuickAddServer();
+    const { container } = render(<ProductCard p={single} href={`/products/${single.slug}`} />);
     const btn = container.querySelector(`.${cls}`) as HTMLElement;
     expect(btn, `找不到 .${cls} ⇒ 本條前提失效`).not.toBeNull();
     // 前提:它真的在一顆 <a> 裡面,否則這條測的東西不存在。
     expect(btn.closest('a'), `.${cls} 不在 <a> 內 ⇒ 本條前提失效`).not.toBeNull();
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
-    btn.dispatchEvent(ev);
+    await act(async () => void btn.dispatchEvent(ev));
     expect(
       ev.defaultPrevented,
       `點「${label}」沒有 preventDefault ⇒ 會連帶跳去商品頁(stopPropagation 擋不掉 <a> 的 default action)`,
@@ -246,32 +256,31 @@ describe('ProductCard', () => {
   describe('N4:車上已達上限時,這顆鈕不准說「已加入」', () => {
     const CART_KEY = 'pcm-cart-mock-v2';
 
-    const clickQuickAdd = () => {
-      const { container } = render(<ProductCard p={product} />);
+    // 2026-10-01 計畫甲:改用單一規格商品, 點下去要等伺服器那一趟回來。
+    const clickQuickAdd = async () => {
+      stubQuickAddServer();
+      const { container } = render(<ProductCard p={single} />);
       const btn = container.querySelector('.pcard-quick-btn') as HTMLButtonElement;
-      fireEvent.click(btn);
+      await act(async () => void fireEvent.click(btn));
       return { container, btn };
     };
 
     afterEach(() => window.localStorage.clear());
 
-    // 🛑 skip:卡片直加那條路今天不可達(零變體不賣 ⇒ 沒有商品走得到)。理由全文見 product-card-quick-add.test.tsx 檔頭。
-    it.skip('車上已 99 → 鈕改說「已達上限」,而購物車一件都沒動', () => {
-      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
-      const { btn } = clickQuickAdd();
+    it('車上已 99 → 鈕改說「已達上限」,而購物車一件都沒動', async () => {
+      const line99 = { productId: single.slug, variantId: QUICK_ADD_VARIANT, qty: 99 };
+      window.localStorage.setItem(CART_KEY, JSON.stringify([line99]));
+      const { btn } = await clickQuickAdd();
       // ① 東西真的沒進去 —— 沒有這一格,「字面對」與「東西也對」分不開
-      expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
-        { productId: product.slug, qty: 99 },
-      ]);
+      expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([line99]);
       // ② 而鈕不准講「已加入」
       expect(btn.textContent).toBe('已達上限 99');
     });
 
-    // 🛑 skip:卡片直加那條路今天不可達(零變體不賣 ⇒ 沒有商品走得到)。理由全文見 product-card-quick-add.test.tsx 檔頭。
-    it.skip('對照組:車上是空的 → 鈕照舊說「✓ 已加入」(否則就是恆真的「已達上限」)', () => {
-      const { btn } = clickQuickAdd();
+    it('對照組:車上是空的 → 鈕照舊說「✓ 已加入」(否則就是恆真的「已達上限」)', async () => {
+      const { btn } = await clickQuickAdd();
       expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
-        { productId: product.slug, qty: 1 },
+        { productId: single.slug, variantId: QUICK_ADD_VARIANT, qty: 1 },
       ]);
       expect(btn.textContent).toBe('✓ 已加入');
     });
@@ -313,33 +322,21 @@ describe('🔴 SALE 角標:拿不到價格時不得編造一個折扣(Sean 2026-
   });
 });
 
-// ── 2026-09-05 線 `-front`:一格會紅的守門, 釘住那 12 格 `it.skip` 的【前提】 ─────────────
+// ── 2026-09-05 線 `-front`:一格會紅的守門, 釘住「零變體商品【不賣】」這個前提 ─────────────
 //
-// 🔴 **它守的不是行為, 是一個【拍板還成不成立】。**
-//    `apps/storefront/src/components/product-card-quick-add.test.tsx` 有 **10 格** `it.skip`
-//    (`:93 :188 :211 :223 :240 :248 :263 :280 :298 :324`), 本檔另有 **2 格**(`:249 :261`)
-//    ⇒ **合計 12 格**(數法:`grep -n '\bit\.skip('` 那兩支檔;🔵 `it.skipIf(...)` 是**另一族**
-//      —— 有條件跳過、有稿才跑, 不要跟這 12 格算在一起;而 `ProductCard.tsx:144` 那一處是**註解**)。
-//
-// 🛑 **那 12 格不是壞掉, 是【前提被拿走了】**:卡片「直接加進購物車」那條路**只服務零變體商品**,
-//    而 **Sean 2026-08-31 拍「一件沒有規格的商品【不賣】」**(板 `⟦b4-NOVARIANT1⟧`)⇒ 那條路關了。
-//
-// 🔴 **而【哪天他改口】, 沒有任何東西會把人指回那 12 格。**本格就是那個東西:
-//    前提若在碼裡被翻開(零變體又能直接加購), **這一格會紅, 而紅訊息逐字指回那 12 格與拍板。**
+// 🔴 **它守的不是行為, 是一個【拍板還成不成立】**:Sean 2026-08-31 拍「一件沒有規格的商品【不賣】」
+//    (板 `⟦b4-NOVARIANT1⟧`)⇒ 零變體卡片那顆鈕只能導頁、不能加購。
+// ⛔ ~~當年它同時指回 14 格 `it.skip`(卡片直加那條路對 0 個商品有效)~~
+//    ⇒ 2026-10-01 計畫甲讓卡片直加改服務【單一規格】商品, 那 14 格已照新前提重寫、不再 skip。
+//    零變體不賣這一條沒變 ⇒ 這兩格照舊守著。
 //
 // 🔵 **為什麼寫在【這支檔】而不是另開一支掃描型守門**:掃描型守門用 `readFileSync` 讀字串、
 //    **不 import 被測檔** ⇒ `vitest related` 的分母裡**結構上沒有它** ⇒ 改 `ProductCard.tsx` 的人
 //    不會跑到它(板 `⟦b9-NOCARRIER1⟧` 那一族的病)。本檔**已經 import `ProductCard`** ⇒ 進得了分母。
 describe('前提守門 · 零變體商品【不賣】(Sean 2026-08-31 拍板)', () => {
   const 指回 =
-    '這一格紅了 = 那個前提被翻開了 ⇒ 回去把那些 skip 解掉。' +
-    // 🔴 單位寫清楚, 否則下一個人會數出第四個數(2026-09-05 實測:同一批東西被數成 23 / 12 / 13)。
-    '分佈:product-card-quick-add.test.tsx 10 處(:93 :188 :211 :223 :240 :248 :263 :280 :298 :324)' +
-    ' + 本檔 :249 :261 兩處 + 本檔 :64 一處 it.skip.each(兩列)' +
-    ' ⇒ 【呼叫處 13】=【測項 14】。' +
-    '(數法要吃得下 .each:/\\b(?:it|test|describe)\\.skip(\\.each)?\\s*[([]/ ,並排掉註解行與非測試檔 —— ' +
-    '只寫 it.skip( 會漏掉 :64 那處、又會多抓 ProductCard.tsx:144 的註解與 10 處 it.skipIf)。' +
-    '它們的前提是板 ⟦b4-NOVARIANT1⟧ 與 Sean 2026-08-31「一件沒有規格的商品不賣」。';
+    '這一格紅了 = 零變體商品又能從卡片加購了 ⇒ 違反板 ⟦b4-NOVARIANT1⟧ 與 Sean 2026-08-31「一件沒有規格的商品不賣」。' +
+    '若是 Sean 改口, 先回去改 ProductCard.tsx 的 canQuickAdd 與 product-card-quick-add.test.tsx 的零規格那兩格。';
 
   it('🔴 零變體 ⇒ 鈕字面不是加購類(它不會加, 就不能那樣寫)', () => {
     render(<ProductCard p={{ ...MOCK_PRODUCTS[0]!, variantCount: 0 }} />);

@@ -13,12 +13,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { brandToSlug } from '@/data/mock-products';
 import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
+import type { QuickAddTarget } from '@/app/api/catalog/quick-add/route';
 import { Price } from './Price';
 import { cardFitsLine, formatCardFits } from '@/lib/product-card-fits';
 import { ProductImage } from './ProductImage';
@@ -34,6 +35,20 @@ import { ProductImage } from './ProductImage';
 //    它保留的是**公開出口的位置**:`ProductImage` 拆檔前就是從本檔 export 出去的具名符號,
 //    拿掉等於順手改了本檔的對外介面(那是行為變更、不是搬移)。⇒ 沿用 #341-B barrel 手法留著。
 export { ProductImage };
+
+/** 問伺服器這件能不能直接加(`app/api/catalog/quick-add/route.ts`)。回應不是預期的形狀 ⇒ 一律當「去商品頁」。 */
+async function fetchQuickAddTarget(slug: string): Promise<QuickAddTarget> {
+  // 8 秒等不到 ⇒ 丟錯 ⇒ 呼叫端當「去商品頁」(否則伺服器掛住時鈕會一直停在「加入中…」)。
+  const res = await fetch(`/api/catalog/quick-add?slug=${encodeURIComponent(slug)}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+  });
+  const body: unknown = res.ok ? await res.json() : null;
+  if (body && typeof body === 'object' && 'kind' in body && body.kind === 'add' && 'variantId' in body && typeof body.variantId === 'string') {
+    return { kind: 'add', variantId: body.variantId };
+  }
+  return { kind: 'page' };
+}
 
 export type ProductCardProps = {
   // 🔴 `CatalogCardProduct` = `MockProduct` 但 `price` 可為 `null`(卡片路徑拿不到價格)。
@@ -75,16 +90,17 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
     const t = setTimeout(() => setFeedback(null), 1500);
     return () => clearTimeout(t);
   }, [feedback]);
+  // 2026-10-01 計畫甲:按下去要等伺服器回「能不能直接加」。等待中鈕寫「加入中…」, 再按不會多問一次。
+  const [pending, setPending] = useState(false);
 
   /**
    * 快速加購(2026-08-08 接線;在此之前 onClick 只有 preventDefault+stopPropagation = 佔位空殼,
    * 五個掛載面的鈕全部按了沒反應——`/products` 商品目錄 / 首頁 rail / 品牌頁 / 會員中心推薦 / 相關商品)。
    *
    * 🔴 欄位形狀**逐字比照** `ProductPage.tsx` 的手機 sticky buybar:兩者同樣是「沒有數量 UI 的入口」
-   *   ⇒ 同樣 `qty: 1`、同樣 `variantId` 取自動選的第一個變體、同樣用 `readSearchVehicle()` 帶車款。
+   *   ⇒ 同樣 `qty: 1`、同樣帶規格編號、同樣用 `readSearchVehicle()` 帶車款。
    *   不另發明一套組法(全站第三份各寫各的加購邏輯 = 下次改契約時漏掉這裡)。
-   * Q1=A:多變體卡片直加取 `variants[0]`,與 PDP 一致——PDP 本來就在 mount 時自動選第一個變體
-   *   (`ProductPage.tsx:117-122`)、加購鈕永遠可點無 disabled(#161 業務拍板)⇒ 「未選規格」不是可達狀態。
+   * ⛔ ~~Q1=A:多變體卡片直加取 `variants[0]`~~(被下方 2026-08-08 中午拍板 A 取代:多規格導商品頁)。
    * 🔴 不送價(server 依 tier 取價、鐵則 12);車款名稱不齊 ⇒ 整欄不帶(零猜)。
    * `preventDefault` 擋外層 Link 的原生導航、`stopPropagation` 擋祖先 handler,兩個都要(既有行為不得回歸)。
    */
@@ -95,6 +111,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
   //   徽章 +1,進購物車卻沒那筆、還刪不掉 = **幽靈品項,比原本的沒反應更糟**。
   //   ⚠️ 判定只能看 `variantCount`,不能看 `variants.length`(後者在列表上恆為 0、分不出兩種情況)。
   //
+  // ⛔ 2026-10-01 起下面這段的結論被計畫甲取代(未知改由伺服器判斷);它擋的幽靈品項仍然成立, 留著當理由。
   // 🔴 **`undefined` 走「有規格」這一側,不是「沒規格」**(R2 must-fix,方向一開始寫反了)。
   //   `variantCount` 在 domain 是必填,但到了 UI 邊界是 optional —— 不是所有讀路徑都餵得到它:
   //   `/products` 商品目錄與品牌頁走 RPC `search_catalog_by_vehicle` → `catalog-page.ts` 的
@@ -102,58 +119,51 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
   //   若把未知當成「沒規格」而直加,幽靈品項會在**正是 Sean 點名的那一面**原封復發。
   //   兩種猜錯的代價不對稱:猜「有規格」最差只是多跳一次商品頁;猜「沒規格」會做出刪不掉的幽靈行。
   //   ⇒ 未知一律走安全側。等 RPC 帶回真值後,那兩面才會恢復卡片直加。
-  const hasVariants = p.variantCount !== 0;
-  // 🔴 鈕的字面是**三態**(主視窗 2026-08-08 裁定 F2),不是跟著 `hasVariants` 二分:
-  //   走 RPC 的兩面(`/products` 商品目錄、品牌頁)拿不到 `variantCount` ⇒ 恆 `undefined` ⇒
-  //   若一律寫「選擇規格」,零變體商品也會被這麼寫、點進去卻沒規格可選 = 字面小謊。
-  //   `undefined`(不知道)⇒「查看商品」,誠實描述這顆鈕實際會做的事(跳過去看)。
-  //   backlog #342 讓 RPC 帶回真值後,`undefined` 消失、字面自動歸位成另外兩態。
-  // 🔴🔴 **零變體那一態也要有字面, 否則那顆鈕【寫著它不會做的事】**
-  //    (板 `⟦b4-NOVARIANT1⟧`;2026-09-01 主視窗裁, 早報一行告知 Sean, 他有權推翻)。
-  //    ⛔ 原本零變體 ⇒ `null` ⇒ 鈕上 fallback 成「+ 加入購物車」——
-  //      而它現在【不會加入購物車】(見下方 quickAdd 那道)⇒ **那不是不好聽, 那是假的。**
-  // 🔵 而「查看商品」**不是新字面** —— 它已經是本元件 `variantCount === undefined` 那一態在用的
-  //    ⇒ 📌 **把既有字面用在多一種情況上, 而不是發明第六種說法。**
-  const quickLabel =
-    p.variantCount === undefined || p.variantCount === 0
-      ? '查看商品'
-      : hasVariants
-        ? '選擇規格'
-        : null;
+  // 🔴🔴 2026-10-01 計畫甲(Sean 批, 板 ⟦b4-QUICKADD-DEAD⟧):**只有一個規格 ⇒ 直接加入;多規格 ⇒ 導商品頁。**
+  //    ⛔ ~~有規格(含未知)一律導頁、只有零變體直加 ⇒ 而零變體不賣 ⇒ 這顆鈕對 0 個商品有效~~
+  //    卡片自己不知道唯一那個規格的編號(列表資料不帶;`/products` 與品牌頁連 `variantCount` 都沒有),
+  //    ⇒ 按下去才問伺服器(`fetchQuickAddTarget`):剛好一個規格而且有價格 ⇒ 回規格編號, 其他一律「去商品頁」。
+  //    🔴 卡片從不自己猜規格 —— 沒帶規格編號的那一行會被購物車丟掉(上面那段「幽靈品項」), 那條安全側沒有丟。
+  //    ⚠️ 判定只能看 `variantCount`,不能看 `variants.length`(後者在列表上恆為 0、分不出兩種情況)。
+  //    `undefined`(不知道)⇒ 也去問伺服器;0 ⇒ 不賣(⟦b4-NOVARIANT1⟧);≥2 ⇒ 不問, 直接讓外層 <Link> 導頁。
+  //    沒有價格 ⇒ 不能從卡片買(B2B 5d), 也直接導頁。
+  const canQuickAdd = p.price !== null && (p.variantCount === undefined || p.variantCount === 1);
+  // 鈕的字面跟著行為走(主視窗 2026-08-08 裁定 F2:正確性不是調性):
+  //   不會加購的寫它實際會做的事 ——「查看商品」(零規格 / 沒有價格)、「選擇規格」(多規格)。
+  //   ⛔ ~~`undefined` ⇒「查看商品」~~:2026-10-01 起未知也會加購(伺服器判斷), 所以寫「+ 加入購物車」。
+  const quickLabel = canQuickAdd ? null : p.price !== null && (p.variantCount ?? 0) >= 2 ? '選擇規格' : '查看商品';
 
-  const quickAdd = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
-    // 有規格 ⇒ **什麼都不做**:不 preventDefault、讓外層 <Link href> 自己導到商品頁(零導頁程式碼)。
-    // 三個呼叫點都傳 href(ProductsPage:399 / ProductRelated:105 / ProductRail:242-247);
-    // 型別上 href 可省略但實際不可達,那種情況會落到既有的 onClick 分支 —— 不猜一個變體加下去。
-    if (hasVariants) return;
-    if (p.price === null) return; // B2B 5d:沒有價格的商品不能從卡片加入購物車,讓它導到商品頁
-    // 🔴🔴 **零變體的也【什麼都不做】⇒ 讓它導到商品頁**(板 `⟦b4-NOVARIANT1⟧`;Sean 2026-08-31 拍「不賣」)。
-    //
-    // ⛔ ~~原本這裡就地把它加進購物車~~ —— 而一件沒有任何規格的商品**不能單獨買**
-    //    ⇒ 它會一路暢通到【填完卡號按下確認之後】才被退回(`useChargePayment.tsx:140`)。
-    // 🔵 **而這裡不自己顯示訊息, 是導到商品頁** —— 那句話只寫在一個地方(`ProductInfo` 的
-    //    `cannotBuyAloneNotice`)⇒ 📌 **兩個地方各寫一句, 遲早會變成兩種說法。**
-    // 🛑 而 `p.variantCount === undefined`(不知道有沒有規格)⇒ **不在這一道裡** ——
-    //    那一態的鈕字面是「查看商品」, 它本來就導頁;而把「不知道」當成「沒有」會擋掉正常商品。
-    if (p.variantCount === 0) return;
+  const quickAdd = async (e: MouseEvent<HTMLButtonElement>) => {
+    // 不能直加 ⇒ **什麼都不做**:不 preventDefault、讓外層 <Link href> 自己導到商品頁(零導頁程式碼)。
+    if (!canQuickAdd) return;
+    // `preventDefault` 擋外層 Link 的原生導航、`stopPropagation` 擋祖先 handler,兩個都要(既有行為不得回歸)。
     e.preventDefault();
     e.stopPropagation();
-    // 🛑🛑 **底下這一整段今天【不可達】, 而它是刻意留著的**(板 `⟦b4-NOVARIANT1⟧`)。
-    //    上面兩道 `return` 之後, **沒有任何 `variantCount` 值走得到這裡**:
-    //      有變體 ⇒ 第一道擋 · 未知 ⇒ 第一道也擋(`variantCount !== 0` 對 undefined 是 true)
-    //      零變體 ⇒ 第二道擋(Sean 2026-08-31 拍「不賣」)
-    //    ⇒ 📌 **「卡片直接加入購物車」這個功能, 今天對 0 個商品有效。**
-    // 🔵 **為什麼不刪**:它沒有被呼叫 ⇒ 留著的成本是零;而今晚已經兩次「不可達」被證明可達。
-    //    ⚠️ 而它的測試在 `product-card-quick-add.test.tsx` 裡是 `it.skip`(10 格, 理由寫在該檔檔頭)
-    //    ⇒ **若哪天要讓它服務【有規格】的商品, 那幾格要重寫不是重跑。**
+    if (pending) return;
+    // await 之後 `e.currentTarget` 會變成 null ⇒ 先把外層 <a> 記下來。
+    const anchor = e.currentTarget.closest('a');
+    setPending(true);
+    let target: QuickAddTarget;
+    try {
+      target = await fetchQuickAddTarget(p.slug);
+    } catch {
+      target = { kind: 'page' }; // 連不上伺服器 ⇒ 帶客人去商品頁, 那裡照樣買得到
+    } finally {
+      setPending(false);
+    }
+    if (target.kind === 'page') {
+      // 點外層那顆 <a>:它是 Next 的 <Link>, 走站內換頁(不整頁重載)。沒有 href 的卡片走 onClick(HomeSelect 用法)。
+      if (anchor) anchor.click();
+      else onClick?.();
+      return;
+    }
     const vehicle = readSearchVehicle();
-    // 🔴 **刻意不帶 `variantId`**:能走到這一行就代表 `variantCount === 0`(有規格的在上面已導頁),
-    //   line key 照契約退回 `productId`。原本這裡寫 `p.variants?.[0]?.id` —— 導頁分支落地後那是死碼
-    //   (到得了這裡就保證無變體),留著只會讓下一個人以為卡片有能力選變體、而它沒有。
-    // N4:`addItem` 回傳「因為上限被夾掉幾件」(算法住共用層 `CartContext`)——
-    //   卡片上沒有數量概念、也沒有放提示的位子,所以這件事**由鈕本身的字面講**。
+    // 🔴 欄位形狀逐字比照 `ProductPage.tsx` 的手機 sticky buybar(同樣是「沒有數量 UI 的入口」):
+    //    `qty: 1`、帶規格編號、用 `readSearchVehicle()` 帶車款。🔴 不送價(server 依 tier 取價、鐵則 12)。
+    // N4:`addItem` 回傳「因為上限被夾掉幾件」⇒ 卡片上沒有放提示的位子, 由鈕本身的字面講。
     const dropped = addItem({
       productId: p.slug,
+      variantId: target.variantId,
       qty: 1,
       ...(vehicle ? { vehicle } : {}),
     });
@@ -252,7 +262,9 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
                 ⚠️ `已達上限 ${MAX_QTY}` 是**新的客人可見字面**,目前是【工作字面】、待 Sean 定字
                    (它擠在一顆卡片按鈕裡,不是一整列 —— 挑字要知道這件事)。 */}
             {quickLabel ??
-              (feedback === null
+              (pending
+                ? '加入中…'
+                : feedback === null
                 ? '+ 加入購物車'
                 : feedback.dropped > 0
                   ? `已達上限 ${MAX_QTY}`
