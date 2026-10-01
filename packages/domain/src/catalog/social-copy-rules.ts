@@ -7,7 +7,7 @@
 
 export interface SocialCopyIssue {
   /** 機器用的分類 */
-  code: 'stock_promise' | 'legal_claim' | 'quality_promise' | 'warranty_not_maker';
+  code: 'stock_promise' | 'legal_claim' | 'quality_promise' | 'warranty_not_maker' | 'banner_blocked';
   /** 觸發的那幾個字 */
   word: string;
   /** 給員工看的說明:哪裡有問題、要怎麼改 */
@@ -96,4 +96,22 @@ export function checkSocialCopyFields(
   brandNames: ReadonlyArray<string> = [],
 ): SocialCopyIssue[] {
   return checkSocialCopy(fields.filter((f): f is string => !!f).join('\n'), brandNames);
+}
+
+/**
+ * 首頁大圖文字的禁用字 —— 與資料庫 admin_home_banner_publish 的檢查【逐字同一串】
+ * (migration 20261001120000;social-copy-rules.test.ts 會讀 migration 檔比對, 兩邊不一致就紅)。
+ * 大圖只是短標題 ⇒ 比 FB / IG 嚴:保固一律不寫, 「原廠提供」也不放行(R1 F1)。
+ */
+export const BANNER_BLOCKED_PATTERN = '現貨|到貨|庫存|合法上路|免登記|品質保證|保固|保修';
+
+/** 首頁大圖的眉標、標題、副標、按鈕字;後台要用這支, 不可用 FB / IG 那套(那套會放行原廠保固, 資料庫不會)。 */
+export function checkBannerCopy(fields: ReadonlyArray<string | null | undefined>): SocialCopyIssue[] {
+  const text = fields.filter((f): f is string => !!f).join(' ');
+  const words = [...new Set(text.match(new RegExp(BANNER_BLOCKED_PATTERN, 'g')) ?? [])];
+  return words.map((word) => ({
+    code: 'banner_blocked' as const,
+    word,
+    message: `大圖文字出現「${word}」：首頁大圖不寫庫存、法規結論、品質保證或保固，請改字。`,
+  }));
 }

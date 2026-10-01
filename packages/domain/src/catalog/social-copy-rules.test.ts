@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { checkSocialCopy, checkSocialCopyFields } from './social-copy-rules';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { BANNER_BLOCKED_PATTERN, checkBannerCopy, checkSocialCopy, checkSocialCopyFields } from './social-copy-rules';
 
 const codes = (t: string) => checkSocialCopy(t).map((i) => `${i.code}:${i.word}`);
 
@@ -69,5 +71,21 @@ describe('checkSocialCopy', () => {
 
   it('多個欄位一起檢查, 空欄位略過', () => {
     expect(checkSocialCopyFields([null, '新品', undefined, '現貨供應']).map((i) => i.word)).toEqual(['現貨']);
+  });
+});
+
+describe('checkBannerCopy(首頁大圖, 比 FB / IG 嚴)', () => {
+  it('原廠提供的保固在大圖上也紅', () => {
+    expect(checkBannerCopy(['拉桿護弓', '原廠提供兩年保固']).map((i) => i.word)).toEqual(['保固']);
+  });
+  it('乾淨的大圖不紅', () => {
+    expect(checkBannerCopy(['Materya', '拉桿護弓', null, '看商品'])).toEqual([]);
+  });
+  it('🔴 與資料庫發布檢查同一串禁用字(讀 migration 檔比對)', () => {
+    const sql = readFileSync(
+      fileURLToPath(new URL('../../../../supabase/migrations/20261001120000_m4b_home_banner_new_product_drafts.sql', import.meta.url)),
+      'utf8',
+    );
+    expect(sql).toContain(`~ '${BANNER_BLOCKED_PATTERN}'`);
   });
 });
