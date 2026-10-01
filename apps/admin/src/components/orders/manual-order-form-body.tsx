@@ -7,7 +7,6 @@ import {
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
   MANUAL_ORDER_INVOICE_TITLE_FIELD,
   MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
-  MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD,
   MANUAL_ORDER_INVOICE_TYPE_FIELD,
   MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
@@ -27,6 +26,7 @@ import type { ManualOrderContainer } from '@/lib/orders/manual-order-action-stat
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
 import { ManualOrderTierSelect } from './manual-order-tier-select';
+import { ManualOrderNotificationEmail } from './manual-order-notification-email';
 import { ManualOrderVehicleField } from './manual-order-vehicle-field';
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
@@ -183,16 +183,8 @@ export function ManualOrderFormBody({
                   🔬 而那正是 R3(換角度)抓到的:我先寫了解析與測試, 而**這一格漏了** ——
                      三綠全綠、555 測項 0 紅, 因為**每一支 fixture 都自己補了那一格**。
                      ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
-              <label className={MANUAL_FIELD_LABEL}>
-                <span className='mb-1 block'>通知 email(留白 = 不寄)</span>
-                <input
-                  type='email'
-                  autoComplete='off'
-                  name={MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD}
-                  placeholder='email'
-                  className={MANUAL_FIELD_INPUT}
-                />
-              </label>
+              {/* 2026-10-01:搬成一支小 client 元件 —— 選「蝦皮」時清空並鎖住(貼板 260, Sean Q16 甲)。 */}
+              <ManualOrderNotificationEmail />
               {/* 🆕 #956 乙(Sean 2026-09-14 拍;圖 956-B-一格.png):車輛一格, 左欄最底(圖上在通知 email 下面)。
                   留白 = 沒填(合法, RPC 第 13 參 DEFAULT NULL)。 */}
               <ManualOrderVehicleField />
