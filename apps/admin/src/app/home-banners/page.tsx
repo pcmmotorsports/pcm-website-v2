@@ -18,6 +18,7 @@ import {
   type HomeBannerRow,
   type HomeBannerTab,
 } from '../../lib/home-banners/home-banner-view';
+import { bannerSourceLabel } from '../../lib/home-banners/home-banner-social';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +35,10 @@ function single(v: string | string[] | undefined): string | undefined {
 
 function TitleCell({ row, href }: { row: HomeBannerRow; href: string }) {
   const title = [row.titleLine1, row.titleLine2].filter(Boolean).join('');
-  const sub = [row.eyebrow, row.imageKind === 'product' ? '白底商品照' : null].filter(Boolean).join(' · ');
+  // 每日自動新品草稿(2026-10-01):系統建的草稿標來源, 手動新增的不標
+  const source = bannerSourceLabel(row);
+  const sub = [row.eyebrow, row.imageKind === 'product' ? '白底商品照' : null, source === '手動新增' ? null : source]
+    .filter(Boolean).join(' · ');
   return (
     <td>
       <Link href={href} className='t1'>{title || '(沒有標題)'}</Link>

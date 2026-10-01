@@ -22,6 +22,8 @@ export const HB_FIELD = {
   rightsNote: 'rights_note',
   starts: 'starts_at',
   ends: 'ends_at',
+  fbText: 'fb_text',
+  igText: 'ig_text',
   view: 'view',
   /** 選檔上傳用的欄位(片 B/C)。有檔就用檔、沒檔就用上面那格貼的網址。 */
   imgDesktopFile: 'image_desktop_file',
@@ -110,6 +112,9 @@ export type HomeBannerResultCode =
   | 'toobig'
   | 'badtype'
   | 'uploadfail'
+  | 'socialsaved'
+  | 'redflag'
+  | 'archivedlocked'
   | 'error';
 
 export const HOME_BANNER_RESULT_MESSAGES = {
@@ -130,7 +135,8 @@ export const HOME_BANNER_RESULT_MESSAGES = {
   // 🔴 Sean 09-16 Q5 乙 + 主視窗「發得出去要收得回來」⇒ 三個動作都是在職員工都能做 ⇒ 到這裡幾乎一定是登入失效
   denied: { text: '沒有權限,或登入已失效,請重新登入再試一次。', tone: 'error' },
   invalid: { text: '有欄位格式不對(連結要是站內路徑、圖片要 https、字數不能超過),沒有存進去。', tone: 'warn' },
-  stale: { text: '草稿剛被改過,請看過最新內容再發布。', tone: 'warn' },
+  // 存 FB / IG 文字也會更新草稿時間 ⇒ 兩種都要講到, 免得員工以為大圖內容被動過
+  stale: { text: '草稿或 FB / IG 文字剛被存過,請看過最新內容再發布。', tone: 'warn' },
   rights: { text: '還沒勾「我確認這家廠商的圖與文字可以用」,不能發布。', tone: 'warn' },
   incomplete: { text: '缺標題第一行、連結或桌機圖,不能發布。', tone: 'warn' },
   // 🔴 這兩句對應 20260916180000 的兩道發布閘。鈕平常就擋著 ⇒ 會走到這裡的是繞過或競態那一發,
@@ -144,6 +150,12 @@ export const HOME_BANNER_RESULT_MESSAGES = {
   toobig: { text: '這張圖太大(超過 5 MB),請縮小之後再傳一次。其他欄位沒有存進去。', tone: 'warn' },
   badtype: { text: '這個檔不是 JPG / PNG / WebP 圖片。⚠️ 我們看的是檔案內容不是副檔名 —— 把別的檔改名成 .jpg 一樣不會過。其他欄位沒有存進去。', tone: 'warn' },
   uploadfail: { text: '圖片上傳失敗,其他欄位沒有存進去。請重新整理再試一次。', tone: 'error' },
+  // ── FB / IG 文字與紅字(每日自動新品草稿, 20261001120000)──────────────
+  socialsaved: { text: 'FB / IG 文字已儲存。', tone: 'ok' },
+  // 發布鈕平常就會擋著;走到這裡的是繞過畫面或競態 ⇒ 說「規則不合」, 不說系統出錯
+  redflag: { text: '大圖文字有不能寫的字(現貨、到貨、庫存、合法上路、免登記、品質保證、保固、保修),不能發布。請改字、存草稿後再發布。', tone: 'warn' },
+  // ⚠️ 不叫他「複製一張來改」:複製(20260916250000)不帶 FB / IG 文字, 複製出來的會是空的
+  archivedlocked: { text: '這張已經封存,不能改 FB / IG 文字。', tone: 'warn' },
   error: { text: '系統出錯,沒有完成。請重新整理確認之後再試。', tone: 'error' },
 } as const satisfies Record<HomeBannerResultCode, SettingsResultMessages[string]>;
 
@@ -190,3 +202,6 @@ export function publishKeepsLiveHint(liveCount: number): string | null {
   if (liveCount < 1) return null;
   return `⚠️ 首頁現在掛著 ${liveCount} 張,按發布不會自動收掉舊的。要收起來,到列表點開要收的那一張,按它的「下架」。`;
 }
+
+/** FB / IG 文字的長度上限(資料庫 home_banners_fb_text_check / ig_text_check;IG 貼文上限)。 */
+export const HB_SOCIAL_MAX = 2200;

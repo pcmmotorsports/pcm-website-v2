@@ -30,13 +30,20 @@ const COLUMNS =
   'id, status, eyebrow, title_line1, title_line2, subtitle, cta_label, link_path, image_desktop_url, image_mobile_url, ' +
   'image_kind, rights_confirmed, rights_note, starts_at, ends_at, created_by, updated_by, published_by, archived_at, updated_at, ' +
   // 🔴 Sean 09-16 Q6 乙:信件來的草稿要配到商品才准發 ⇒ 頁面要看得到這兩欄才畫得出「為什麼不能發布」
-  'source_email_id, matched_variant_ids';
+  'source_email_id, matched_variant_ids, source_product_id, fb_text, ig_text, ' +
+  // 每日新品草稿的品牌名:home_banners → products(來源商品)→ brands
+  'source_product:products!home_banners_source_product_id_fkey(brand:brands!products_brand_id_fkey(name))';
 
 const STATUSES: readonly HomeBannerStatus[] = ['draft', 'published', 'archived'];
 const KINDS: readonly HomeBannerKind[] = ['scene', 'product'];
 
 function str(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
+}
+
+function brandNameOf(sp: unknown): string | null {
+  const brand = (sp as { brand?: { name?: unknown } | null } | null)?.brand;
+  return typeof brand?.name === 'string' && brand.name.trim() !== '' ? brand.name : null;
 }
 
 function toRow(raw: unknown): HomeBannerRow {
@@ -68,6 +75,10 @@ function toRow(raw: unknown): HomeBannerRow {
     archivedAt: str(r.archived_at),
     sourceEmailId: str(r.source_email_id),
     matchedVariantIds: Array.isArray(r.matched_variant_ids) ? r.matched_variant_ids.filter((v): v is string => typeof v === 'string') : [],
+    sourceProductId: str(r.source_product_id),
+    fbText: str(r.fb_text),
+    igText: str(r.ig_text),
+    sourceBrandName: brandNameOf(r.source_product),
     // 🔴 原字串原樣留著:發布時送回 p_expected_updated_at,DB 比到微秒
     updatedAt: r.updated_at,
   };
@@ -161,4 +172,23 @@ export async function archiveHomeBanner(args: { id: string } & HomeBannerAudit):
   const changed = (data as { changed?: unknown } | null)?.changed;
   if (typeof changed !== 'boolean') throw new Error('admin_home_banner_archive 回傳形狀不對');
   return { changed };
+}
+
+/**
+ * FB / IG 文字存檔(20261001120000 admin_home_banner_save_social)。草稿與已發布都可以改, 已封存不行;
+ * 空字串存成 NULL。回傳新的 updated_at —— 發布要帶它(頁面重新讀取後會拿到同一個值)。
+ */
+export async function saveHomeBannerSocial(
+  args: { id: string; fbText: string; igText: string } & HomeBannerAudit,
+): Promise<string> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_home_banner_save_social', {
+    p_banner_id: args.id,
+    p_fb_text: args.fbText,
+    p_ig_text: args.igText,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) throw error;
+  if (typeof data !== 'string') throw new Error('admin_home_banner_save_social 沒回 updated_at');
+  return data;
 }

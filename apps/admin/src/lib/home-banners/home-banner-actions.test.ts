@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   archiveHomeBanner: vi.fn(),
   uploadBannerImage: vi.fn(),
   duplicateHomeBanner: vi.fn(),
+  saveHomeBannerSocial: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
 }));
@@ -25,10 +26,17 @@ vi.mock('./home-banner-repository', () => ({
   publishHomeBanner: mocks.publishHomeBanner,
   archiveHomeBanner: mocks.archiveHomeBanner,
   duplicateHomeBanner: mocks.duplicateHomeBanner,
+  saveHomeBannerSocial: mocks.saveHomeBannerSocial,
 }));
 
 // 解析器不 mock:餵真 FormData 走真解析器。
-import { archiveHomeBannerAction, duplicateHomeBannerAction, publishHomeBannerAction, saveHomeBannerDraftAction } from './home-banner-actions';
+import {
+  archiveHomeBannerAction,
+  duplicateHomeBannerAction,
+  publishHomeBannerAction,
+  saveHomeBannerDraftAction,
+  saveHomeBannerSocialAction,
+} from './home-banner-actions';
 import { HB_FIELD } from './home-banner-constants';
 
 const ID = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
@@ -81,6 +89,8 @@ describe('publishHomeBannerAction', () => {
     ['連結要指到商品列表或商品頁(/products…),不能發布', 'linkscope'],
     ['下架時間已經過了', 'window'],
     ['無權執行此操作', 'denied'],
+    // 20261001120000:大圖紅字(繞過畫面或競態才會走到這裡)
+    ['大圖文字有不能寫的字(現貨、到貨、庫存、合法上路、免登記、品質保證、保固、保修),請改字再發布', 'redflag'],
   ])('DB 說「%s」⇒ r=%s', async (message, code) => {
     mocks.publishHomeBanner.mockRejectedValue({ code: 'P0001', message });
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -231,5 +241,41 @@ describe('複製成新草稿(板 20260916250000)', () => {
     const url = await urlOf(duplicateHomeBannerAction(formOf({})));
     expect(url.searchParams.get('r')).toBe('invalid');
     expect(mocks.duplicateHomeBanner).not.toHaveBeenCalled();
+  });
+});
+
+describe('saveHomeBannerSocialAction(FB / IG 文字, 20261001120000)', () => {
+  it('存檔成功 ⇒ r=socialsaved, 帶在職員工與兩段文字', async () => {
+    mocks.saveHomeBannerSocial.mockResolvedValue('2026-10-01T00:00:00.000001+00:00');
+    const url = await urlOf(saveHomeBannerSocialAction(formOf({ [HB_FIELD.id]: ID, [HB_FIELD.fbText]: 'FB 文', [HB_FIELD.igText]: '' })));
+    expect(url.searchParams.get('r')).toBe('socialsaved');
+    expect(url.searchParams.get('edit')).toBe(ID);
+    expect(mocks.saveHomeBannerSocial).toHaveBeenCalledWith(expect.objectContaining({ id: ID, fbText: 'FB 文', igText: '' }));
+  });
+
+  it('封存的大圖 ⇒ r=archivedlocked', async () => {
+    mocks.saveHomeBannerSocial.mockRejectedValue({ code: 'P0001', message: '已封存的大圖不能改 FB / IG 文字' });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const url = await urlOf(saveHomeBannerSocialAction(formOf({ [HB_FIELD.id]: ID, [HB_FIELD.fbText]: 'a', [HB_FIELD.igText]: 'b' })));
+    expect(url.searchParams.get('r')).toBe('archivedlocked');
+  });
+
+  it('文字超過 2200 字 ⇒ invalid, RPC 零呼叫', async () => {
+    const url = await urlOf(saveHomeBannerSocialAction(formOf({ [HB_FIELD.id]: ID, [HB_FIELD.fbText]: 'x'.repeat(2201), [HB_FIELD.igText]: '' })));
+    expect(url.searchParams.get('r')).toBe('invalid');
+    expect(mocks.saveHomeBannerSocial).not.toHaveBeenCalled();
+  });
+
+  it('缺 IG 欄位 ⇒ invalid, RPC 零呼叫', async () => {
+    const url = await urlOf(saveHomeBannerSocialAction(formOf({ [HB_FIELD.id]: ID, [HB_FIELD.fbText]: 'a' })));
+    expect(url.searchParams.get('r')).toBe('invalid');
+    expect(mocks.saveHomeBannerSocial).not.toHaveBeenCalled();
+  });
+
+  it('沒登入 ⇒ denied, RPC 零呼叫', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
+    const url = await urlOf(saveHomeBannerSocialAction(formOf({ [HB_FIELD.id]: ID, [HB_FIELD.fbText]: 'a', [HB_FIELD.igText]: 'b' })));
+    expect(url.searchParams.get('r')).toBe('denied');
+    expect(mocks.saveHomeBannerSocial).not.toHaveBeenCalled();
   });
 });
