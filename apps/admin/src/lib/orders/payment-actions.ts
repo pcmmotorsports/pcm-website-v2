@@ -135,6 +135,7 @@ export async function recordManualPaymentAction(
         ? {
             rail: 'cash',
             instrument: parsed.instrument,
+            shopeePayout: parsed.shopeePayout,
             orderId,
             requestId: parsed.requestId,
             actor: authorization.actorId,

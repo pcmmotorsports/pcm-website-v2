@@ -18,6 +18,8 @@ export const PAY_AMOUNT_FIELD = 'amount';
 export const PAY_RECEIVED_DATE_FIELD = 'received_date';
 export const PAY_BANK_REFERENCE_FIELD = 'bank_reference';
 export const PAY_PAYER_NOTE_FIELD = 'payer_note';
+/** 蝦皮進帳金額(抄蝦皮頁面上的「預估訂單進帳」;報價單Q1 2026-10-01)。只有蝦皮單有這一欄。 */
+export const PAY_SHOPEE_PAYOUT_FIELD = 'shopee_payout';
 /**
  * 一次性冪等鍵(RPC 參數型別是 **uuid**,不是 text)。
  *
@@ -86,9 +88,10 @@ export type PaymentRail = (typeof PAYMENT_RAILS)[number];
  * 🔴 **刷卡不是第三條軌**:送出時仍是 `rail = 'cash'`(當面收款那條路), 另帶付款標記 `card_terminal`
  *    (主視窗技術決定甲:沿用現金那條路的所有規則)。表單的 `rail` 欄位送的是這裡的值,
  *    `parsePaymentForm` 把 `card_terminal` 拆回 `rail = 'cash'` + 標記。
- * 蝦皮進帳不在這裡:蝦皮單在建單時就把進帳一起登記(Sean:選蝦皮來源才出現進帳欄)。
+ * `shopee` = 蝦皮進帳:只有蝦皮單用、蝦皮單也只能用它(DB 擋)。建單時通常已一起登記;
+ *   這裡是給「蝦皮調整金額 ⇒ 沖銷後重新登記」那條路(Sean Q47 甲)。同樣走現金軌 + 標記。
  */
-export const PAYMENT_METHODS = ['bank_transfer', 'cash', 'card_terminal'] as const;
+export const PAYMENT_METHODS = ['bank_transfer', 'cash', 'card_terminal', 'shopee'] as const;
 export type PaymentMethodChoice = (typeof PAYMENT_METHODS)[number];
 
 export type PaymentFailureCode =
@@ -255,6 +258,7 @@ export type PaymentFormValues = {
   receivedDate: string;
   bankReference: string;
   payerNote: string;
+  shopeePayout: string;
   /** 🔴 印章上半(冪等鍵)—— 失敗重送必須沿用同一把,見上。 */
   requestId: string;
   /** 🔴 印章下半(現金軌時點)—— 與上半同生共死,拆開送會讓 G8 認不出來。 */
@@ -267,6 +271,7 @@ export const EMPTY_PAYMENT_VALUES: PaymentFormValues = {
   receivedDate: '',
   bankReference: '',
   payerNote: '',
+  shopeePayout: '',
   requestId: '',
   cashReceivedAt: '',
 };

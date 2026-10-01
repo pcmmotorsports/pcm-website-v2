@@ -56,7 +56,7 @@ echo "世界:套上 $APPLIED_N 支、套不上 $SKIP_N 支(排程 / storage / �
 echo "── 前置:收款相關函式與正式庫 2026-10-01 相同 ──"
 cell "admin_record_manual_payment 本體" "$(Q "select md5(prosrc) from pg_proc where proname='admin_record_manual_payment'")" "be85108ca0b8296531f25246083491c8"
 cell "admin_record_manual_refund 本體" "$(Q "select md5(prosrc) from pg_proc where proname='admin_record_manual_refund'")" "71ac9c1313a3d41fcb0c92eeaf1cbcb1"
-cell "admin_create_manual_order 本體" "$(Q "select md5(prosrc) from pg_proc where proname='admin_create_manual_order'")" "6bc6cc31718f023045ca7cb765f178c2"
+cell "admin_create_manual_order 本體" "$(Q "select md5(prosrc) from pg_proc where proname='admin_create_manual_order'")" "8e1005fa67086c1e0ecca8216312e9f3"
 cell "pcm_noncard_settle_recompute 本體" "$(Q "select md5(prosrc) from pg_proc where proname='pcm_noncard_settle_recompute'")" "b9878df98a4000844024aedfb8b907c1"
 [ "$FAIL" = 0 ] || { echo "ENV-FAIL:世界和正式庫對不上, 下面的結果不算數"; exit 3; }
 
@@ -152,6 +152,14 @@ cell "蝦皮單總額 7900" "$(total_of "$O5")" "7900"
 cell "蝦皮進帳 7016 登記成功" "$(pay s1 "$O5" "$(uuid)" cash 7900 "'shopee'" 7016)" "OK"
 cell "手續費 = 7900 − 7016 = 884" "$(fee_of "$O5")" "884"
 cell "蝦皮單已收齊(不出現未收 884)" "$(status_of "$O5")" "paid"
+# Sean Q47 甲:蝦皮調整金額 ⇒ 沖銷原進帳、重新登記一筆
+PIDS="$(Q "select id from public.order_payments where order_id = '$O5'")"
+Q "select public.admin_reverse_manual_payment('$PIDS', 'probe_q1', '蝦皮調整金額')" >/dev/null
+cell "沖銷蝦皮進帳:手續費 −884、標記照抄" "$(Q "select fee_amount || '/' || payment_instrument from public.order_payments where reverses_payment_id = '$PIDS'")" "-884/shopee"
+cell "重新登記進帳 7100 成功" "$(pay s1b "$O5" "$(uuid)" cash 7900 "'shopee'" 7100)" "OK"
+cell "重新登記後的手續費 800" "$(fee_of "$O5")" "800"
+cell "這張單淨收 7100(7016 − 7016 + 7100)" "$(Q "select sum(amount - fee_amount) from public.order_payments where order_id = '$O5'")" "7100"
+cell "重新登記後仍是已收齊" "$(status_of "$O5")" "paid"
 O6="$(Q "select public.zz_order(7700, 200, 'shopee')")"
 cell "蝦皮單登記一般現金 ⇒ 拒" "$(pay s2 "$O6" "$(uuid)" cash 7900 NULL NULL)" "P0001"
 cell "蝦皮進帳大於金額 ⇒ 拒" "$(pay s3 "$O6" "$(uuid)" cash 7900 "'shopee'" 8000)" "P0001"

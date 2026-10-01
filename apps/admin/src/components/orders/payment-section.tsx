@@ -33,7 +33,10 @@ export function PaymentSection({
   cancelAdjusted = false,
   openPendingRefund = null,
   formInitialValues,
+  shopeeOrder = false,
 }: {
+  /** 純轉傳 `PaymentRecordForm.shopeeOrder`(蝦皮單 ⇒ 方式只有「蝦皮進帳」)。 */
+  shopeeOrder?: boolean;
   /** 純轉傳 `PaymentRecordForm.initialValues`(列表收款彈窗從匯款對帳小工具進來時才有)。 */
   formInitialValues?: { amount: string; bankReference: string };
   /** 純轉傳 `PaymentList.cancelAdjusted`。 */
@@ -94,6 +97,7 @@ export function PaymentSection({
           noteSlot={noteSlot}
           historySlot={historySlot}
           initialValues={formInitialValues}
+          shopeeOrder={shopeeOrder}
         />
       )}
     >
@@ -110,6 +114,7 @@ export function PaymentSection({
         detailsReadable={payments.status === 'ok'}
         defaultOpen={formDefaultOpen}
         cancelSlot={cancelSlot}
+        shopeeOrder={shopeeOrder}
       />
     </PaymentList>
   );

@@ -10,6 +10,7 @@ import {
   PAY_BANK_REFERENCE_FIELD,
   PAY_ORDER_ID_FIELD,
   PAY_PAYER_NOTE_FIELD,
+  PAY_SHOPEE_PAYOUT_FIELD,
   PAY_RAIL_FIELD,
   PAY_RECEIVED_DATE_FIELD,
   paymentStampFields,
@@ -40,6 +41,7 @@ type EditableValues = {
   receivedDate: string;
   bankReference: string;
   payerNote: string;
+  shopeePayout: string;
 };
 
 const EMPTY_EDITABLE: EditableValues = {
@@ -48,11 +50,16 @@ const EMPTY_EDITABLE: EditableValues = {
   receivedDate: '',
   bankReference: '',
   payerNote: '',
+  shopeePayout: '',
 };
 
 /** 帶回來的 `rail` 是任意字串(可能來自偽造 payload)⇒ 不認得就落回預設,不讓它污染受控狀態。 */
-function coerceRail(value: string): PaymentMethodChoice {
-  return (PAYMENT_METHODS as readonly string[]).includes(value) ? (value as PaymentMethodChoice) : 'bank_transfer';
+// 蝦皮單只能登「蝦皮進帳」、其他單不能登蝦皮進帳(DB 兩邊都擋;畫面只給合法的選項)。
+const SHOPEE_METHODS: readonly PaymentMethodChoice[] = ['shopee'];
+const NORMAL_METHODS = PAYMENT_METHODS.filter((m) => m !== 'shopee');
+
+function coerceRail(value: string, methods: readonly PaymentMethodChoice[]): PaymentMethodChoice {
+  return (methods as readonly string[]).includes(value) ? (value as PaymentMethodChoice) : methods[0]!;
 }
 
 // 刷卡 = 店內刷卡機;送出時走現金那條路 + 標記(`payment-action-state.ts` PAYMENT_METHODS)。
@@ -60,6 +67,7 @@ const RAIL_LABEL: Record<PaymentMethodChoice, string> = {
   bank_transfer: '銀行匯款',
   cash: '現金',
   card_terminal: '刷卡',
+  shopee: '蝦皮進帳',
 };
 
 /**
@@ -93,7 +101,10 @@ export function PaymentRecordForm({
   noteSlot,
   historySlot,
   initialValues,
+  shopeeOrder = false,
 }: {
+  /** 這張是蝦皮單(`order_source = 'manual_shopee'`)⇒ 方式只有「蝦皮進帳」。 */
+  shopeeOrder?: boolean;
   orderId: string;
   /**
    * 匯款對帳小工具帶進來的金額與末五碼(`?pay=…&match_amt=…&match_ref=…`);只在掛載那一次當初值。
@@ -147,8 +158,10 @@ export function PaymentRecordForm({
     recordManualPaymentAction,
     { status: 'idle' },
   );
+  const methods = shopeeOrder ? SHOPEE_METHODS : NORMAL_METHODS;
+  const emptyEditable: EditableValues = { ...EMPTY_EDITABLE, rail: methods[0]! };
   const [values, setValues] = useState<EditableValues>(
-    initialValues ? { ...EMPTY_EDITABLE, ...initialValues } : EMPTY_EDITABLE,
+    initialValues ? { ...emptyEditable, ...initialValues } : emptyEditable,
   );
   /** 🔴 員工按「開始下一筆」時**釘住**當下這組 server 章(不是清空)—— 見 `activeStamp`。 */
   const [pinnedStamp, setPinnedStamp] = useState<PaymentFormStamp | null>(null);
@@ -178,11 +191,12 @@ export function PaymentRecordForm({
   useEffect(() => {
     if (state.status !== 'failed') return;
     setValues({
-      rail: coerceRail(state.values.rail),
+      rail: coerceRail(state.values.rail, methods),
       amount: state.values.amount,
       receivedDate: state.values.receivedDate,
       bankReference: state.values.bankReference,
       payerNote: state.values.payerNote,
+      shopeePayout: state.values.shopeePayout,
     });
   }, [state]);
 
@@ -233,14 +247,14 @@ export function PaymentRecordForm({
   function startNextPayment() {
     setPinnedStamp(stamp); // ① 釘住當下這組 server 章 ⇒ 之後 revalidate 換再多次都不影響
     setDismissedState(state); // ② 舊失敗態失去供章與顯示資格
-    setValues(EMPTY_EDITABLE); // ③ 清空可編輯欄位
+    setValues(emptyEditable); // ③ 清空可編輯欄位
     // ④ 🔴 **重新武裝確認閘**:按這顆鈕**不是**全新掛載,不顯式重設的話,
     //    上一筆勾的那一格會延用到下一筆 —— 而下一筆正是最需要他再去對一次明細的時候。
     setConfirmed(false);
   }
 
   // 刷卡與現金同一條路:沒有日期欄、沒有單號,時間採開表單那一刻。
-  const isCash = values.rail === 'cash' || values.rail === 'card_terminal';
+  const isCash = values.rail !== 'bank_transfer';
   const submitDisabled = isPending || !detailsReadable || !confirmed;
 
   /**
@@ -266,7 +280,7 @@ export function PaymentRecordForm({
 
       {variant === 'dialog' ? null : (
       <div className='mb-3 flex flex-wrap gap-3'>
-        {PAYMENT_METHODS.map((rail) => (
+        {methods.map((rail) => (
           <label key={rail} className='flex items-center gap-1.5 text-sm'>
             <input
               type='radio'
@@ -289,9 +303,9 @@ export function PaymentRecordForm({
               className={ADMIN_INPUT_CLASS}
               name={PAY_RAIL_FIELD}
               value={values.rail}
-              onChange={(e) => setValues((v) => ({ ...v, rail: coerceRail(e.target.value) }))}
+              onChange={(e) => setValues((v) => ({ ...v, rail: coerceRail(e.target.value, methods) }))}
             >
-              {PAYMENT_METHODS.map((rail) => (
+              {methods.map((rail) => (
                 <option key={rail} value={rail}>{RAIL_LABEL[rail]}</option>
               ))}
             </select>
@@ -395,6 +409,22 @@ export function PaymentRecordForm({
           </>
         )}
 
+        {values.rail === 'shopee' && (
+          <AdminFormField label='蝦皮進帳金額(新臺幣元)'>
+            <input
+              className={ADMIN_INPUT_CLASS}
+              name={PAY_SHOPEE_PAYOUT_FIELD}
+              inputMode='numeric'
+              autoComplete='off'
+              value={values.shopeePayout}
+              onChange={(e) => setValues((v) => ({ ...v, shopeePayout: e.target.value }))}
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              抄蝦皮頁面上的「預估訂單進帳」。金額欄填訂單金額，兩者的差額記為蝦皮扣款。
+            </p>
+          </AdminFormField>
+        )}
+
         <AdminFormField label='備註(選填)'>
           <input
             className={ADMIN_INPUT_CLASS}
@@ -410,8 +440,9 @@ export function PaymentRecordForm({
           這個值 FormData 偽造得掉,把它講成可信來源就是把追不到人的時點講成有人負責。 */}
       {isCash && (
         <p className='text-muted-foreground mt-3 text-xs'>
-          {values.rail === 'card_terminal' ? '刷卡' : '現金'}收款時間採用<strong>開啟表單的時間</strong>，不會隨送出時間更新。
+          {values.rail === 'shopee' ? '蝦皮進帳' : `${RAIL_LABEL[values.rail]}收款`}時間採用<strong>開啟表單的時間</strong>，不會隨送出時間更新。
           {values.rail === 'card_terminal' ? '系統會依刷卡手續費率自動扣除手續費，營業額以扣除後的金額計算。' : null}
+          {values.rail === 'shopee' ? '蝦皮調整金額時，到收款明細沖銷後重新登記。' : null}
         </p>
       )}
 

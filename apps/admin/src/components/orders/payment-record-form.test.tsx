@@ -193,6 +193,25 @@ describe('兩軌的欄位不同(不是同一組欄位有些留空)', () => {
     expect(container.textContent).toContain('自動扣除手續費');
   });
 
+  it('一般單:沒有「蝦皮進帳」選項', () => {
+    const { container } = renderForm();
+    expect(container.querySelector('input[name="rail"][value="shopee"]')).toBeNull();
+    expect(container.querySelector('input[name="shopee_payout"]')).toBeNull();
+  });
+
+  it('蝦皮單:方式只有「蝦皮進帳」,有進帳金額欄與沖銷說明,沒有日期與單號欄', () => {
+    const { container } = renderForm({ shopeeOrder: true });
+    const rails = [...container.querySelectorAll<HTMLInputElement>('input[name="rail"]')].map((r) => r.value);
+    expect(rails).toEqual(['shopee']);
+    fireEvent.change(container.querySelector('input[name="shopee_payout"]')!, { target: { value: '7016' } });
+    expect(payload(container).getAll('rail')).toEqual(['shopee']);
+    expect(payload(container).getAll('shopee_payout')).toEqual(['7016']);
+    expect(container.querySelector('input[name="received_date"]')).toBeNull();
+    expect(container.querySelector('input[name="bank_reference"]')).toBeNull();
+    expect(container.textContent).toContain('預估訂單進帳');
+    expect(container.textContent).toContain('蝦皮調整金額時，到收款明細沖銷後重新登記。');
+  });
+
   it('匯款軌:銀行入帳日與單號兩欄都在', () => {
     const { container } = renderForm();
     expect(container.querySelector('input[name="received_date"]')).not.toBeNull();
@@ -257,6 +276,7 @@ describe('文案紅線(plan v4 §4a)', () => {
         receivedDate: '2026-08-12',
         bankReference: 'CTBC-1',
         payerNote: '',
+        shopeePayout: '',
         requestId: STAMP.requestId,
         cashReceivedAt: STAMP.cashReceivedAt,
       }),
@@ -347,6 +367,7 @@ async function buttonLabelAfterFailure(
     receivedDate: '2026-08-12',
     bankReference: 'CTBC-1',
     payerNote: '',
+    shopeePayout: '',
     requestId: STAMP.requestId,
     cashReceivedAt: STAMP.cashReceivedAt,
   };

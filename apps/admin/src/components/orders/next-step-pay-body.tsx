@@ -126,6 +126,8 @@ export async function NextStepPayBody({
         // 這個彈窗整個就是為了這張表單開的 ⇒ 一進來就攤開,不用再點一次「新增收款」。
         formDefaultOpen
         formInitialValues={prefill ?? undefined}
+        // 明細讀不到 ⇒ 當一般單;蝦皮單選一般方式會被 RPC 擋下(不會記錯)。
+        shopeeOrder={detailSettled.status === 'fulfilled' && detailSettled.value?.orderSource === 'manual_shopee'}
         // 稿的 [取消][確認] 同一排:取消鈕進表單那一排、殼的 footer 收掉(page 端 `inlineCancel`)。
         cancelSlot={<NextStepCancelButton />}
       />

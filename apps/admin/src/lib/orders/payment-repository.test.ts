@@ -204,6 +204,13 @@ describe('🔴 送出去的 args(DEFAULT NULL 的鍵要整個省掉,不是送 nu
     expect(Object.keys(cashArgs)).not.toContain('p_payment_instrument');
   });
 
+  it('蝦皮進帳:帶 p_payment_instrument=shopee 與 p_shopee_payout', async () => {
+    const rpc = makeClient({ data: OK, error: null });
+    await recordManualPayment({ ...CASH_ARGS, amount: 7900, instrument: 'shopee', shopeePayout: 7016 });
+    const [, args] = rpc.mock.calls[0] as [string, Record<string, unknown>];
+    expect(args).toMatchObject({ p_rail: 'cash', p_amount: 7900, p_payment_instrument: 'shopee', p_shopee_payout: 7016 });
+  });
+
   // 🔴 「匯款軌單號留空」那一格**已經刪掉**(關卡2 codex MF2 折面):
   //    型別收緊成 `bankReference: string` 之後,那個輸入**編譯不過**
   //    (實測:改回傳 null 會噴 TS2322)⇒ 留著它就是在測一個構造不出來的輸入。
