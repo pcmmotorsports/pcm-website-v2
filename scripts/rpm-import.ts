@@ -135,6 +135,8 @@ import {
   printReconcileReport,
   computeVariantOrphans,
   fetchHardDeletedSkus,
+  fetchHiddenInSourceSkus,
+  logVariantDeleteSnapshot,
   readTargetVariants,
   applyVariantDelete,
   printVariantOrphanReport,
@@ -1016,6 +1018,8 @@ async function main(): Promise<void> {
   //   真正刪除在 products upsert 後、variants upsert 前(見寫入段;改名同 spec 先清舊列免 23505=F3)。
   // 2026-09-29:報價單刪除紀錄 = 明確刪除證據(讀不到 ⇒ 空集合、不照紀錄刪, 見 fetchHardDeletedSkus)
   const hardDeletedSkus = await fetchHardDeletedSkus(source, config.supplierSlug);
+  // 2026-10-02:報價單「不在網站顯示」(hidden_from_store)= 明確刪除證據(讀不到 ⇒ 空集合、不照這個證據刪)
+  const hiddenInSourceSkus = await fetchHiddenInSourceSkus(source, config.supplierSlug);
   const variantOrphans = await computeVariantOrphans(
     target,
     config.supplierSlug,
@@ -1024,6 +1028,7 @@ async function main(): Promise<void> {
     {
       allowLargeDelist: ALLOW_LARGE_DELIST,
       hardDeleted: hardDeletedSkus,
+      hiddenInSource: hiddenInSourceSkus,
       // Fable R1 F1:刪除紀錄那一路也只收這一輪會寫的群(variantsByExternalId 已扣掉被跳過的群)
       writableExternalIds: new Set(variantsByExternalId.keys()),
       // 只收這一輪真的會寫的群:被標題閘 / 排除名單跳過的群仍在 sourceExternalIds 裡,
@@ -1035,7 +1040,8 @@ async function main(): Promise<void> {
   if (variantOrphans.hardDeleteCapped) {
     // 🔴 照報價單刪除紀錄要刪的超過該家 5% ⇒ 這一輪一個都不照紀錄刪;非零退出讓 cron 看得到(同 A2 的做法)
     console.error(
-      `🔴 [rpm-import] ${config.supplierSlug}:照報價單刪除紀錄要刪 ${variantOrphans.hardDeleteEvidence} 個規格,` +
+      `🔴 [rpm-import] ${config.supplierSlug}:照報價單刪除紀錄要刪 ${variantOrphans.hardDeleteEvidence} 個、` +
+        `照「不在網站顯示」要刪 ${variantOrphans.hiddenEvidence ?? 0} 個規格,` +
         `超過該家 5%(共 ${variantOrphans.supplierVariantCount} 個)⇒ 這一輪停手不刪, 請人工確認報價單是不是真的刪了這麼多。`,
     );
     process.exitCode = 1;
@@ -1317,6 +1323,17 @@ async function main(): Promise<void> {
 
   // ── V1 一般群孤兒變體硬刪(variants upsert 前)──
   //   ⚠️ 一般群仍是既有非交易行為；hazard 群 orphan 已排除，由 RPC 內同交易刪除。
+  // 2026-10-02:刪之前把【這一輪真的會刪】的每個規格印一行完整快照, 留在同步紀錄裡(R1 建議 3):
+  //   一般群 = regularOrphanSkus;hazard 群 = 沒被扣留的 atomicGroups 的 orphanSkus;
+  //   A2 整個變體同步跳過時 variantWork 是空的 ⇒ 不印, 免得紀錄看起來刪了而其實沒刪。
+  {
+    const skippedHazardIds = new Set(skippedHazardGroups);
+    const willDelete = [
+      ...variantWork.regularOrphanSkus,
+      ...variantWork.atomicGroups.filter((g) => !skippedHazardIds.has(g.externalId)).flatMap((g) => g.orphanSkus),
+    ];
+    if (willDelete.length) await logVariantDeleteSnapshot(target, config.supplierSlug, willDelete);
+  }
   if (variantWork.regularOrphanSkus.length) {
     const deleted = await applyVariantDelete(target, config.supplierSlug, variantWork.regularOrphanSkus);
     console.log(`[rpm-import] 孤兒變體硬刪:${deleted} 列(scope ${config.supplierSlug};order_items FK SET NULL、歷史不破)`);

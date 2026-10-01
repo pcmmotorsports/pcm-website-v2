@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { classifyVariantOrphans, fetchHardDeletedSkus, orphansToDeleteFor, hazardGroupsToSkip, computeSourceMissing, markSourceMissing, clearSourceMissing, printVariantOrphanReport, formatWithheldOrphans, type VariantOrphan, type VariantOrphanReport } from './rpm-reconcile';
+import { classifyVariantOrphans, fetchHardDeletedSkus, fetchHiddenInSourceSkus, logVariantDeleteSnapshot, orphansToDeleteFor, hazardGroupsToSkip, computeSourceMissing, markSourceMissing, clearSourceMissing, printVariantOrphanReport, formatWithheldOrphans, type VariantOrphan, type VariantOrphanReport } from './rpm-reconcile';
 
 const tv = (sku: string, externalId: string): VariantOrphan => ({ sku, externalId });
 
@@ -712,5 +712,83 @@ describe('fetchHardDeletedSkus(讀報價單 product_hard_delete_audit)', () => {
     expect((await fetchHardDeletedSkus(client, 'dbk')).size).toBe(0);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+// ── 2026-10-02 Sean 批准方向:報價單「不在網站顯示」(hidden_from_store)的規格 = 明確證據, 照刪 ──
+//   起因 RSM6C 黑色:報價單設成不在網站顯示 ⇒ 整列從 view 消失 ⇒ 網站分不出「被隱藏」與「漏抓」⇒ 永遠扣留、客人買得到。
+//   跟刪除紀錄共用同一個 5% 上限(兩種證據加總)。
+describe('報價單不在網站顯示的孤兒照刪, 跟刪除紀錄共用 5% 上限', () => {
+  const family = Array.from({ length: 100 }, (_, i) => tv(`H-${i}`, `HG-${i}`));
+  const srcIds = new Set(family.map((v) => v.externalId));
+  const without = (...gone: string[]) => new Set(family.filter((v) => !gone.includes(v.sku)).map((v) => v.sku));
+
+  it('報價單標了不在網站顯示的照刪, 其他孤兒仍扣留', () => {
+    const r = classifyVariantOrphans(family, without('H-1', 'H-2'), srcIds, { hiddenInSource: new Set(['H-1']) });
+    expect(orphansToDeleteFor(r).map((o) => o.sku)).toEqual(['H-1']);
+    expect(r.withheldOrphans.map((o) => o.sku)).toEqual(['H-2']);
+    expect(r.hiddenEvidence).toBe(1);
+  });
+
+  it('這一輪不寫的群(被閘跳過)不照這個證據刪', () => {
+    const r = classifyVariantOrphans(family, without('H-1'), srcIds, {
+      hiddenInSource: new Set(['H-1']),
+      writableExternalIds: new Set(['HG-2']),
+    });
+    expect(orphansToDeleteFor(r)).toEqual([]);
+  });
+
+  it('🔴 兩種證據加總超過 5%(3 + 3 = 6/100)⇒ 一個都不照證據刪、標停手', () => {
+    const SYNCED = '2026-09-13T10:00:00Z';
+    const fam = family.map((v) => ({ ...v, updatedAt: SYNCED }));
+    const del = new Map(['H-1', 'H-2', 'H-3'].map((s) => [s, Date.parse('2026-09-14T05:00:00Z')] as const));
+    const r = classifyVariantOrphans(fam, without('H-1', 'H-2', 'H-3', 'H-4', 'H-5', 'H-6'), srcIds, {
+      hardDeleted: del,
+      hiddenInSource: new Set(['H-4', 'H-5', 'H-6']),
+    });
+    expect(r.hardDeleteCapped).toBe(true);
+    expect(orphansToDeleteFor(r)).toEqual([]);
+  });
+
+  it('還在 view 裡的規格(不是孤兒)就算報價單有標也不刪', () => {
+    const r = classifyVariantOrphans(family, without(), srcIds, { hiddenInSource: new Set(['H-1']) });
+    expect(orphansToDeleteFor(r)).toEqual([]);
+  });
+
+  it('比例閘中止 ⇒ 不照這個證據刪', () => {
+    const r = classifyVariantOrphans(family, new Set(), srcIds, { hiddenInSource: new Set(['H-1']) });
+    expect(r.aborted).toBe(true);
+    expect(r.tombstonedOrphans ?? []).toEqual([]);
+  });
+});
+
+describe('fetchHiddenInSourceSkus', () => {
+  it('讀報價單這一家 hidden_from_store=true 的料號;讀失敗 ⇒ 空集合(不照這個證據刪)', async () => {
+    const pages: Array<{ data: unknown; error: unknown }> = [{ data: [{ sku: 'RSM6CNER' }, { sku: '' }], error: null }];
+    const calls: Record<string, unknown[]> = {};
+    const q: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'order']) q[m] = (...a: unknown[]) => ((calls[m] = a), q);
+    q.range = () => Promise.resolve(pages.shift() ?? { data: [], error: null });
+    const ok = await fetchHiddenInSourceSkus({ from: () => q } as unknown as SupabaseClient, 'lightech');
+    expect([...ok]).toEqual(['RSM6CNER']);
+    const bad = { from: () => ({ ...q, range: () => Promise.resolve({ data: null, error: { message: 'boom' } }) }) } as unknown as SupabaseClient;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try { expect((await fetchHiddenInSourceSkus(bad, 'lightech')).size).toBe(0); } finally { err.mockRestore(); }
+  });
+});
+
+describe('logVariantDeleteSnapshot', () => {
+  it('刪除前把每個規格的完整內容印成一行 JSON(留在同步紀錄裡)', async () => {
+    const rows = [{ id: 'v1', sku: 'RSM6CNER', spec: { color: '亮黑色' }, price_general: 290, products: { external_id: 'RSM6C' } }];
+    const q: Record<string, unknown> = {};
+    for (const m of ['select', 'eq']) q[m] = () => q;
+    q.in = () => Promise.resolve({ data: rows, error: null });
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((s: unknown) => void lines.push(String(s)));
+    try {
+      const n = await logVariantDeleteSnapshot({ from: () => q } as unknown as SupabaseClient, 'lightech', ['RSM6CNER']);
+      expect(n).toBe(1);
+    } finally { log.mockRestore(); }
+    expect(lines.join('\n')).toMatch(/刪除前快照.*"sku":"RSM6CNER".*"external_id":"RSM6C"/);
   });
 });

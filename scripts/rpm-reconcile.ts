@@ -567,8 +567,11 @@ export interface VariantOrphanReport {
   tombstonedOrphans?: VariantOrphan[];
   /** 2026-09-29:照報價單刪除紀錄(product_hard_delete_audit)該刪的孤兒數量;不論有沒有被停手。 */
   hardDeleteEvidence?: number;
-  /** 2026-09-29:照刪除紀錄要刪的超過該家 5% ⇒ 這一輪一個都不照紀錄刪(只照舊刪標停產的), 呼叫端要讓 cron 叫。 */
+  /** 2026-09-29:照刪除紀錄要刪的超過該家 5% ⇒ 這一輪一個都不照紀錄刪(只照舊刪標停產的), 呼叫端要讓 cron 叫。
+   *  2026-10-02 起「報價單不在網站顯示」的證據一起算進這個 5%。 */
   hardDeleteCapped?: boolean;
+  /** 2026-10-02:照報價單「不在網站顯示」(hidden_from_store)該刪的孤兒數量;不論有沒有被停手。 */
+  hiddenEvidence?: number;
   /** 這一家網站上的規格總數(5% 上限的分母)。 */
   supplierVariantCount?: number;
 }
@@ -592,6 +595,8 @@ export function classifyVariantOrphans(
     hardDeleted?: ReadonlyMap<string, number>;
     /** 這一輪真的會寫的群。被標題閘 / 排除名單跳過的群不在裡面, 它的規格不照刪除紀錄刪。不給 = 範圍內全部。 */
     writableExternalIds?: ReadonlySet<string>;
+    /** 報價單這一家設成「不在網站顯示」(hidden_from_store=true)的料號 = 明確刪除證據(2026-10-02)。 */
+    hiddenInSource?: ReadonlySet<string>;
     /** 現在時間(毫秒), 測試用;不給 = Date.now()。 */
     now?: number;
   } = {},
@@ -669,9 +674,24 @@ export function classifyVariantOrphans(
           (opts.writableExternalIds?.has(o.externalId) ?? true) &&
           hasFreshDeleteRecord(o),
       );
+  // 🆕 2026-10-02(Sean 批准方向;起因 RSM6C 黑色):報價單把某個規格設成「不在網站顯示」⇒ 整列退出 view ⇒
+  //   網站分不出「被隱藏」與「漏抓」⇒ 永遠扣留、客人照樣買得到。報價單那一列明確標了 hidden_from_store ⇒ 跟刪除紀錄
+  //   同級的明確證據, 照刪。同樣只收這一輪會寫的群(F1), 而且跟刪除紀錄【一起】算 5% 上限。
+  //   整群都隱藏的不會走到這裡:那一群不在 sourceExternalIds ⇒ 不在 inScope(交給商品層)。
+  const hardDeletedKeys = new Set(hardDeletedOrphans.map(tombKey));
+  const hiddenOrphans = aborted
+    ? []
+    : orphans.filter(
+        (o) =>
+          !tombKeys.has(tombKey(o)) &&
+          !hardDeletedKeys.has(tombKey(o)) &&
+          (opts.writableExternalIds?.has(o.externalId) ?? true) &&
+          (opts.hiddenInSource?.has(o.sku) ?? false),
+      );
+  const evidenceOrphans = [...hardDeletedOrphans, ...hiddenOrphans];
   const hardDeleteCapped =
-    targetVariants.length > 0 && hardDeletedOrphans.length / targetVariants.length > HARD_DELETE_RATIO_CAP;
-  const tombstonedOrphans = hardDeleteCapped ? viewTombstoned : [...viewTombstoned, ...hardDeletedOrphans];
+    targetVariants.length > 0 && evidenceOrphans.length / targetVariants.length > HARD_DELETE_RATIO_CAP;
+  const tombstonedOrphans = hardDeleteCapped ? viewTombstoned : [...viewTombstoned, ...evidenceOrphans];
   const deletable = new Set(tombstonedOrphans.map(tombKey));
   const withheldOrphans = withhold ? orphans.filter((o) => !deletable.has(tombKey(o))) : [];
 
@@ -688,6 +708,7 @@ export function classifyVariantOrphans(
     tombstonedOrphans,
     hardDeleteEvidence: hardDeletedOrphans.length,
     hardDeleteCapped,
+    hiddenEvidence: hiddenOrphans.length,
     supplierVariantCount: targetVariants.length,
   };
 }
@@ -707,6 +728,7 @@ export async function computeVariantOrphans(
     tombstoned?: readonly VariantOrphan[];
     hardDeleted?: ReadonlyMap<string, number>;
     writableExternalIds?: ReadonlySet<string>;
+    hiddenInSource?: ReadonlySet<string>;
   } = {},
 ): Promise<VariantOrphanReport> {
   const targetVariants = await readTargetVariants(tgt, supplierSlug);
@@ -742,6 +764,31 @@ export async function fetchHardDeletedSkus(source: SupabaseClient, supplierSlug:
   return skus;
 }
 
+/**
+ * 2026-10-02:讀報價單這一家設成「不在網站顯示」(hidden_from_store=true)的料號 = 明確刪除證據。
+ * 讀失敗 ⇒ 印錯誤、回空集合(這一輪不照這個證據刪, 同 fetchHardDeletedSkus 的寧可少刪)。
+ */
+export async function fetchHiddenInSourceSkus(source: SupabaseClient, supplierSlug: string): Promise<Set<string>> {
+  const skus = new Set<string>();
+  for (let from = 0; ; from += READ_BATCH) {
+    const { data, error } = await source
+      .from('products')
+      .select('sku')
+      .eq('supplier_slug', supplierSlug) // 🔴 scope 該供應商
+      .eq('hidden_from_store', true)
+      .order('sku')
+      .range(from, from + READ_BATCH - 1);
+    if (error) {
+      console.error(`[rpm-import] 🔴 讀不到報價單「不在網站顯示」清單(${supplierSlug})⇒ 這一輪不照這個證據刪任何孤兒:${error.message}`);
+      return new Set();
+    }
+    const rows = (data ?? []) as { sku: unknown }[];
+    for (const r of rows) if (typeof r.sku === 'string' && r.sku !== '') skus.add(r.sku);
+    if (rows.length < READ_BATCH) break;
+  }
+  return skus;
+}
+
 /** 讀 target 該供應商全部變體(sku + 所屬群 external_id)。讀失敗一律 throw,不當成「沒有」。 */
 export async function readTargetVariants(tgt: SupabaseClient, supplierSlug: string): Promise<VariantOrphan[]> {
   const targetVariants: VariantOrphan[] = [];
@@ -761,6 +808,31 @@ export async function readTargetVariants(tgt: SupabaseClient, supplierSlug: stri
     if (rows.length < READ_BATCH) break;
   }
   return targetVariants;
+}
+
+/**
+ * 2026-10-02:刪規格前把每一列的完整內容印成一行 JSON(留在同步紀錄 / GitHub Actions log 裡)。
+ * 網站沒有專門記錄「刪除規格」的表(加表要改 schema), 這一行就是事後查得到的紀錄。讀失敗只印錯誤、不擋刪除。
+ */
+export async function logVariantDeleteSnapshot(tgt: SupabaseClient, supplierSlug: string, skus: string[]): Promise<number> {
+  let n = 0;
+  for (let i = 0; i < skus.length; i += WRITE_BATCH) {
+    const batch = skus.slice(i, i + WRITE_BATCH);
+    const { data, error } = await tgt
+      .from('product_variants')
+      .select('id, sku, spec, price_general, sale_price_general, availability, products!inner(external_id)') // 不印 price_store(經銷價)
+      .eq('supplier_slug', supplierSlug)
+      .in('sku', batch);
+    if (error) {
+      console.error(`[rpm-import] 🔴 刪除前快照讀不到(${supplierSlug}):${error.message}`);
+      continue;
+    }
+    for (const row of data ?? []) {
+      console.log(`[rpm-import] 刪除前快照 ${supplierSlug} ${JSON.stringify(row)}`);
+      n++;
+    }
+  }
+  return n;
 }
 
 /**
