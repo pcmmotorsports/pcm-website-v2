@@ -184,11 +184,16 @@ export function NoteComposeForm({
   // 🔴 2026-09-27:改在【render 當下】做(React「依上一次的值調整 state」寫法), 不再用 useEffect。
   //    useEffect 版:失敗訊息與表單 reset 在同一次 commit, 重掛在【下一次】commit ⇒ 兩次之間畫面上是
   //    「內部備註、沒勾」而 hidden note_type 是 customer_notified(note-compose-form.reset.test.tsx [R7], useEffect 版 3/3 紅)。
-  //    送出當下的型別改存 state(render 期不讀 ref);初值 null ⇒ 掛載時若已是失敗態也照原 effect 跑一次。
+  //    送出當下的型別改存 state(render 期不讀 ref)。
+  // 🔴 2026-10-01:`seen` 的初值必須是【掛載當下那一組】, 不能是 null。
+  //    server 端的 useActionState 每次渲染都回傳我們傳進去的初值物件(每次渲染新做一個)
+  //    ⇒ 初值 null 會讓「掛載就 setSeen」, 重畫時 state 又是新物件 ⇒ 再 setSeen ⇒ server 渲染
+  //    「Too many re-renders」、該次請求 500(note-compose-form.ssr.test.tsx)。
+  //    掛載時就算已是失敗態也不必重掛:submittedType 還是 null、key 本來就是新的。
   const [resultSeq, setResultSeq] = useState(0);
   const [submittedType, setSubmittedType] = useState<NoteType | null>(null);
-  const [seen, setSeen] = useState<{ state: NoteActionState; pending: boolean } | null>(null);
-  if (seen === null || seen.state !== state || seen.pending !== isPending) {
+  const [seen, setSeen] = useState(() => ({ state, pending: isPending }));
+  if (seen.state !== state || seen.pending !== isPending) {
     setSeen({ state, pending: isPending });
     if (!isPending && state.status === 'failed') {
       setResultSeq((n) => n + 1);
