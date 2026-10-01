@@ -1815,7 +1815,9 @@ export type Database = {
           cta_label: string | null
           ends_at: string | null
           eyebrow: string | null
+          fb_text: string | null
           id: string
+          ig_text: string | null
           image_desktop_url: string | null
           image_kind: string
           image_mobile_url: string | null
@@ -1827,6 +1829,7 @@ export type Database = {
           rights_confirmed: boolean
           rights_note: string | null
           source_email_id: string | null
+          source_product_id: string | null
           starts_at: string | null
           status: string
           subtitle: string | null
@@ -1843,7 +1846,9 @@ export type Database = {
           cta_label?: string | null
           ends_at?: string | null
           eyebrow?: string | null
+          fb_text?: string | null
           id?: string
+          ig_text?: string | null
           image_desktop_url?: string | null
           image_kind?: string
           image_mobile_url?: string | null
@@ -1855,6 +1860,7 @@ export type Database = {
           rights_confirmed?: boolean
           rights_note?: string | null
           source_email_id?: string | null
+          source_product_id?: string | null
           starts_at?: string | null
           status?: string
           subtitle?: string | null
@@ -1871,7 +1877,9 @@ export type Database = {
           cta_label?: string | null
           ends_at?: string | null
           eyebrow?: string | null
+          fb_text?: string | null
           id?: string
+          ig_text?: string | null
           image_desktop_url?: string | null
           image_kind?: string
           image_mobile_url?: string | null
@@ -1883,6 +1891,7 @@ export type Database = {
           rights_confirmed?: boolean
           rights_note?: string | null
           source_email_id?: string | null
+          source_product_id?: string | null
           starts_at?: string | null
           status?: string
           subtitle?: string | null
@@ -1897,6 +1906,13 @@ export type Database = {
             columns: ["source_email_id"]
             isOneToOne: false
             referencedRelation: "supplier_inbound_emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "home_banners_source_product_id_fkey"
+            columns: ["source_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
             referencedColumns: ["id"]
           },
         ]
@@ -8785,6 +8801,16 @@ export type Database = {
         }
         Returns: string
       }
+      admin_home_banner_save_social: {
+        Args: {
+          p_actor: string
+          p_banner_id: string
+          p_fb_text: string
+          p_ig_text: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       admin_initiate_order_refund: {
         // 🔴 手動校正兩處(重 gen 後需重貼;RW2c)—— kind/金額**強制**互斥(RPC 步 2):
         //   partial 必帶 amount、record_amount 必 NULL;full 相反。p_record_refunded_before
@@ -9984,6 +10010,10 @@ export type Database = {
           p_variants: Json
         }
         Returns: number
+      }
+      system_new_product_draft: {
+        Args: { p_draft: Json; p_request_id: string }
+        Returns: string
       }
       system_supplier_mail_record: {
         Args: { p_draft: Json; p_record: Json; p_request_id: string }

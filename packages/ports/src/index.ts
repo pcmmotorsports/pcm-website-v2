@@ -99,3 +99,4 @@ export type * from './IOrderPlacedAtReader';
 
 // 2026-09-16 每日讀廠商新品信 → 首頁大圖草稿(PRD 2026-09-15 §4 / §12)
 export type * from './ISupplierNewProductMail';
+export type * from './INewProductDrafts';
