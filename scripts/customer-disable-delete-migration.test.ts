@@ -47,8 +47,8 @@ describe('刪除 / 停用會員 migration(20260926100000)', () => {
   it('🔴 參照會員的表都有歸類:多一張就紅(計畫第三節「清單會過期」)', () => {
     // 有紀錄就不能刪(要在 pcm_customer_delete_blockers 裡)
     const blockers = ['orders', 'shipments', 'coupon_redemptions', 'customer_wallet_ledger', 'dealer_applications', 'dealer_brand_discounts'];
-    // 隨帳號一起刪的:地址、車款、收藏;customers 本身指向 auth.users
-    const cascadeOk = ['customer_addresses', 'customer_vehicles', 'customer_favorites', 'customers'];
+    // 隨帳號一起刪的:地址、車款、收藏、蝦皮帳號(貼板 261, ON DELETE CASCADE);customers 本身指向 auth.users
+    const cascadeOk = ['customer_addresses', 'customer_vehicles', 'customer_favorites', 'customer_shopee_accounts', 'customers'];
     expect([...tablesReferencingMembers()].sort()).toEqual([...blockers, ...cascadeOk].sort());
     const b = fn('pcm_customer_delete_blockers');
     for (const t of blockers) expect(b, t).toContain(`FROM public.${t} t WHERE`);

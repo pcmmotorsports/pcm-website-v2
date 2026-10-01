@@ -83,6 +83,8 @@ const VALUES: ManualOrderValues = {
   invoice: { type: 'personal', carrier: '/ABC1234' },
   invoiceRequested: true,
   notificationEmail: null,
+  shopeeUsername: null,
+  shopeeOrderNo: null,
   shippingFee: 100,
   lines: [
     { sku: 'RPM-001', title: '碳纖維車台護蓋', qty: 2, unit_price: 14600, variant_id: null, spec: {}, tax_basis: 'untaxed' },
@@ -176,6 +178,7 @@ describe('createManualOrder — 成功', () => {
       orderId: ORDER_ID,
       displayId: 'PCM-20260824-0001',
       idempotent: false,
+      shopeeAccountAdded: false,
     });
   });
 
@@ -183,6 +186,43 @@ describe('createManualOrder — 成功', () => {
     mocks.rpc.mockResolvedValue({ data: payload({ idempotent: true }), error: null });
     const out = await createManualOrder(ARGS);
     expect(out).toMatchObject({ ok: true, idempotent: true });
+  });
+});
+
+describe('貼板 261:蝦皮帳號 / 蝦皮訂單編號', () => {
+  const SHOPEE: ManualOrderValues = { ...VALUES, orderSource: 'manual_shopee', shopeeUsername: 'moto_wang', shopeeOrderNo: '240901ABCD' };
+
+  it('沒填 ⇒ 不送這兩個參數名(碼比板先上線時其他單照常)', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder(ARGS);
+    const sent = mocks.rpc.mock.calls[0]![1] as Record<string, unknown>;
+    expect('p_shopee_username' in sent).toBe(false);
+    expect('p_shopee_order_no' in sent).toBe(false);
+  });
+
+  it('有填 ⇒ 兩個都送', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload({ shopee_account_added: true }), error: null });
+    await createManualOrder({ values: SHOPEE, actor: 'sean' });
+    expect(mocks.rpc.mock.calls[0]![1]).toMatchObject({ p_shopee_username: 'moto_wang', p_shopee_order_no: '240901ABCD' });
+  });
+
+  it('回傳多一鍵 shopee_account_added ⇒ 成功並帶出', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload({ shopee_account_added: true }), error: null });
+    await expect(createManualOrder({ values: SHOPEE, actor: 'sean' })).resolves.toMatchObject({ ok: true, shopeeAccountAdded: true });
+  });
+
+  it('shopee_account_added 不是 boolean ⇒ bug', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload({ shopee_account_added: 'true' }), error: null });
+    await expect(createManualOrder({ values: SHOPEE, actor: 'sean' })).resolves.toMatchObject({ ok: false, code: 'bug' });
+  });
+
+  it.each([
+    ['P2S01', 'shopee_taken'],
+    ['P2S02', 'rejected'],
+    ['P2S03', 'rejected'],
+  ])('%s ⇒ %s', async (sqlstate, code) => {
+    mocks.rpc.mockResolvedValue({ data: null, error: pgError({ code: sqlstate }) });
+    await expect(createManualOrder({ values: SHOPEE, actor: 'sean' })).resolves.toMatchObject({ ok: false, code, sqlstate });
   });
 });
 

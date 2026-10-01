@@ -162,6 +162,8 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       // 基準表單的 hidden 是 `off` ⇒ 這裡是 `false`。**不是預設值, 是那張表單的內容。**
       invoiceRequested: false,
       notificationEmail: null,
+      shopeeUsername: null,
+      shopeeOrderNo: null,
       shippingFee: 150,
       lines: [
         // 🔵 `tax_basis` 是第 7 代加的(⟦b4-INVOICE5PCT⟧):原樣帶給 RPC, 只進稽核。
@@ -1217,5 +1219,48 @@ describe('parseManualOrderForm:來源「蝦皮」(貼板 260, 2026-10-01 Sean Q1
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.error).toContain('蝦皮');
     expect(r.ok === false && r.error).toContain('清空');
+  });
+});
+
+describe('parseManualOrderForm:蝦皮帳號 / 蝦皮訂單編號(貼板 261, 2026-10-01 Sean 蝦皮帳號 Q2、Q4 甲)', () => {
+  const withShopee = (source: string, username: string | null, orderNo: string | null) =>
+    base(
+      [
+        [FIELDS.source, source],
+        ...(username === null ? [] : ([['shopee_username', username]] as Array<[string, string]>)),
+        ...(orderNo === null ? [] : ([['shopee_order_no', orderNo]] as Array<[string, string]>)),
+      ],
+      [FIELDS.source],
+    );
+
+  it('蝦皮單沒有這兩格(畫面還沒接)⇒ 收, 兩個都是 null', () => {
+    const r = ok(parseManualOrderForm(withShopee('manual_shopee', null, null)));
+    expect([r.shopeeUsername, r.shopeeOrderNo]).toEqual([null, null]);
+  });
+
+  it('蝦皮單填了 ⇒ 去頭尾空白後帶出', () => {
+    const r = ok(parseManualOrderForm(withShopee('manual_shopee', ' moto_wang ', ' 240901ABCD ')));
+    expect([r.shopeeUsername, r.shopeeOrderNo]).toEqual(['moto_wang', '240901ABCD']);
+  });
+
+  it('只打空白 ⇒ 當沒填', () => {
+    const r = ok(parseManualOrderForm(withShopee('manual_shopee', '   ', '')));
+    expect([r.shopeeUsername, r.shopeeOrderNo]).toEqual([null, null]);
+  });
+
+  it('電話單帶著這兩格(員工從蝦皮切走)⇒ 不送', () => {
+    const r = ok(parseManualOrderForm(withShopee('manual_phone', 'moto_wang', '240901ABCD')));
+    expect([r.shopeeUsername, r.shopeeOrderNo]).toEqual([null, null]);
+  });
+
+  it.each([
+    ['帳號中間有空白', 'moto wang', null, '蝦皮帳號'],
+    ['帳號超過 64 字', 'a'.repeat(65), null, '蝦皮帳號'],
+    ['訂單編號有中文', null, '訂單1', '蝦皮訂單編號'],
+    ['訂單編號超過 40 字', null, '1'.repeat(41), '蝦皮訂單編號'],
+  ])('%s ⇒ 拒', (_label, username, orderNo, word) => {
+    const r = parseManualOrderForm(withShopee('manual_shopee', username, orderNo));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain(word);
   });
 });

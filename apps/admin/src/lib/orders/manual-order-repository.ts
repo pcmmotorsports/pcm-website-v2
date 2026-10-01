@@ -43,6 +43,7 @@ export type ManualOrderSentCode =
   | 'mismatch'
   | 'exhausted'
   | 'rejected'
+  | 'shopee_taken'
   | 'bug'
   | 'error';
 
@@ -53,6 +54,8 @@ export type CreateManualOrderOutcome =
       displayId: string;
       /** true = 這次沒有新寫入,RPC 認出同鍵同內容而吸收掉了(**不是**建了第二張)。 */
       idempotent: boolean;
+      /** 貼板 261:這次替客人新增了蝦皮帳號(Q3 甲要提示員工)。沒帶帳號或重送 ⇒ false。 */
+      shopeeAccountAdded: boolean;
     }
   | {
       ok: false;
@@ -92,6 +95,11 @@ const SQLSTATE_CLASSIFICATION = new Map<string, ManualOrderSentCode>([
   ['22003', 'bug'], // 數值溢位
   ['42501', 'bug'], // ACL 被撤
   ['PGRST202', 'bug'], // 簽章漂移 / 找不到函式(PostgREST schema cache)
+  // 貼板 261:P2S01 = 蝦皮帳號已記在另一位客人身上(員工要去確認客人選對沒有)。
+  //   P2S02(非蝦皮單帶蝦皮欄位)/ P2S03(格式)表單層都先擋了, 走到這裡代表兩層不一致;單沒建 ⇒ rejected。
+  ['P2S01', 'shopee_taken'],
+  ['P2S02', 'rejected'],
+  ['P2S03', 'rejected'],
 ]);
 
 /**
@@ -116,6 +124,8 @@ function classifyP0001(message: string): ManualOrderSentCode {
 
 /** 成功 payload 的鍵集合,排序後逐字比對用(RPC `:491` 與 `:629` 兩處 RETURN 皆為這三鍵)。 */
 const SUCCESS_PAYLOAD_KEYS = 'display_id,idempotent,order_id';
+/** 貼板 261:有帶蝦皮帳號的新單多回一鍵 `shopee_account_added`;其餘(含重送)仍是上面三鍵。 */
+const SUCCESS_PAYLOAD_KEYS_WITH_SHOPEE = 'display_id,idempotent,order_id,shopee_account_added';
 
 /**
  * 成功 payload 形狀全集。不符 → null,呼叫端翻成 `bug`。
@@ -125,14 +135,21 @@ const SUCCESS_PAYLOAD_KEYS = 'display_id,idempotent,order_id';
  */
 function parseSuccessPayload(
   data: unknown,
-): { orderId: string; displayId: string; idempotent: boolean } | null {
+): { orderId: string; displayId: string; idempotent: boolean; shopeeAccountAdded: boolean } | null {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
-  if (Object.keys(data).sort().join(',') !== SUCCESS_PAYLOAD_KEYS) return null;
+  const keys = Object.keys(data).sort().join(',');
+  if (keys !== SUCCESS_PAYLOAD_KEYS && keys !== SUCCESS_PAYLOAD_KEYS_WITH_SHOPEE) return null;
   const row = data as Record<string, unknown>;
   if (typeof row.order_id !== 'string' || !isUuid(row.order_id)) return null;
   if (typeof row.display_id !== 'string' || row.display_id === '') return null;
   if (typeof row.idempotent !== 'boolean') return null;
-  return { orderId: row.order_id, displayId: row.display_id, idempotent: row.idempotent };
+  if (keys === SUCCESS_PAYLOAD_KEYS_WITH_SHOPEE && typeof row.shopee_account_added !== 'boolean') return null;
+  return {
+    orderId: row.order_id,
+    displayId: row.display_id,
+    idempotent: row.idempotent,
+    shopeeAccountAdded: row.shopee_account_added === true,
+  };
 }
 
 /** 把未知形狀描述成「鍵名 + 型別」,**不含任何值**(值可能就是客人的姓名地址)。 */
@@ -312,6 +329,10 @@ export async function createManualOrder(
       // 🔵 `null` = 不寄(留白)。**不要送空字串** —— 那會被
       //    `orders_notification_email_valid` 擋掉、整張單建不出來。
       p_notification_email: values.notificationEmail,
+      // 貼板 261:第 14、15 參。🔴 只有【有填】才送這兩個名字 —— 沒填就跟貼板前的呼叫一模一樣,
+      //   萬一碼比板先上線, 只有「帶蝦皮帳號的蝦皮單」會建不出來, 其他單照常。
+      ...(values.shopeeUsername !== null ? { p_shopee_username: values.shopeeUsername } : {}),
+      ...(values.shopeeOrderNo !== null ? { p_shopee_order_no: values.shopeeOrderNo } : {}),
       p_lines: resolved.lines,
     }));
   } catch (thrown) {

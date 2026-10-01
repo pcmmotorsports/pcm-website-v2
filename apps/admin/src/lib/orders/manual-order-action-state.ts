@@ -72,12 +72,13 @@ export function manualOrderContainerFromField(raw: string | null): ManualOrderCo
 export const MANUAL_ORDER_NOT_SENT_CODES = Object.freeze(['denied', 'invalid'] as const);
 export type ManualOrderNotSentCode = (typeof MANUAL_ORDER_NOT_SENT_CODES)[number];
 
-/** 送到 RPC 之後才失敗的六支(與 repository 的 `ManualOrderSentCode` 同一個集合)。 */
+/** 送到 RPC 之後才失敗的七支(與 repository 的 `ManualOrderSentCode` 同一個集合)。 */
 export const MANUAL_ORDER_SENT_CODES = Object.freeze([
   'concurrent',
   'mismatch',
   'exhausted',
   'rejected',
+  'shopee_taken',
   'bug',
   'error',
 ] as const);
@@ -90,6 +91,12 @@ export const MANUAL_ORDER_RESULT_PARAM = 'r';
  * 🔴 文案寫「無法確認」不寫「沒有存」(Codex R1 必修 3):逾時的時候伺服器可能已經寫進去了。
  */
 export const MANUAL_ORDER_ADDRESS_NOT_SAVED = 'manual_order_address_not_saved';
+
+/**
+ * 訂單已建立, 而且這次替客人新增了蝦皮帳號(貼板 261;Sean 2026-10-01 Q3 甲)。
+ * 🔵 帳號本身不進網址(`?r=` 只放固定文案的碼), 員工在這張單的明細看得到是哪個帳號。
+ */
+export const MANUAL_ORDER_SHOPEE_ACCOUNT_ADDED = 'manual_order_shopee_account_added';
 
 /**
  * 失敗導頁時把**冪等鍵**帶回表單頁的 query 參數。

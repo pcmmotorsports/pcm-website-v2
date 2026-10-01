@@ -178,6 +178,12 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //     order_source = NULL + 有信箱 ⇒ 紅在 not-null;蝦皮 + 信箱 NULL、網站 + 有信箱 ⇒ 進得去。
   //   🔴 NULL 面:order_source 為 NULL 時整條求值成 NULL(實測 IS NULL = t)⇒ 靠 NOT NULL 撐, 已列進 LOAD_BEARING_NOT_NULL。
   'orders.orders_shopee_no_notification_email',
+  // 2026-10-01 網站B 貼板 261(`20261001160000_m4b_shopee_account.sql`;作者就是我)。
+  //   形狀:order_source = 'manual_shopee' OR (shopee_username IS NULL AND shopee_order_no IS NULL)(只有蝦皮單可以填, Sean 蝦皮帳號 Q2、Q4 甲)。
+  //   🔬 拋棄式 PG 壞形狀:有填蝦皮帳號的蝦皮單改成 manual_phone ⇒ 紅在本 CHECK(23514;shopee_account_behavior.sql ⑥)。
+  //   🔴 NULL 面:order_source 為 NULL 時左半成 NULL ⇒ 靠 NOT NULL 撐, 已列進 LOAD_BEARING_NOT_NULL(260 那時加的同一列)。
+  //   另兩條 orders_shopee_username_shape / orders_shopee_order_no_shape 是「x IS NULL OR x ~ 形狀」, 掃描沒有列它們(NULL 就是允許沒填)。
+  'orders.orders_shopee_fields_only_shopee',
   // 2026-09-27 進度86(`20260927040000_m4b_products_staff_overrides.sql`;作者就是我)。
   //   形狀:jsonb_typeof(x)='object' AND (x - 三個鍵)='{}' AND (NOT x?'title' OR typeof(x->'title')='string') AND …(subtitle / highlights 同形)
   //   🔬 壞形狀跑過兩處:
