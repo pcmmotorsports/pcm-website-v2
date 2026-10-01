@@ -2515,6 +2515,8 @@ BEGIN
             'shopee_order_no',  v_shopee_order_no,
             'shopee_account_added', v_shopee_added,
             'payment_channel',  v_channel,
+            -- Fable R1 nit 4:收斂前呼叫端原送的管道(舊後台送 bank_transfer 的蝦皮單在這裡留痕)。
+            'payment_channel_requested', p_payment_channel,
             'payment_instrument', v_instrument,
             'shopee_payout',    p_shopee_payout,
             'shipping_method',  p_shipping_method,
@@ -2563,6 +2565,11 @@ BEGIN
   --   🔴 時間用 now()(交易開始 = 訂單 created_at)不是 clock_timestamp():結清判定把 received_at > now() 當成
   --      「未來的收款」⇒ needs_human ⇒ 收款狀態停在 unpaid(本機實測)。now() 同時過得了 G4(不晚於現在)與 G7(不早於訂單成立)。
   IF p_shopee_payout IS NOT NULL THEN
+    -- 進帳大於總額 ⇒ 具名碼 P2S04(後台據此講清楚原因;總額含稅, 表單層算不出來)。
+    IF p_shopee_payout > v_total THEN
+      RAISE EXCEPTION 'admin_create_manual_order: 蝦皮進帳 % 大於訂單總額 %', p_shopee_payout, v_total
+        USING ERRCODE = 'P2S04';
+    END IF;
     PERFORM public.admin_record_manual_payment(
       v_order_id, p_manual_request_id, pg_catalog.btrim(p_actor, E' \t\r\n'), 'cash', v_total::integer,
       pg_catalog.now(), NULL, NULL, 'shopee', p_shopee_payout);
@@ -2661,5 +2668,8 @@ BEGIN
   END IF;
 END
 $chk$;
+
+-- 簽章換過(⑦ ⑪)⇒ 請 PostgREST 重讀函式清單(同 20261001160000;Fable R1 nit 2)。
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;

@@ -8,7 +8,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.orders WHERE payment_instrument IS NOT NULL)
      OR EXISTS (SELECT 1 FROM public.order_payments WHERE payment_instrument IS NOT NULL)
      OR EXISTS (SELECT 1 FROM public.order_manual_refunds WHERE payment_instrument IS NOT NULL) THEN
-    RAISE EXCEPTION '已有訂單 / 收款 / 退款用到刷卡或蝦皮標記, 不能直接回滾;先人工處理那些資料';
+    RAISE EXCEPTION '已有訂單 / 收款 / 退款用到刷卡或蝦皮標記, 不能直接回滾;先人工處理那些資料'
+      '(蝦皮單的標記受 orders_shopee_source_instrument_check 保護, 要先拿掉那條約束才改得動)';
   END IF;
 END
 $chk$;
@@ -2221,7 +2222,7 @@ DECLARE v text;
 BEGIN
   SELECT cmt INTO v FROM _q1_create_comment_rb;
   EXECUTE pg_catalog.format('COMMENT ON FUNCTION public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text, text, jsonb, text, text) IS %L',
-    pg_catalog.regexp_replace(v, E'\n\n報價單Q1 2026-10-01\\(貼板 262\\):.*$', ''));
+    pg_catalog.regexp_replace(v, E'(\n\n)?報價單Q1 2026-10-01\\(貼板 262\\):.*$', ''));
 END
 $cmt2$;
 
@@ -2234,5 +2235,7 @@ ALTER TABLE public.order_payments DROP COLUMN fee_amount;
 ALTER TABLE public.order_payments DROP COLUMN fee_rate;
 ALTER TABLE public.order_payments DROP COLUMN payment_instrument;
 DROP TABLE public.payment_fee_rates;
+
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;
