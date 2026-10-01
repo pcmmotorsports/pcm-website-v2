@@ -233,6 +233,7 @@ describe('🔴 建單表單的每一個文字類控制項都要擋 autofill(量�
     'manual-order-vehicle-field.tsx',
     'manual-order-payment-fields.tsx',
     'manual-order-tier-select.tsx',
+    'manual-order-shopee-fields.tsx',
   ];
 
   /** 剝註解 ⇒ 抓 `<input>` / `<select>` ⇒ 跳過 hidden/radio/checkbox(瀏覽器不會 autofill 它們)。 */

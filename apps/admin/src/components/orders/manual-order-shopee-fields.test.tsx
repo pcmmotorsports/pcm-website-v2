@@ -43,6 +43,13 @@ describe('ManualOrderShopeeFields', () => {
     expect(sent(container)).toEqual([['moto_wang'], ['240901ABCD']]);
   });
 
+  it('兩格都有看得到的欄位名(填了字也分得出哪格是哪格)', () => {
+    const { container, getByLabelText } = render(<Harness />);
+    fireEvent.change(getByLabelText('來源'), { target: { value: 'manual_shopee' } });
+    const labels = [...container.querySelectorAll('label')].map((l) => l.textContent?.trim());
+    expect(labels).toEqual(expect.arrayContaining(['蝦皮帳號（選填）', '蝦皮訂單編號（選填）']));
+  });
+
   it('換回其他來源 ⇒ 兩格消失, 不送出', () => {
     const { container, getByLabelText, queryByLabelText } = render(<Harness />);
     fireEvent.change(getByLabelText('來源'), { target: { value: 'manual_shopee' } });
