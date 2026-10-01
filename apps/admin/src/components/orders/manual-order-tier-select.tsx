@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MEMBER_TIER_LABEL, MEMBER_TIER_VALUES } from '../../lib/orders/order-list-view';
 import {
   MANUAL_ORDER_CUSTOMER_FIELD,
@@ -22,9 +22,18 @@ import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL } from './manual-order-field-cla
 /** 選中的客人 = 誰 + 他的等級。🔴 兩個都要(codex R1 MF1):只記等級的話, 甲乙同級 ⇒ 換人時 `key` 沒變 ⇒ 替甲改的選擇會沿用到乙。 */
 type Picked = { id: string; tier: ManualOrderTier };
 
+/**
+ * 新客人(送出時才建, Sean 2026-10-01 Q24 甲):還沒建之前是「新客人」記號, 建好之後是那顆剛建的 radio。
+ * 🔴 兩個階段用【同一個 id】⇒ `key` 不變 ⇒ 員工在建好之前選的等級, 建好那一刻不會被重設回「一般」。
+ */
+const NEW_CUSTOMER: Picked = { id: 'new', tier: 'general' };
+
 function readPicked(form: HTMLFormElement | null): Picked | null {
   const picked = form?.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]:checked`);
-  if (!(picked instanceof HTMLInputElement)) return null;
+  if (!(picked instanceof HTMLInputElement)) {
+    return form?.querySelector('[data-new-customer-pending="1"]') ? NEW_CUSTOMER : null;
+  }
+  if (picked.dataset.justCreated === '1') return NEW_CUSTOMER;
   const raw = picked.dataset.customerTier;
   // 不認得的值(舊候選沒帶 / 被改過的 DOM)⇒ 倒向 general, 不倒向「不給選」:選不了會擋住建單。
   const tier = raw !== undefined && (MANUAL_ORDER_TIERS as readonly string[]).includes(raw) ? (raw as ManualOrderTier) : 'general';
@@ -34,6 +43,13 @@ function readPicked(form: HTMLFormElement | null): Picked | null {
 export function ManualOrderTierSelect() {
   const [host, setHost] = useState<HTMLSelectElement | null>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
+  /**
+   * 員工替「新客人」選的等級。
+   * 🔴 存在 ref 不靠 select 自己:就算這格中途被重掛(例如 DOM 有一瞬間看不到客人), 預設值也還是他選的那個。
+   *    換成一位既有客人時清掉(那時預設是那位客人自己的等級)。
+   */
+  const newChoice = useRef<ManualOrderTier | null>(null);
+  if (picked !== null && picked.id !== NEW_CUSTOMER.id) newChoice.current = null;
 
   useEffect(() => {
     const form = host?.form ?? null;
@@ -65,7 +81,10 @@ export function ManualOrderTierSelect() {
         ref={setHost}
         autoComplete='off'
         name={MANUAL_ORDER_TIER_FIELD}
-        defaultValue={picked?.tier ?? 'general'}
+        defaultValue={picked?.id === NEW_CUSTOMER.id ? (newChoice.current ?? 'general') : (picked?.tier ?? 'general')}
+        onChange={(e) => {
+          if (picked?.id === NEW_CUSTOMER.id) newChoice.current = e.target.value as ManualOrderTier;
+        }}
         disabled={picked === null}
         title={picked === null ? '先選客人' : undefined}
         className={MANUAL_FIELD_INPUT}

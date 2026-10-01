@@ -3,8 +3,6 @@
 import {
   MANUAL_FIELD_INPUT,
   MANUAL_FIELD_LABEL,
-  MANUAL_SECTION,
-  MANUAL_SECTION_LEGEND,
   MANUAL_SMALL_BUTTON,
 } from './manual-order-field-classes';
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
@@ -13,9 +11,9 @@ import {
   type ManualCustomerCreateRequest,
 } from '@/lib/orders/manual-customer-create-request';
 import {
-  MANUAL_CUSTOMER_NEW_NAME_FIELD,
-  MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
+  MANUAL_ORDER_SHIP_TO_NAME_FIELD,
+  MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import {
   createManualCustomerInlineAction,
@@ -59,10 +57,19 @@ export type ManualCustomerPickerProps = {
 
 type Notice = { tone: 'warn' | 'error' | 'ok'; text: string } | null;
 
+// ── 用收件電話自動找客人(Sean 2026-10-01 Q24 甲;計畫 ~/pcm-mailbox/計畫-建單收件資料合併-20261001.md 第 2 節)──
+/** 打字停下多久才找(毫秒)。離開電話欄時不等。 */
+const AUTO_SEARCH_DELAY_MS = 500;
+/** 打字途中要幾個數字才找:手機 10 碼、市話 9–10 碼 ⇒ 9 以下多半還沒打完, 找了只會閃一下「找不到」。 */
+const AUTO_SEARCH_MIN_DIGITS_TYPING = 9;
+/** 離開電話欄時的下限 = 建立客人的下限(`manual-customer.ts` 的 `MIN_PHONE_DIGITS`)。 */
+const AUTO_SEARCH_MIN_DIGITS_BLUR = 8;
+const digitsOf = (v: string): string => v.replace(/[^0-9]/g, '');
+/** 自動找到的結果:一位 = 自動連結;好幾位 = 要員工選;沒有 = 新客人。 */
+type AutoResult = { phone: string; kind: 'one' | 'many' | 'none' } | null;
+
 export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPickerProps) {
   const phoneInputId = useId();
-  const newNameId = useId();
-  const newPhoneId = useId();
 
   const [candidates, setCandidates] = useState<PickerCandidate[] | null>(null);
   const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
@@ -81,7 +88,35 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
    *   新清單是一份新的事實,而「他上一次選的那位還在新清單裡」**不等於他還要選那一位**。
    */
   const [listSeq, setListSeq] = useState(0);
-  const [searchedPhone, setSearchedPhone] = useState('');
+  /** 「換一位客人」打開了沒(Sean 2026-10-01:找客人收進這個小連結裡)。 */
+  const [showSearch, setShowSearch] = useState(false);
+  /**
+   * 用收件電話自動找到的那一位(只有【剛好一位】電話數字完全相同時才有)。
+   * 🔴 與 `justCreatedId` 一樣只在「這一份清單」有效:任何一次新的搜尋或建立都會重設它。
+   */
+  const [autoLinkId, setAutoLinkId] = useState<string | null>(null);
+  const [autoResult, setAutoResult] = useState<AutoResult>(null);
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 上一次自動找的電話(數字)。同一支不重找, 免得離開欄位時又閃一次。 */
+  const lastAutoPhone = useRef('');
+  /**
+   * 畫面上這份清單是怎麼來的。
+   * 🔴 'manual'(員工自己找、或剛建好的)⇒ 收件電話再怎麼改都不自動換人:
+   *    訂購人和收件人不同時(朋友代訂、寄公司), 員工選好的人不能被收件電話蓋掉。
+   */
+  const listSource = useRef<'auto' | 'manual' | null>(null);
+  /**
+   * 這一次建立是按「確認」觸發的 ⇒ 新客人建好、選起來之後, 接著送出訂單(Sean 2026-10-01 Q24 甲)。
+   * 🔴 只在【新建成功】時保留;任何停下來的路(查詢壞掉、失敗、連線中斷、撞到很像的既有帳號)都放掉。
+   */
+  const submitAfterCreate = useRef(false);
+  /**
+   * 按「確認」觸發的建立還在跑。
+   * 🔴 這段期間「新客人」記號要【留著】(帶 `data-creating`):會員等級那格靠它維持「新客人」,
+   *    不留的話中間會有一瞬間「沒有客人」⇒ 那格被停用、員工選的等級被重設, 接著送出的那一發就少了等級。
+   *    送出鈕看到 `data-creating` 就維持灰的, 免得連按兩次。
+   */
+  const [creatingNew, setCreatingNew] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   /**
    * 上一次搜尋是**壞掉**(不是查無)。🔴 **這一格是 2026-08-28 走乙時補上的,而它是承重的。**
@@ -113,28 +148,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
    *   ⇒ 操作化:寫完一道 `if (X !== 'a')` 之後,問「**X 總共有幾個可能值?我餵過幾個?**」
    */
   const [searchBroken, setSearchBroken] = useState<'denied' | 'broken' | null>(null);
-  /**
-   * 員工**自己**在建立那一塊的電話欄打過字了(codex R1 must-fix)。
-   * 🔴🔴 **它是 `useRef` 不是 `useState`, 而那是承重的**:
-   *    我第一版寫成 state ⇒ 打第一個字 ⇒ `setState` ⇒ 重新 render ⇒ **`key` 從 `searchedPhone`
-   *    變成 `'kept'`** ⇒ 那一格重新掛載 ⇒ **他剛打的那個字當場消失。**
-   *    📌 **我為了「防止那一格被重新掛載」而做的修法, 自己造出了一次重新掛載。**
-   *    (四支測試當場紅 —— 而它們紅的理由不是我以為的那個。)
-   * ⇒ 改成 ref:打字**完全不觸發 render**,而搜尋成功時去問它「該不該預填」。
-   * ⚠️ 它**只往一個方向走**(不會變回 `false`):清空欄位也不該讓預填權力回來 ——
-   *    「他清空了」與「他從來沒打過」對他而言是**同一個空欄位**,而系統偷偷換掉其中一個的內容。
-   */
-  const createPhoneDirty = useRef(false);
-  // 🔴 換一張表單(`customerRequestId` 變了)⇒ 把 dirty 放掉(codex R4 nit)。
-  //   病:表單 A 打過再清空 ⇒ ref 永久 true ⇒ 表單 B 查無時**也不再預填** ——
-  //   而那個預填是這一片省下的其中一次打字。
-  //   ⚠️ 用 `useRef` 記上一次的值比對,**不用 `useEffect`** —— effect 在 render 之後才跑,
-  //      而 `key`/`defaultValue` 在 render 當下就要是對的。
-  const lastRequestId = useRef(customerRequestId);
-  if (lastRequestId.current !== customerRequestId) {
-    lastRequestId.current = customerRequestId;
-    createPhoneDirty.current = false;
-  }
+  // ⛔ 2026-10-01 拿掉 `createPhoneDirty` / `searchedPhone`:它們只服務「建立新客人」那兩格,
+  //    而那兩格已經拿掉(新客人改成按「確認」時用收件人姓名電話建立, Sean Q24 甲)。理由全文在 git log。
   const [pending, startTransition] = useTransition();
   /**
    * 搜尋的**序號** —— 只有「最後發出去的那一發」的結果算數(codex R5 must-fix)。
@@ -146,8 +161,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
    */
   const searchSeq = useRef(0);
 
-  /** 🔴 只為了拿到 `.form`(收「用這份收件人建客人」那個事件)。**不從這裡讀寫任何輸入框。** */
-  const rootRef = useRef<HTMLFieldSetElement>(null);
+  /** 🔴 只為了找到所在的表單(收建立客人的事件、聽收件電話)。**不從這裡讀寫任何輸入框。** */
+  const rootRef = useRef<HTMLDivElement>(null);
+  const formOf = (): HTMLFormElement | null => rootRef.current?.closest('form') ?? null;
 
   /** 🔴 只從 DOM 讀,不回寫。這是本檔碰輸入框的**唯一**方向。 */
   const readValue = (id: string): string =>
@@ -176,8 +192,15 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     run();
   };
 
-  function runSearch() {
-    const raw = readValue(phoneInputId);
+  /**
+   * @param auto 給了 ⇒ 這一發是「用收件電話自動找」:只認電話數字完全相同的客人,
+   *   剛好一位就自動選起來;不預填建立區(那是手動找客人才有的省打字)。
+   *   🔴 序號、stale 檢查、三種失敗的處理與手動找【共用同一套】, 不分岔。
+   */
+  function runSearch(auto?: { phone: string }) {
+    const raw = auto ? auto.phone : readValue(phoneInputId);
+    // 員工自己按「找客人」⇒ 從這一刻起就是手動清單:還在飛時改收件電話, 不能把這一發作廢(Fable R2 建議)
+    if (!auto) listSource.current = 'manual';
     const seq = ++searchSeq.current;
     /** 這一發已經不是最新的那一發了 ⇒ 它的結果一個字都不准寫進畫面。 */
     const stale = () => seq !== searchSeq.current;
@@ -201,8 +224,17 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         //   ⚠️ 唯一保留舊清單的是 `too_short`(他還沒打完,不是查詢無效)。
         setCandidates(null);
         setListSeq((n) => n + 1);
+        if (auto) {
+          setAutoResult(null);
+          setAutoLinkId(null);
+        }
         setSearchBroken('broken');
-        setNotice({ tone: 'error', text: '查詢客戶時無法連線，已填寫的表單內容仍保留。請再按一次「找客人」。' });
+        setNotice({
+          tone: 'error',
+          text: auto
+            ? '查詢客戶時無法連線，已填寫的表單內容仍保留。請點一下收件電話再離開欄位重試，或按「換一位客人」手動找。'
+            : '查詢客戶時無法連線，已填寫的表單內容仍保留。請再按一次「找客人」。',
+        });
         return;
       }
       if (stale()) return;
@@ -213,6 +245,11 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         //   ⇒ `too_short` 是「他還沒打完」,不是「查詢結果無效」⇒ 舊結果仍然成立。
         //   ⚠️ `denied` / `error` **仍然清**:那兩種底下「舊清單還準不準」答不出來 ⇒ fail-closed。
         if (res.reason !== 'too_short') setCandidates(null);
+        // 自動找壞掉 ⇒ 狀態行不能還留著上一支電話的結果(Fable R1 nit)
+        if (auto) {
+          setAutoResult(null);
+          setAutoLinkId(null);
+        }
         // 🔴 三種 reason 三種去處,**不合併**:
         //    · `too_short` = 他電話打太短,**系統是好的** ⇒ 不鎖(合併的話一次打字不完整就鎖住)
         //    · `denied`    = 登入過期 ⇒ 鎖,而話要指向**重新登入**
@@ -229,23 +266,21 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         return;
       }
       setSearchBroken(null);
-      // 🔴🔴 **MF1(Fable R3 must-fix,2026-08-28):預填【只在查無時】留下,命中就清掉。**
-      //
-      //   病(R3 構造,而它走的是**官方支援的動線**):員工只記得後四碼是常態,
-      //   而搜尋門檻是 `phone.length < 3`(`manual-customer-actions.ts:74`)⇒ 搜「5678」合法。
-      //     搜「5678」⇒ 命中甲(0912345678)⇒ 舊碼把「5678」預填進建立區電話格
-      //     ⇒ 點選甲 ⇒ `hasConflict` 拿「5678」比甲的「0912345678」⇒ digits 不等
-      //     ⇒ 🔴 **送出鈕鎖死 +「這張單只能屬於一個人」—— 而那一格字【不是他打的】。**
-      //   📌 **一道擋「兩個人」的閘,被一個【系統自己填的值】觸發了。**
-      //
-      //   🔴 **而「命中就不預填」不夠**(線A 動手前想到的反例,主視窗背書):
-      //     先搜 `5678` 查無 ⇒ 預填 `5678` ⇒ **再搜完整號碼命中甲** ⇒ **舊預填還留著** ⇒ 一樣撞。
-      //     ⇒ 所以是**清掉**(`''`)不是**不動**。
-      //
-      //   ⚠️ 清掉不是取捨,是修 bug:建立要 `MIN_PHONE_DIGITS = 8`
-      //     (`manual-customer.ts:238`),而搜尋只要 3 ⇒ **部分號碼預填給「建立」用本來就是死的。**
-      //   🔴 他自己打過字了(`createPhoneDirty`)⇒ **一個字都不碰**(codex R1 must-fix)。
-      if (!createPhoneDirty.current) setSearchedPhone(res.candidates.length > 0 ? '' : raw);
+      if (auto) {
+        // 只認電話數字完全相同的:搜尋是「包含」比對, 部分相符的別人不能被自動連結
+        const exact = res.candidates.filter((c) => digitsOf(c.phone ?? '') === auto.phone);
+        listSource.current = 'auto';
+        setJustCreatedId(null);
+        setAutoLinkId(exact.length === 1 ? exact[0]!.userId : null);
+        setAutoResult({ phone: auto.phone, kind: exact.length === 0 ? 'none' : exact.length === 1 ? 'one' : 'many' });
+        setListSeq((n) => n + 1);
+        setCandidates(exact);
+        setNotice(res.truncated ? { tone: 'warn', text: '符合條件的帳號較多，目前僅顯示部分結果。請按「換一位客人」輸入更完整的資料。' } : null);
+        return;
+      }
+      setAutoLinkId(null);
+      setAutoResult(null);
+      listSource.current = 'manual';
       // 🔴🔴 **MF2(Fable R3 must-fix)**:`justCreatedId` 建立之後**永不清空** ⇒
       //   之後任何一發搜尋只要結果含那位,radio 重新掛載時 `defaultChecked` 又把他**無聲**勾回來。
       //     建立甲 ⇒ 改變主意、搜乙的電話(同市話一家人,清單 [甲,乙])
@@ -273,7 +308,16 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
    * 🔴 **只有來源不同, 後面【一個字都不分岔】** —— 序號、冪等鍵、`existing` 不自動選、
    *    三種文案全部共用。📌 兩條入口各寫一份的話, 下一個人只會修到他找得到的那一份。
    */
-  function runCreate(source?: ManualCustomerCreateRequest) {
+  /**
+   * 按「確認」觸發的建立失敗 / 連線中斷 ⇒ 回到「改收件電話就自動找」(Fable R1 建議 1)。
+   * 🔴 `runCreate` 一開始把清單來源設成 manual(建立永遠贏), 而失敗時沒有建出任何人 ⇒ 不該就此關掉自動找。
+   */
+  function restoreAutoAfterFailedCreate() {
+    listSource.current = null;
+    lastAutoPhone.current = '';
+  }
+
+  function runCreate(source: ManualCustomerCreateRequest) {
     // 🔴🔴 **停用契約要住在【函式】裡, 不能只住在那顆鈕的 `disabled` 上**(codex MF2, 2026-09-06)。
     //    病:旁邊那顆「建立這位客人」寫著 `disabled={pending || searchBroken !== null}` ——
     //    而**新入口不是那顆鈕** ⇒ 搜尋壞掉(登入過期 / 查詢炸掉)時它照樣建得下去,
@@ -289,6 +333,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     //      (查詢壞掉時建下去會替一位本來就有帳號的客人再開一個)。
     //    ⚠️ 而那顆鈕的 `disabled` 仍然保留 `pending`:**那是防手誤連按, 不是安全條件。**
     if (searchBroken !== null) {
+      submitAfterCreate.current = false;
+      setCreatingNew(false);
       setNotice({
         tone: 'error',
         text:
@@ -298,8 +344,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       });
       return;
     }
-    const name = source ? source.name : readValue(newNameId);
-    const phone = source ? source.phone : readValue(newPhoneId);
+    const { name, phone } = source;
     // 🔴🔴 **一開始建立, 就把現在選起來的那位【放掉】**(codex MF1, 2026-09-06)。
     //    病:員工先選了甲, 再用收件那顆鈕建乙 ⇒ **建立還在跑、或建立失敗的那段時間裡**,
     //    甲仍然被選著、建單鈕仍然是亮的 ⇒ 他以為單會掛給乙, 而它會掛給甲。
@@ -311,6 +356,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     //    ⚠️ 代價明寫:建立失敗時**搜尋結果會不見**, 他要再搜一次。
     //      那是刻意的 —— 失敗那句話本來就叫他「改用同一支電話再找一次」。
     setJustCreatedId(null);
+    setAutoLinkId(null);
+    setAutoResult(null);
+    listSource.current = 'manual';
     setCandidates(null);
     // 🔴🔴 **建立也要動同一顆序號**(codex R6 must-fix)——
     //    一發慢搜尋 + 一次建立並行時,慢搜尋回來會把「剛建好而且已經選起來的那位」蓋掉。
@@ -331,9 +379,12 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       try {
         res = await createManualCustomerInlineAction({ name, phone, requestId: customerRequestId });
       } catch {
+        if (submitAfterCreate.current) restoreAutoAfterFailedCreate();
+        submitAfterCreate.current = false;
+        setCreatingNew(false);
         setNotice({
           tone: 'error',
-          text: '建立客戶時連線中斷，帳號可能已建立成功。請勿重複建立，請先用相同電話查詢確認。',
+          text: '建立客戶時連線中斷，帳號可能已建立成功，訂單沒有送出。請勿重複建立，請先用相同電話查詢確認。',
         });
         return;
       }
@@ -341,20 +392,20 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       //    失敗那句「可能已經建好了」比任何搜尋結果都重要)。
       ++searchSeq.current;
       if (!res.ok) {
-        setNotice({ tone: res.reason === 'invalid_name' || res.reason === 'invalid_phone' ? 'warn' : 'error', text: res.message });
+        const wasSubmit = submitAfterCreate.current;
+        if (wasSubmit) restoreAutoAfterFailedCreate();
+        submitAfterCreate.current = false;
+        setCreatingNew(false);
+        setNotice({
+          tone: res.reason === 'invalid_name' || res.reason === 'invalid_phone' ? 'warn' : 'error',
+          text: wasSubmit ? `${res.message} 訂單沒有送出。` : res.message,
+        });
         return;
       }
       setListSeq((n) => n + 1);
       setCandidates([res.candidate]);
-      // 🔴🔴 **走新入口建成功之後, 把搜尋留下的那個【預填電話】放掉**(codex MF3, 2026-09-06)。
-      //    病(codex 實際復現):先搜「5678」查無 ⇒ 建立區電話被預填成 `5678`
-      //    ⇒ 員工改用收件那顆鈕、拿完整資料建好了客人 ⇒ 帳號建好、radio 也選起來了
-      //    ⇒ **而建單鈕是灰的** —— 因為 `hasConflict` 看到建立區還寫著 `5678`,
-      //      與剛建好那位的電話不同 ⇒ 判成「他想建的是另一個人」。
-      //    📌 **一個為了省下打字而做的預填, 在另一條路上變成了「他指的是別人」的證據。**
-      //    ⚠️ **只清【系統自己預填的】那一份** —— 他自己打過字(`createPhoneDirty`)就不動:
-      //      那時候兩格真的在說另一個人, 而**擋下來是對的**(fail-closed, 不是 bug)。
-      if (source && !createPhoneDirty.current) setSearchedPhone('');
+      // 與新那顆 radio 同一次畫面更新拿掉記號 ⇒ 會員等級那格不會經過「沒有客人」
+      setCreatingNew(false);
       // 🔴🔴 **只有【我們剛做出來的那位】才自動選起來**(codex R7 must-fix)。
       //    `existing` = 預檢撞到一位很像的人(同姓名 + 同電話 + 後台開的帳號)——
       //    **那只是一組長得很像的資料,不是同一個人的證明**(一家人共用市話 + 剛好同名)。
@@ -362,6 +413,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       //      ⇒ 員工按下去就掛錯帳。
       //    📌 **一句警告如果沒有把下一步收回來, 它只是在旁邊講話。**
       setJustCreatedId(res.outcome === 'existing' ? null : res.candidate.userId);
+      // 撞到很像的既有帳號 ⇒ 要員工自己確認, 訂單不送
+      const stoppedSubmit = res.outcome === 'existing' && submitAfterCreate.current;
+      if (res.outcome === 'existing') submitAfterCreate.current = false;
       // 🔴🔴 **「新建的」與「本來就有的」要說不同的話**(codex R6 must-fix 的緩解)。
       //    ~~上一版兩條路共用一句「已經建好」~~ —— 而重用那條路有一個**罕見但真實**的誤判:
       //    **同名 + 同電話 ≠ 同一個人**(一家人共用市話、剛好同名)⇒ 訂單會靜默掛到別人帳上。
@@ -371,7 +425,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         res.outcome === 'existing'
           ? {
               tone: 'warn',
-              text: `系統裡已經有一位「${res.candidate.name}」,電話也一樣,所以我【沒有】幫你多開一個帳號、也【沒有】幫你選起來。請你自己確認:下面那位就是你要的客人的話,點一下選起來;不是同一個人的話,找人看一下。`,
+              text: `系統裡已經有一位「${res.candidate.name}」,電話也一樣,所以我【沒有】幫你多開一個帳號、也【沒有】幫你選起來。請你自己確認:下面那位就是你要的客人的話,點一下選起來;不是同一個人的話,請按「換一位客人」另外找,或請系統管理員協助。${stoppedSubmit ? '訂單還沒有送出,選好之後再按一次「確認」。' : ''}`,
             }
           : { tone: 'ok', text: `已經建好「${res.candidate.name}」,並且幫你選起來了。` },
       );
@@ -393,7 +447,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     // 🔴 射程是**這張表單**, 不是 `window`(理由見 `manual-customer-create-request.ts` 檔頭)。
     //   ⚠️ picker 被單獨渲染在表單外時 `form` 是 `null` ⇒ 不掛 ⇒ 派發端會拿到 `false`
     //     並且**照實說「沒有接上」**, 不會謊報成功。
-    const form = rootRef.current?.form;
+    const form = formOf();
     if (!form) return;
     const onRequest = (e: Event) => {
       const detail = (e as CustomEvent<ManualCustomerCreateRequest>).detail;
@@ -401,11 +455,102 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       //    放到後面的話, `runCreate` 一 throw 就永遠不會被呼叫到
       //    ⇒ 收件那一塊會說「沒有接上,請重新整理」, 而**帳號其實已經在建了**。
       e.preventDefault();
+      submitAfterCreate.current = detail.thenSubmit === true;
+      if (detail.thenSubmit) setCreatingNew(true);
+      if (detail.thenSubmit) setNotice({ tone: 'ok', text: '正在建立新客人，建好就會送出訂單…' });
       runCreateRef.current(detail);
     };
     form.addEventListener(MANUAL_CUSTOMER_CREATE_REQUEST_EVENT, onRequest);
     return () => form.removeEventListener(MANUAL_CUSTOMER_CREATE_REQUEST_EVENT, onRequest);
   }, []);
+
+  // ── 新客人建好、radio 畫上來而且勾著 ⇒ 接著送出訂單 ─────────────────────────────────
+  // 🔴 等 DOM 真的有那顆勾著的 radio 才送:送出那一刻的守門(`manual-order-submit.tsx`)是問 DOM 的。
+  useEffect(() => {
+    if (!submitAfterCreate.current || justCreatedId === null) return;
+    const form = formOf();
+    const el = form?.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]:checked`);
+    if (!form || !(el instanceof HTMLInputElement) || el.value !== justCreatedId) return;
+    submitAfterCreate.current = false;
+    form.requestSubmit();
+  }, [justCreatedId, candidates]);
+
+    // ── 收件電話一改就找客人 ──────────────────────────────────────────────────────────
+  // 🔴 只聽表單上的事件、只讀 DOM(本檔不變式):收件那一塊不用知道有人在聽它。
+  // 🔴 打字時等停下 0.5 秒且至少 9 個數字;離開欄位時至少 8 個就找。電話改到太短 ⇒ 放掉自動選的那位。
+  const runSearchRef = useRef(runSearch);
+  useEffect(() => {
+    runSearchRef.current = runSearch;
+  });
+  useEffect(() => {
+    const form = formOf();
+    if (!form) return;
+    const onPhone = (e: Event, blur: boolean) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || el.name !== MANUAL_ORDER_SHIP_TO_PHONE_FIELD) return;
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+      const phone = digitsOf(el.value);
+      // 員工自己找的、或剛建好的那一份:收件電話怎麼改都不動它(也不作廢手動找還在飛的那一發)
+      if (listSource.current === 'manual') return;
+      // 🔴 電話一改(跟上一次自動找的不同)⇒ 上一支電話的判定【立刻】作廢(Fable R1 必修 1):
+      //    不清的話, 新查詢還沒回來時按「確認」⇒ 用舊電話的「新客人」記號建帳號、或把單掛給舊電話那位。
+      //    清掉之後記號與自動勾選都消失, 確認鈕灰到新結果回來。
+      if (phone !== lastAutoPhone.current && lastAutoPhone.current !== '') {
+        lastAutoPhone.current = '';
+        ++searchSeq.current;
+        setAutoResult(null);
+        setAutoLinkId(null);
+        if (listSource.current === 'auto') {
+          listSource.current = null;
+          setCandidates(null);
+          setListSeq((n) => n + 1);
+        }
+      }
+      if (phone.length < AUTO_SEARCH_MIN_DIGITS_BLUR) return;
+      if (phone === lastAutoPhone.current) return;
+      const go = () => {
+        lastAutoPhone.current = phone;
+        runSearchRef.current({ phone });
+      };
+      if (blur) go();
+      else if (phone.length >= AUTO_SEARCH_MIN_DIGITS_TYPING) autoTimer.current = setTimeout(go, AUTO_SEARCH_DELAY_MS);
+    };
+    const onInput = (e: Event) => onPhone(e, false);
+    const onBlur = (e: Event) => onPhone(e, true);
+    form.addEventListener('input', onInput);
+    form.addEventListener('focusout', onBlur);
+    return () => {
+      form.removeEventListener('input', onInput);
+      form.removeEventListener('focusout', onBlur);
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+    };
+  }, []);
+
+  /** 收起「換一位客人」, 放掉手動清單, 用目前的收件電話重新自動找。 */
+  function backToShipPhone() {
+    setShowSearch(false);
+    ++searchSeq.current;
+    listSource.current = null;
+    lastAutoPhone.current = '';
+    setJustCreatedId(null);
+    setAutoLinkId(null);
+    setAutoResult(null);
+    setListSeq((n) => n + 1);
+    setCandidates(null);
+    setNotice(null);
+    const el = formOf()?.querySelector(`[name="${MANUAL_ORDER_SHIP_TO_PHONE_FIELD}"]`);
+    const phone = el instanceof HTMLInputElement ? digitsOf(el.value) : '';
+    if (phone.length >= AUTO_SEARCH_MIN_DIGITS_BLUR) {
+      lastAutoPhone.current = phone;
+      runSearch({ phone });
+    }
+  }
+
+  /** 收件人姓名與自動連結那位不同 ⇒ 提醒(一家人共用電話時, 不同名多半是不同人)。 */
+  const autoLinked = autoLinkId !== null ? candidates?.find((c) => c.userId === autoLinkId) ?? null : null;
+  const shipName = autoLinked
+    ? ((formOf()?.querySelector(`[name="${MANUAL_ORDER_SHIP_TO_NAME_FIELD}"]`) as HTMLInputElement | null)?.value ?? '').trim()
+    : '';
 
   // ⛔ ~~`const searchedAndEmpty = candidates !== null && candidates.length === 0;`~~
   //    2026-08-28 刪除(Sean `Q-建單1 ⇒ 乙`)。它是「建立客人」那一塊的渲染閘,
@@ -413,40 +558,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
   //    ⚠️ 刪它的同時要確認**沒有別的地方在用它**(這支檔內零命中;跨檔它是 local const、出不去)。
 
   return (
-    <fieldset ref={rootRef} className={MANUAL_SECTION} data-testid='manual-customer-picker'>
-      <legend className={MANUAL_SECTION_LEGEND}>客人</legend>
-
-      {/* 🔴 `type='button'` **只擋滑鼠**;鍵盤那半由 `onEnter` 擋(見上面那段)。兩個都要。 */}
-      <div className='flex flex-wrap items-end gap-2'>
-        {/* 🔴🔴 **這一格 2026-09-05 從「只吃電話」放寬**(`⟦b4-FINDCUSTOMERPHONE⟧`)——
-            而放寬的**不是後端**:`admin_search_customers` 本來就吃 name / email / phone 三軸,
-            是中間那一層先把查詢輾成數字(見 `manual-customer.ts` 的 `isPhoneLikeQuery`)。
-
-            ⚠️ **`inputMode` 也要跟著改, 而這一格差點被漏掉**:原本是 `'tel'`
-            ⇒ 手機上會叫出**數字鍵盤** ⇒ 📌 **員工在手機上根本打不出「王小明」** ——
-            那會讓「我們放寬了」這件事在最需要它的裝置上不成立, 而畫面上看不出來。 */}
-        <label className={MANUAL_FIELD_LABEL} htmlFor={phoneInputId}>
-          找客人(電話 / 姓名 / Email)
-          <input
-            id={phoneInputId}
-            name='customer_phone_lookup'
-            autoComplete='off'
-            onKeyDown={onEnter(runSearch)}
-            inputMode='text'
-            placeholder='電話 / 姓名 / Email'
-            className={`${MANUAL_FIELD_INPUT} w-56`}
-          />
-        </label>
-        <button
-          type='button'
-          onClick={runSearch}
-          disabled={pending}
-          className={MANUAL_SMALL_BUTTON}
-        >
-          {pending ? '找…' : '找客人'}
-        </button>
-      </div>
-
+    // 🔴 2026-10-01 從獨立的「客人」區塊改成收件電話下面的一小塊(Sean Q24 甲, 計畫第 2 節)⇒ 外層是 div 不是 fieldset。
+    <div ref={rootRef} className='space-y-2' data-testid='manual-customer-picker'>
       {notice && (
         <p
           role='status'
@@ -460,6 +573,29 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
           }
         >
           {notice.text}
+        </p>
+      )}
+
+      {autoResult !== null && (
+        <p role='status' data-testid='manual-customer-auto' className='text-sm'>
+          {autoResult.kind === 'one' && autoLinked
+            ? `收件電話是老客人「${autoLinked.name}」，已連結。`
+            : autoResult.kind === 'many'
+              ? `收件電話 ${autoResult.phone} 有 ${candidates?.length ?? 0} 位客人，請選一位。`
+              : `新客人：收件電話 ${autoResult.phone} 找不到客人。按「確認」送出訂單時，會用收件人姓名和這支電話建立客人帳號。`}
+        </p>
+      )}
+      {/* 「新客人, 送出時建立」的記號:沒有 name ⇒ 不會被送出;送出鈕與會員等級靠它知道「這張單有客人了」。
+          🔴 查詢壞掉時不畫:那時建不了客人(見 `searchBroken`), 送出鈕要維持灰的。 */}
+      {creatingNew ? (
+        <input type='hidden' data-new-customer-pending='1' data-creating='1' data-testid='manual-customer-new-pending' />
+      ) : (
+        autoResult?.kind === 'none' &&
+        searchBroken === null && <input type='hidden' data-new-customer-pending='1' data-testid='manual-customer-new-pending' />
+      )}
+      {autoLinked && shipName !== '' && shipName !== autoLinked.name && (
+        <p role='status' data-testid='manual-customer-auto-name-differs' className='text-sm text-amber-700'>
+          收件人「{shipName}」和這位客人的名字不同。如果訂購的不是「{autoLinked.name}」，請改選其他客人。
         </p>
       )}
 
@@ -498,7 +634,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                   //   ⇒ 改成:內容相符**只在「那位就是我們剛建的」時**才算免責。
                   //     其餘情況 ⇒ 非空就擋(fail-closed)。
                   {...(c.userId === justCreatedId ? { 'data-just-created': '1' } : {})}
-                  defaultChecked={c.userId === justCreatedId}
+                  {...(c.userId === autoLinkId ? { 'data-auto-linked': '1' } : {})}
+                  // 自動選起來的只有兩種:剛建好的那位、收件電話剛好對到的那一位(Sean 2026-10-01 Q24 甲)
+                  defaultChecked={c.userId === justCreatedId || c.userId === autoLinkId}
                 />
                 <span>
                   {/* 🔴 `||` 不是 `??`:`customers.phone` 可能是空字串(schema 沒有 `<> ''` 約束,
@@ -515,98 +653,85 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         </ul>
       )}
 
-      {/* 🔴🔴 **這一塊【無條件】渲染 —— 面板一打開它就在。**(2026-08-28 Sean `Q-建單1 ⇒ 乙`)
-          ⛔ ~~原本包在 `{searchedAndEmpty && (…)}` 裡~~ —— 而 `searchedAndEmpty` 的定義是
-             「搜過了 **而且** 一筆都沒搜到」⇒ **面板剛打開時它不在 DOM 裡。**
-          🔴 那正是 2026-08-28 Sean 回報的成因:他逐字說「直接輸入收件人資訊,但是還是無法建立訂單」
-             —— **他一個字都沒提到建立新客人, 因為他根本沒看到那個東西。**
-             他打完收件資料就去按送出,而送出鈕是灰的。
-          📌 形狀:**一顆「查無才長出來」的按鈕, 在【使用者不知道要先搜】時等於不存在**
-             —— 而它不會報錯,畫面上只是少了一塊。
-          ⚠️ 這也是 Sean 2026-08-27 逐字「我不要先搜尋客人才開始建立單」那條拍板的落地
-             —— 那條當時**沒有落到這一格**。 */}
-      <div className='space-y-2 rounded-md border p-3' data-testid='manual-order-new-customer'>
-        {/* 🔴 **文案不再說「這支電話找不到客人」** —— 那句話預設了「你已經搜過了」,
-            而現在這一塊在搜尋之前就在畫面上。 */}
-        {/* 2026-09-14 精簡(Sean):⛔ ~~找不到、或這是新客人?直接在這裡建一位,建好就會自動選起來。~~ ⇒ 一句。 */}
-        <p className='text-sm'>找不到就在這裡建一位。</p>
-        <div className='grid grid-cols-2 gap-2'>
-            <label className={MANUAL_FIELD_LABEL} htmlFor={newNameId}>
-              客人姓名
-              <input
-                id={newNameId}
-                name={MANUAL_CUSTOMER_NEW_NAME_FIELD}
-                // 🔴 nit3:無條件渲染之後,**瀏覽器 autofill 在載入時就填得進去**,
-                //    而它不發 `input`/`change` ⇒ 沒選人時那些字會被當成他要建的客人。
-                autoComplete='off'
-                onKeyDown={onEnter(() => runCreate())}
-                className='mt-1 block w-full rounded-md border px-2 py-1'
-              />
-            </label>
-            <label className={MANUAL_FIELD_LABEL} htmlFor={newPhoneId}>
-              電話
-              {/* 🔴 預填他剛剛搜的那支 —— 叫他把同一支電話再打一次,正是這一片要拿掉的動作。
-                  `key` 綁著它 ⇒ 換一個搜尋字串時這格會重新掛載並帶新的預設值。
-
-                  🔴🔴 **而 `key` 只綁到他【還沒自己打字】為止**(codex R1 must-fix,2026-08-28)。
-                  病(codex 構造出來的):走乙之後這一塊**一開始就在畫面上**
-                  ⇒ 員工可以**先**在這裡打新客人乙的電話,**再**去上面搜甲
-                  ⇒ 搜尋成功 ⇒ `searchedPhone` 變了 ⇒ **這一格重新掛載**
-                  ⇒ **乙的電話被無聲換成甲的,而姓名還是乙。**
-                  ⇒ 他按下「建立這位客人」⇒ 系統裡多出一位「乙 + 甲的電話」。
-                  📌 形狀:**這個 `key` 在舊形狀底下是安全的 —— 因為那時這一格
-                     【搜尋之後才存在】,不可能有他先打好的字。**
-                     ⇒ **拿掉那道渲染閘的同時,這個 `key` 的前提就沒了,而它沒有跟著改。**
-                     一個安全的設計,在它依賴的那個條件被拿掉之後,長得一模一樣。
-                  ⇒ 修法:他一開始打字就把 key 凍住 ⇒ 之後再怎麼搜都不會重新掛載。 */}
-              <input
-                key={searchedPhone}
-                id={newPhoneId}
-                name={MANUAL_CUSTOMER_NEW_PHONE_FIELD}
-                autoComplete='off'
-                onKeyDown={onEnter(() => runCreate())}
-                onChange={() => {
-                  createPhoneDirty.current = true;
-                }}
-                defaultValue={searchedPhone}
-                inputMode='tel'
-                className='mt-1 block w-full rounded-md border px-2 py-1'
-              />
-          </label>
-        </div>
+      {autoResult?.kind === 'many' && (
         <button
           type='button'
-          onClick={() => runCreate()}
-          disabled={pending || searchBroken !== null}
-          className='rounded-md border px-3 py-1 text-sm disabled:opacity-50'
+          onClick={() => {
+            // 都不是 ⇒ 收掉這份清單(沒有人被選), 改成「新客人, 送出時建立」
+            setAutoLinkId(null);
+            setListSeq((n) => n + 1);
+            setCandidates([]);
+            setAutoResult({ phone: autoResult.phone, kind: 'none' });
+          }}
+          className={MANUAL_SMALL_BUTTON}
+          data-testid='manual-customer-auto-none-of-these'
         >
-          {pending ? '建立中…' : '建立這位客人'}
+          都不是，建立新客人
         </button>
-        {searchBroken !== null && (
-          // 🔴 **一種原因一句話,而且【不與上面那個 notice 打架】。**
-          //    `denied` 那句刻意**短**:上面的 notice 已經把該說的說完了,
-          //    而我這一句若又長又紅,**它會蓋過正確的那一句**(2026-08-28 真瀏覽器量到的正是這個)。
-          //    ⇒ 它只補一件 notice 沒說的事:**現在連「建一位」也不行**,並指向同一個動作。
-          <p role='status' data-testid='manual-order-new-customer-blocked' className='text-sm text-destructive'>
-            {searchBroken === 'denied' ? (
-              <>
-                登入過期的時候也<strong>建不了</strong>客人。請先重新登入,再回來建。
-              </>
-            ) : (
-              <>
-                客戶查詢<strong>失敗</strong>，目前無法確認是否已有帳號，請先重新查詢。
-                重複建立的帳號無法刪除，也可能讓客戶登入原帳號後看不到這筆訂單。
-              </>
-            )}
-          </p>
-        )}
-        {/* 🔴 ~~原句「地址在下面的『收件資料』填就好,這裡不用。」~~ 2026-08-28 換掉。
-            它在乙底下讀起來像「客人不需要地址」,而真相是**客人的地址簿存在而沒有人在寫**
-            (`customer_addresses`,見 `lib/orders/manual-order-form.ts` 那段訂正)。
-            新句改成**指向那顆「同上」** —— 它要告訴他下一步按哪裡,不是解釋一個設計。 */}
-        {/* ⛔ ~~地址填在下面的「收件資料」;那一塊有一顆「同上」,可以把這裡的姓名電話帶過去。~~ 2026-09-14 拿掉:
-            「同上」那顆鈕自己就在收件區, 看得到就懂, 不用一句話指路。 */}
-      </div>
-    </fieldset>
+      )}
+      {/* 「換一位客人」:訂購人和收件人不同時(朋友代訂、寄公司)用電話 / 姓名 / Email 另外找。
+          找到並選了之後, 收件電話再改也不會換人(`listSource === 'manual'`)。 */}
+      {showSearch ? (
+        <div className='space-y-1 rounded-md border border-dashed p-2' data-testid='manual-customer-search'>
+          {/* 🔴 `type='button'` **只擋滑鼠**;鍵盤那半由 `onEnter` 擋(見上面那段)。兩個都要。 */}
+          <div className='flex flex-wrap items-end gap-2'>
+            {/* 🔴🔴 **這一格 2026-09-05 從「只吃電話」放寬**(`⟦b4-FINDCUSTOMERPHONE⟧`)——
+                而放寬的**不是後端**:`admin_search_customers` 本來就吃 name / email / phone 三軸,
+                是中間那一層先把查詢輾成數字(見 `manual-customer.ts` 的 `isPhoneLikeQuery`)。
+
+                ⚠️ **`inputMode` 也要跟著改, 而這一格差點被漏掉**:原本是 `'tel'`
+                ⇒ 手機上會叫出**數字鍵盤** ⇒ 📌 **員工在手機上根本打不出「王小明」** ——
+                那會讓「我們放寬了」這件事在最需要它的裝置上不成立, 而畫面上看不出來。 */}
+            <label className={MANUAL_FIELD_LABEL} htmlFor={phoneInputId}>
+              找客人(電話 / 姓名 / Email)
+              <input
+                id={phoneInputId}
+                name='customer_phone_lookup'
+                autoComplete='off'
+                onKeyDown={onEnter(runSearch)}
+                inputMode='text'
+                placeholder='電話 / 姓名 / Email'
+                className={`${MANUAL_FIELD_INPUT} w-56`}
+              />
+            </label>
+            <button
+              type='button'
+              onClick={() => runSearch()}
+              disabled={pending}
+              className={MANUAL_SMALL_BUTTON}
+            >
+              {pending ? '找…' : '找客人'}
+            </button>
+          </div>
+          <p className='text-muted-foreground text-xs'>收件資料不會變，只換這張單掛在哪位客人底下。</p>
+          {/* 手動找不到人、或改變主意 ⇒ 回到用收件電話自動找(找不到就是「新客人, 送出時建立」)。Fable 4b R1 建議 1 */}
+          <button type='button' onClick={backToShipPhone} className={MANUAL_SMALL_BUTTON} data-testid='manual-customer-back-to-auto'>
+            改用收件電話找客人
+          </button>
+        </div>
+      ) : (
+        <button type='button' onClick={() => setShowSearch(true)} className='text-xs text-primary underline' data-testid='manual-customer-change'>
+          換一位客人
+        </button>
+      )}
+      {searchBroken !== null && (
+        // 🔴 **一種原因一句話,而且【不與上面那個 notice 打架】。**
+        //    `denied` 那句刻意**短**:上面的 notice 已經把該說的說完了,
+        //    而我這一句若又長又紅,**它會蓋過正確的那一句**(2026-08-28 真瀏覽器量到的正是這個)。
+        //    ⇒ 它只補一件 notice 沒說的事:**現在連「建一位」也不行**,並指向同一個動作。
+        <p role='status' data-testid='manual-order-new-customer-blocked' className='text-sm text-destructive'>
+          {searchBroken === 'denied' ? (
+            <>
+              登入過期的時候也<strong>建不了</strong>客人。請先重新登入,再回來建。
+            </>
+          ) : (
+            <>
+              客戶查詢<strong>失敗</strong>，目前無法確認是否已有帳號，請先重新查詢。
+              重複建立的帳號無法刪除，也可能讓客戶登入原帳號後看不到這筆訂單。
+            </>
+          )}
+        </p>
+      )}
+    </div>
   );
 }

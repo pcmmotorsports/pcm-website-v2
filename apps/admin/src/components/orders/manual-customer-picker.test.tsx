@@ -20,6 +20,7 @@ vi.mock('@/lib/customers/manual-order-address-actions', () => ({
 }));
 
 import { ManualCustomerPicker } from './manual-customer-picker';
+import { requestManualCustomerCreate } from '@/lib/orders/manual-customer-create-request';
 import { ManualOrderFormBody } from './manual-order-form-body';
 
 const CUSTOMER_KEY = '33333333-3333-4333-8333-333333333333';
@@ -39,10 +40,43 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-async function search(phone = '0912345678') {
-  fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: phone } });
+/** 「找客人」收在「換一位客人」裡(2026-10-01, Sean Q24 甲)⇒ 要用之前先打開。 */
+function openSearch() {
+  const toggle = screen.queryByTestId('manual-customer-change');
+  if (toggle) fireEvent.click(toggle);
+}
+function searchBox() {
+  openSearch();
+  return screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+}
+function searchBtn() {
+  openSearch();
+  return screen.getByRole('button', { name: '找客人' });
+}
+/** 客人那一塊放在一張表單裡(它靠所在的表單收「建立客人」的事件)。 */
+function renderPicker() {
+  return render(
+    <form data-testid='f'>
+      <ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />
+    </form>,
+  );
+}
+/**
+ * 建立新客人(2026-10-01 起唯一的入口:按「確認」時用收件人姓名電話建立, Sean Q24 甲)。
+ * 🔴 走的是真的事件契約(`requestManualCustomerCreate`), 與「確認」鈕送出的是同一個事件。
+ */
+async function requestCreate(name: string, phone = '0900000999') {
+  let accepted = false;
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: '找客人' }));
+    accepted = requestManualCustomerCreate(document.querySelector('form'), { name, phone });
+  });
+  return accepted;
+}
+
+async function search(phone = '0912345678') {
+  fireEvent.change(searchBox(), { target: { value: phone } });
+  await act(async () => {
+    fireEvent.click(searchBtn());
   });
 }
 
@@ -120,7 +154,7 @@ describe('🔴🔴 A-1:就地搜尋【不得】清掉已經填好的值', () => 
 // ── 🔴🔴 A-3 · 顯示的客人 = 送出的客人 ────────────────────────────────────────────────
 describe('🔴🔴 A-3:選中的客人由【原生 radio】承載, 沒有第二份真相', () => {
   it('候選畫成 radio, name 就是 RPC 收的那一格', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     mocks.search.mockResolvedValue(found(hit(USER_A, '王小明'), hit(USER_B, '李小華')));
     await search();
     const radios = Array.from(
@@ -130,7 +164,7 @@ describe('🔴🔴 A-3:選中的客人由【原生 radio】承載, 沒有第二�
   });
 
   it('🔴 再搜一次而新清單裡沒有他 ⇒ 畫面上沒有任何一顆是選中的(不得留一個看不見的舊選擇)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
     await search();
     fireEvent.click(document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement);
@@ -146,38 +180,22 @@ describe('🔴🔴 A-3:選中的客人由【原生 radio】承載, 沒有第二�
 });
 
 // ── 🔴🔴 查無 ⇒ 就地建 ───────────────────────────────────────────────────────────────
-describe('🔴🔴 查無客人 ⇒ 就地建, 建完自動選起來', () => {
-  async function searchEmptyThenCreate() {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    mocks.search.mockResolvedValue(found());
-    await search('0900000999');
-    fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '新客人' } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
-    });
-  }
-
-  it('查無 ⇒ 出現就地新增那一塊, 而電話已經預填', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    await search('0900000999');
-    expect(await screen.findByTestId('manual-order-new-customer')).toBeTruthy();
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0900000999');
-  });
-
+describe('🔴🔴 新客人:用收件人姓名電話建立, 建完自動選起來', () => {
   it('🔴 那句死路文案不得再出現(它指到一個沒有那顆按鈕的頁面)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search('0900000999');
     expect(screen.queryByText(/請先到【客人】頁建立這位客人/)).toBeNull();
   });
 
-  it('🔴 建好之後【自動選起來】—— 員工不必再按一次「找客人」', async () => {
+  it('🔴 建好之後【自動選起來】', async () => {
     mocks.create.mockResolvedValue({
       ok: true,
       idempotent: false,
       outcome: 'created',
       candidate: { userId: USER_A, name: '新客人', phone: '0900000999', isManual: true },
     });
-    await searchEmptyThenCreate();
+    renderPicker();
+    await requestCreate('新客人');
     await waitFor(() => {
       const radio = document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement | null;
       expect(radio?.checked).toBe(true);
@@ -191,10 +209,9 @@ describe('🔴🔴 查無客人 ⇒ 就地建, 建完自動選起來', () => {
       outcome: 'created',
       candidate: { userId: USER_A, name: '新客人', phone: '0900000999', isManual: true },
     });
-    await searchEmptyThenCreate();
-    expect(mocks.create).toHaveBeenCalledWith(
-      expect.objectContaining({ requestId: CUSTOMER_KEY }),
-    );
+    renderPicker();
+    await requestCreate('新客人');
+    expect(mocks.create).toHaveBeenCalledWith({ name: '新客人', phone: '0900000999', requestId: CUSTOMER_KEY });
   });
 
   it('🔴 建失敗 ⇒ 把那一層的訊息原樣印出來, 而【不得】自動選任何人', async () => {
@@ -203,65 +220,55 @@ describe('🔴🔴 查無客人 ⇒ 就地建, 建完自動選起來', () => {
       reason: 'invalid_phone',
       message: '請填寫完整的聯絡電話(至少 8 個數字)',
     });
-    await searchEmptyThenCreate();
-    expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain(
-      '請填寫完整的聯絡電話',
-    );
+    renderPicker();
+    await requestCreate('新客人');
+    expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain('請填寫完整的聯絡電話');
     expect(document.querySelectorAll('input[name="customer_user_id"]').length).toBe(0);
+  });
+
+  it('🔴 客人那一塊不在表單裡 ⇒ 沒有人接手, 派發端拿到 false(不得謊報成功)', async () => {
+    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    expect(await requestCreate('新客人')).toBe(false);
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 });
 
 // ── 🔴 兩種「沒有」不得印同一句 ──────────────────────────────────────────────────────
 describe('🔴 查【壞了】與查【無】不得印同一個畫面', () => {
-  // ⛔ ~~原本這一格比的是「查壞了 ⇒ 就地新增那一塊【不出現】」~~
-  // 🔴🔴 **2026-08-28 走乙之後那個比法失效了,而它失效的方式很安靜**:
-  //    乙把那一塊改成**無條件渲染** ⇒ 「它不在」這個斷言**永遠不成立**
-  //    ⇒ 如果只是把斷言刪掉,**那道保護就沒有了,而測試檔會變得更綠。**
-  //    📌 **一道保護原本是另一個功能的副作用時, 拿掉那個功能不會有任何東西變紅。**
-  //    ⇒ 保護本身改成明寫的 `searchBroken` state,而本族改成比**那顆鈕能不能按**。
-  it('查壞了 ⇒ 出錯誤訊息, 而且建立那顆鈕【按不下去】+ 說出為什麼(他建下去會開出第二個帳號)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+  // 🔴 保護本身是明寫的 `searchBroken` state(不是「某個區塊沒畫出來」的副作用)。
+  //    2026-10-01 建立區拿掉之後, 本族改成比【建立有沒有真的被擋下來】(mocks.create 有沒有被叫到)。
+  it('查壞了 ⇒ 出錯誤訊息, 而且建不了客人 + 說出為什麼(他建下去會開出第二個帳號)', async () => {
+    renderPicker();
     mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
     await search();
-    expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain(
-      '目前無法確認是否已有帳號',
-    );
-    // 🔴 區塊**還在**(乙),而**鈕是灰的**。
-    expect(screen.getByTestId('manual-order-new-customer')).toBeTruthy();
-    const btn = screen.getByRole('button', { name: '建立這位客人' });
-    expect(btn.matches(':disabled')).toBe(true);
+    expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain('目前無法確認是否已有帳號');
     expect(screen.getByTestId('manual-order-new-customer-blocked').textContent).toContain('目前無法確認是否已有帳號');
+    await requestCreate('新客人');
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
-  // ── 🔴🔴 2026-08-28 真瀏覽器抓到的那一條(jsdom 綠、codex 兩輪都沒抓到)──────────────
-  //  現象:登入過期時畫面同時出現兩句話, 而我加的那句【更長更紅, 說的卻是錯的故事】。
-  //  成因(可以數的):會觸發那道閘的三個 reason 裡, **`denied` 從來沒有被餵過**
-  //  —— 本檔在這一格之前 `'denied'` 出現 0 次。
-  //  📌 **我的測試分母由【我想得到的情境】決定, 而 bug 的分母由【那道判斷式收得下哪些值】決定。**
-  //  ⇒ 這一族驗的是**文案**, 不是「鈕有沒有鎖」—— **鎖是對的, 錯的是話。**
   it('🔴🔴 登入過期 ⇒ 那句話要叫他【重新登入】, 不得叫他「再找一次」', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     mocks.search.mockResolvedValue({ ok: false, reason: 'denied' });
     await search();
-    const blocked = await screen.findByTestId('manual-order-new-customer-blocked');
-    const t = blocked.textContent ?? '';
-    // 正面:指向正確的動作
+    const t = (await screen.findByTestId('manual-order-new-customer-blocked')).textContent ?? '';
     expect(t).toContain('重新登入');
-    // 🔴 反面:不得說「查詢壞掉」那個故事, 也不得叫他再找一次
     expect(t).not.toContain('壞掉');
     expect(t).not.toContain('請先再找一次');
     expect(t).not.toContain('無法確認是否已有帳號');
   });
 
-  it('🔴 登入過期【也要】鎖住建立鈕(話錯了不代表鎖錯了 —— 兩件事分開驗)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+  it('🔴 登入過期【也要】擋住建立(話錯了不代表鎖錯了 —— 兩件事分開驗)', async () => {
+    renderPicker();
     mocks.search.mockResolvedValue({ ok: false, reason: 'denied' });
     await search();
-    expect(screen.getByRole('button', { name: '建立這位客人' }).matches(':disabled')).toBe(true);
+    await requestCreate('新客人');
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('重新登入');
   });
 
-  it('🔴 對照組:查詢【真的壞了】仍然說重複帳號那個故事(不然上面那格會把兩種都改成登入)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+  it('🔴 對照組:查詢【真的壞了】仍然說重複帳號那個故事', async () => {
+    renderPicker();
     mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
     await search();
     const t = (await screen.findByTestId('manual-order-new-customer-blocked')).textContent ?? '';
@@ -269,35 +276,41 @@ describe('🔴 查【壞了】與查【無】不得印同一個畫面', () => {
     expect(t).not.toContain('重新登入');
   });
 
-  it('🔴 對照組:真的查無 ⇒ 同一顆鈕【按得下去】(不然上面那格恆綠)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+  it('🔴 對照組:真的查無 ⇒ 建得下去(不然上面那幾格恆綠)', async () => {
+    renderPicker();
     mocks.search.mockResolvedValue(found());
     await search();
-    expect(await screen.findByTestId('manual-order-new-customer')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '建立這位客人' }).matches(':disabled')).toBe(false);
     expect(screen.queryByTestId('manual-order-new-customer-blocked')).toBeNull();
+    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: 'x' });
+    await requestCreate('新客人');
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 
-  it('🔴 第二對照組:電話打太短【不算】查壞了 ⇒ 鈕仍然按得下去', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+  it('🔴 第二對照組:電話打太短【不算】查壞了 ⇒ 仍然建得下去', async () => {
+    renderPicker();
     mocks.search.mockResolvedValue({ ok: false, reason: 'too_short' });
     await search();
     expect(await screen.findByTestId('manual-customer-picker-notice')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '建立這位客人' }).matches(':disabled')).toBe(false);
+    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: 'x' });
+    await requestCreate('新客人');
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 
-  it('🔴 查壞了之後再找一次而這次成功 ⇒ 鈕解鎖(不然一次網路抖動就鎖死整個下午)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+  it('🔴 查壞了之後再找一次而這次成功 ⇒ 解鎖(不然一次網路抖動就鎖死整個下午)', async () => {
+    renderPicker();
     mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
     await search();
-    expect(screen.getByRole('button', { name: '建立這位客人' }).matches(':disabled')).toBe(true);
+    await requestCreate('新客人');
+    expect(mocks.create).not.toHaveBeenCalled();
     mocks.search.mockResolvedValue(found());
     await search();
-    expect(screen.getByRole('button', { name: '建立這位客人' }).matches(':disabled')).toBe(false);
+    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: 'x' });
+    await requestCreate('新客人');
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 
   it('🔴 還沒搜過 ⇒ 候選清單不出(不然「查無」那格在一進畫面就成立)', () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     expect(screen.queryByTestId('manual-customer-candidates')).toBeNull();
   });
 });
@@ -313,8 +326,8 @@ describe('🔴🔴 R4-MF1:在這一塊按 Enter,不得送出整張訂單', () =>
   //    ⇒ 本族量的是那道守門的**機制**:Enter 這一發有沒有被 `preventDefault()`、有沒有改跑搜尋。
   //    🔴 真瀏覽器那一格是**分開的一發**(驗收條 A-1b),**本族綠不代表那一格綠。**
   it('Enter 被擋下來(事件 cancelled),而且改跑「找客人」', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    renderPicker();
+    const input = searchBox();
     fireEvent.change(input, { target: { value: '0912345678' } });
 
     // `fireEvent` 回 false = 這一發被 `preventDefault()` 掉了 = 瀏覽器不會拿它去送表單。
@@ -327,8 +340,8 @@ describe('🔴🔴 R4-MF1:在這一塊按 Enter,不得送出整張訂單', () =>
   });
 
   it('🔴 對照組:按【別的鍵】不擋、也不查(不然這道閘就是恆擋、量不出判別力)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    renderPicker();
+    const input = searchBox();
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'a' });
@@ -336,23 +349,7 @@ describe('🔴🔴 R4-MF1:在這一塊按 Enter,不得送出整張訂單', () =>
     expect(cancelled).toBe(false);
     expect(mocks.search).not.toHaveBeenCalled();
   });
-
-  it('新增客人那兩格按 Enter ⇒ 跑「建立這位客人」,不是跑搜尋、更不是送單', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    await search();
-    fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-    mocks.create.mockResolvedValue({
-      ok: true,
-      idempotent: false,
-      candidate: hit(USER_A, '王小明'),
-    });
-    let cancelled = false;
-    await act(async () => {
-      cancelled = !fireEvent.keyDown(screen.getByLabelText('客人姓名'), { key: 'Enter' });
-    });
-    expect(cancelled).toBe(true);
-    expect(mocks.create).toHaveBeenCalledTimes(1);
-  });
+  // ⛔ 2026-10-01 拿掉「新增客人那兩格按 Enter」那一格:那兩格已經不存在(新客人改成按「確認」時建立)。
 });
 
 describe('🔴🔴 R4-MF3:action 自己 throw(不是回 ok:false)時,不得炸掉整塊', () => {
@@ -362,20 +359,17 @@ describe('🔴🔴 R4-MF3:action 自己 throw(不是回 ok:false)時,不得炸�
   //    ⇒ 這一片要修的病,可以**完全不經過導頁**發生。
   it('搜尋 throw ⇒ 出一句「連不上」,而元件還在', async () => {
     mocks.search.mockRejectedValue(new Error('boom'));
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
     expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('無法連線');
-    expect(screen.getByLabelText('找客人(電話 / 姓名 / Email)')).toBeTruthy();
+    expect(searchBox()).toBeTruthy();
   });
 
   it('建客人 throw ⇒ 文案必須叫他【請勿重複建立】(帳號可能已經建出來了)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
     mocks.create.mockRejectedValue(new Error('boom'));
-    fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
-    });
+    await requestCreate('王小明');
     const text = screen.getByTestId('manual-customer-picker-notice').textContent ?? '';
     expect(text).toContain('請勿重複建立');
     // 🔴 負向:**不得**出現叫他重建的話 —— 那正是 R1 抓到過的那個錯,不要換個地方復發。
@@ -417,10 +411,7 @@ describe('🔴🔴 R4-MF8:用【真的 FormData】驗,不是比 radio 的 value 
     renderInForm();
     await search();
     mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '王小明') });
-    fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
-    });
+    await requestCreate('王小明');
     const form = screen.getByTestId('f') as HTMLFormElement;
     expect((screen.getByRole('radio') as HTMLInputElement).checked).toBe(true);
     expect(new FormData(form).get('customer_user_id')).toBe(USER_A);
@@ -437,7 +428,8 @@ describe('🔴🔴 R4-MF6:沒有員工時,這一塊也要跟著停用', () => {
   //    📌 一把量錯的尺,在這裡印的是**紅**;而同一種錯在別的方向會印綠 —— 這次運氣好。
   const canPress = (name: string) => !screen.getByRole('button', { name }).matches(':disabled');
 
-  it('員工名單是空的 ⇒ 找客人那顆按不下去', () => {
+  // 2026-10-01:「找客人」收在「換一位客人」裡 ⇒ 量的是那顆入口按不按得下去
+  it('員工名單是空的 ⇒ 換一位客人那顆按不下去', () => {
     render(
       <ManualOrderFormBody
         manualRequestId={ORDER_KEY}
@@ -446,7 +438,7 @@ describe('🔴🔴 R4-MF6:沒有員工時,這一塊也要跟著停用', () => {
         staffLoadFailed={false}
       />,
     );
-    expect(canPress('找客人')).toBe(false);
+    expect(canPress('換一位客人')).toBe(false);
   });
 
   it('🔴 對照組:有員工 ⇒ 同一顆是可以按的(不然上面那格恆綠)', () => {
@@ -458,103 +450,14 @@ describe('🔴🔴 R4-MF6:沒有員工時,這一塊也要跟著停用', () => {
         staffLoadFailed={false}
       />,
     );
-    expect(canPress('找客人')).toBe(true);
+    expect(canPress('換一位客人')).toBe(true);
   });
 });
 
-describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI 形狀,【不是】重複帳號的守門)', () => {
-  // ⛔ ~~🔴 R4-MF5 擋在【搜尋這道閘】—— 要走到建立那顆鈕,必須先搜一次而且查無~~
-  // 🔴🔴 **那個降級 2026-08-28 被 codex R5 推翻,而它是對的 ⇒ 本族不再宣稱它解掉了 MF5。**
-  //   反例:員工搜 `0912345677`(**打錯一碼**)⇒ 查無 ⇒ 建立區塊出現
-  //   ⇒ 而**建立區塊裡的電話欄是可以改的** ⇒ 他改回正確的號碼 ⇒ 建出第二個帳號。
-  //   📌 **我以為那道閘看的與這一步用的是同一個值 —— 而它們是兩個欄位。**
-  //      「先搜再建」讀起來像一條管線,實際上是**兩個獨立輸入**。
-  //   ⇒ 真正擋重複帳號的那一道搬到 server:`manual-customer-actions.ts` 建立之前的預檢
-  //     (用**真正要建的那支電話**再查一次;測試在 `manual-customer-actions.test.ts`)。
-  // ⛔ ~~原本三格比的是「沒搜過 / 搜到人 ⇒ 建立區塊【不出現】」~~
-  // 🔴🔴 **2026-08-28 Sean `Q-建單1 ⇒ 乙` 把那道閘整個拿掉了 ⇒ 三格全部反過來。**
-  //    乙的字面:「分開兩塊, 而【客人】那塊**一開始就在畫面上**(不用先搜)」。
-  //    成因(他 2026-08-28 逐字回報):「直接輸入收件人資訊,但是還是無法建立訂單」
-  //    —— 他**一個字都沒提到建立新客人, 因為那一塊當時不在畫面上**。
-  //    📌 **一顆「查無才長出來」的按鈕, 對【不知道要先搜】的人等於不存在**
-  //       —— 而它不會報錯,畫面上只是少了一塊。
-  it('🔴 面板一打開、什麼都還沒做 ⇒ 建立客人那一區塊【就在】', () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    expect(screen.getByTestId('manual-order-new-customer')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '建立這位客人' })).toBeTruthy();
-  });
-
-  it('🔴 搜到了人 ⇒ 建立區塊【仍然在】(他要建的可能是別人)', async () => {
-    mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    await search();
-    expect(screen.getByTestId('manual-order-new-customer')).toBeTruthy();
-    // 對照:候選清單也在 ⇒ 兩條路同時在畫面上,而**送出去的值只有 radio**
-    //(那兩格不進 `parseManualOrderForm()`;打了字沒按建立 ⇒ 沒有 radio ⇒ 送出鈕維持灰的)。
-    expect(screen.getByTestId('manual-customer-candidates')).toBeTruthy();
-  });
-
-  // ── codex R1 must-fix 折回來的兩族(2026-08-28)────────────────────────────────────
-  it('🔴🔴 先打好新客人的電話 ⇒ 再去搜別人 ⇒ 那格【不得】被無聲換掉', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    // 走乙之後這一塊一開始就在 ⇒ 員工可以【先】在這裡打字,【再】去上面搜。
-    fireEvent.change(screen.getByLabelText('電話'), { target: { value: '0955000111' } });
-    fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '新客人乙' } });
-    mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-    await search('0912345678');
-    // 🔴 `key={searchedPhone}` 會在這一刻重新掛載那一格 ⇒ 乙的電話被換成甲的搜尋字串,
-    //    而姓名還是乙 ⇒ 他按建立 ⇒ 系統裡多一位「乙 + 甲的電話」。
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0955000111');
-    expect((screen.getByLabelText('客人姓名') as HTMLInputElement).value).toBe('新客人乙');
-  });
-
-  it('🔴 對照組:【沒有】自己打過字時, 搜尋仍然要把電話預填進去(不然上面那格是靠壞掉的預填過的)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    await search('0900000999');
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0900000999');
-  });
-
-  // ── 🔴🔴 Fable R3 must-fix 兩族(2026-08-28)────────────────────────────────────────
-  //  📌 兩條都不是新 bug, 是同一句話的第 3、4 個實例:
-  //     **拿掉那道渲染閘之後,「什麼時候該自動幫他做事」整組前提都變了 ——**
-  //     **而那些前提從來沒有寫在任何地方。**
-  describe('🔴🔴 R3-MF1:部分號碼搜尋(官方支援 3 碼起)不得把假衝突鎖進主線', () => {
-    it('搜【後四碼】命中 ⇒ 建立區電話格【不得】被預填成那四碼', async () => {
-      mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-      await search('5678');
-      // 舊碼會把 '5678' 填進去 ⇒ 選甲之後 hasConflict 拿 5678 比 0912345678 ⇒ 送出鈕鎖死,
-      // 而那格字【不是他打的】。
-      expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('');
-    });
-
-    it('🔴 而【先查無留下的舊預填】也要被清掉(「命中就不預填」不夠, 那是兩件事)', async () => {
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-      mocks.search.mockResolvedValue(found());
-      await search('5678');
-      expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('5678');
-      // 再搜一次完整號碼, 這次命中
-      mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-      await search('0912345678');
-      expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('');
-    });
-
-    it('🔴 對照組:查無時仍然要預填(不然上面兩格是靠「永遠不預填」過的)', async () => {
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-      mocks.search.mockResolvedValue(found());
-      await search('0900000999');
-      expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0900000999');
-    });
-
-    it('🔴 第二對照組:他自己打過字 ⇒ 命中也不准清掉他的字', async () => {
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-      fireEvent.change(screen.getByLabelText('電話'), { target: { value: '0955000111' } });
-      mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-      await search('0912345678');
-      expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0955000111');
-    });
-  });
-
+describe('🔴 客人清單與建立的保護(2026-10-01 前住在「建立區塊無條件渲染」那一族)', () => {
+  // ⛔ 拿掉的:建立區塊的形狀、電話預填(R3-MF1)、dirty 換表單(R4-nit)、建立區文案 ——
+  //    建立新客人那兩格已經拿掉(Sean 2026-10-01 Q24 甲), 那些格子守的東西不存在了。
+  //    留下的是【清單與選取】的保護, 改走真的建立事件(`requestCreate`)。
   describe('🔴🔴 R3-MF2:建立成功之後再搜一次, 那位【不得】被無聲勾回來', () => {
     it('建立甲 ⇒ 改搜別的號碼而清單含甲 ⇒ 甲不得被自動選起來', async () => {
       mocks.create.mockResolvedValue({
@@ -563,13 +466,10 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
         outcome: 'created',
         candidate: { userId: USER_A, name: '甲', phone: '0912345678', isManual: true },
       });
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+      renderPicker();
       mocks.search.mockResolvedValue(found());
       await search('0912345678');
-      fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '甲' } });
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
-      });
+      await requestCreate('甲');
       await waitFor(() => {
         expect((document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement).checked).toBe(true);
       });
@@ -586,13 +486,10 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
         outcome: 'created',
         candidate: { userId: USER_B, name: '乙', phone: '0955000111', isManual: true },
       });
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+      renderPicker();
       mocks.search.mockResolvedValue(found());
       await search('0955000111');
-      fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '乙' } });
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
-      });
+      await requestCreate('乙');
       await waitFor(() => {
         expect((document.querySelector(`input[value="${USER_B}"]`) as HTMLInputElement).checked).toBe(true);
       });
@@ -602,7 +499,7 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
   describe('🔴🔴 R4-MF1:搜尋【拋出】時, 舊清單與舊選取也要清掉', () => {
     it('選了甲 ⇒ 改搜而 action throw ⇒ 清單消失、沒有任何一顆是選中的', async () => {
       mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+      renderPicker();
       await search('0912345678');
       fireEvent.click(document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement);
       expect(document.querySelectorAll('input[name="customer_user_id"]:checked').length).toBe(1);
@@ -614,7 +511,7 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
     });
 
     it('🔴 對照組:throw 那句「已填寫的表單內容仍保留」仍然要出(它講的是【表單欄位】不是【客人選取】)', async () => {
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+      renderPicker();
       mocks.search.mockRejectedValue(new Error('boom'));
       await search('0912345678');
       expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain(
@@ -631,13 +528,10 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
         outcome: 'created',
         candidate: { userId: USER_A, name: '甲', phone: '0912345678', isManual: true },
       });
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+      renderPicker();
       mocks.search.mockResolvedValue(found());
       await search('0912345678');
-      fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '甲' } });
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
-      });
+      await requestCreate('甲');
       await waitFor(() => {
         expect(
           (document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement).dataset.justCreated,
@@ -652,24 +546,10 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
     });
   });
 
-  it('🔴 R4-nit:換一張表單 ⇒ dirty 放掉, 查無時要能再預填(MU10 量到這一格原本無人守)', async () => {
-    const { rerender } = render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    // 表單 A:他打過字再清空 ⇒ ref 變 true 且【永不回頭】
-    fireEvent.change(screen.getByLabelText('電話'), { target: { value: '0955000111' } });
-    fireEvent.change(screen.getByLabelText('電話'), { target: { value: '' } });
-    mocks.search.mockResolvedValue(found());
-    await search('0900000999');
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('');
-    // 🔴 換一張表單(新的冪等鍵)⇒ 預填的權力要回來
-    rerender(<ManualCustomerPicker customerRequestId={'44444444-4444-4444-8444-444444444444'} />);
-    await search('0900000888');
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0900000888');
-  });
-
   describe('🔴 R3-nit1:一次手誤的 too_short 不得把已搜到的清單丟掉', () => {
     it('搜到人 ⇒ 少打一碼再按 ⇒ 清單還在', async () => {
       mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+      renderPicker();
       await search('0912345678');
       expect(screen.getByTestId('manual-customer-candidates')).toBeTruthy();
       mocks.search.mockResolvedValue({ ok: false, reason: 'too_short' });
@@ -679,7 +559,7 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
 
     it('🔴 對照組:denied / error 仍然要清掉(那兩種底下舊清單準不準答不出來 ⇒ fail-closed)', async () => {
       mocks.search.mockResolvedValue(found(hit(USER_A, '甲')));
-      render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+      renderPicker();
       await search('0912345678');
       mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
       await search('0912345678');
@@ -687,9 +567,9 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
     });
   });
 
-  it('🔴 每一顆候選 radio 都帶著姓名與電話(收件那塊的「同上」靠它)', async () => {
+  it('🔴 每一顆候選 radio 都帶著姓名與電話(收件那塊從地址簿帶入、名字不同的提醒靠它)', async () => {
     mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
     const radio = document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement;
     expect(radio.dataset.customerName).toBe('王小明');
@@ -698,19 +578,10 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
 
   it('🔴 負對照:那兩個 data 屬性不是憑空存在的(拿一個不存在的屬性名 ⇒ undefined)', async () => {
     mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
     const radio = document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement;
     expect(radio.dataset.customerNopeZzz).toBeUndefined();
-  });
-
-  it('🔴 負對照:那句文案不得再假設「你已經搜過了」', () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const block = screen.getByTestId('manual-order-new-customer');
-    // 正面:它現在講的是「找不到就在這裡建一位」(2026-09-14 Sean「精簡扼要」⇒ 一句;⛔ ~~直接在這裡建一位~~)
-    expect(block.textContent).toContain('找不到就在這裡建一位');
-    // 反面:舊句預設了一次搜尋已經發生過(而現在它在搜尋之前就在畫面上)
-    expect(block.textContent).not.toContain('這支電話找不到客人');
   });
 });
 
@@ -719,28 +590,15 @@ describe('🔴 乙:建立客人那一塊【無條件】在畫面上(這是 UI �
 //     而它構造出反例 —— **建立區塊裡的電話欄是可以改的** ⇒ 搜的與建的不是同一個值。
 //     ⇒ 判別句:**「先搜再建」讀起來像一條管線,實際上是兩個獨立輸入。**
 
-describe('🔴 R5-F5:新增客人那【兩】格都要接 Enter(上一輪只測了姓名那格)', () => {
-  it('電話那格按 Enter ⇒ 也跑建立(拿掉它的 onKeyDown,只有這一格會紅)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    await search();
-    fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-    mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '王小明') });
-    let cancelled = false;
-    await act(async () => {
-      cancelled = !fireEvent.keyDown(screen.getByLabelText('電話'), { key: 'Enter' });
-    });
-    expect(cancelled).toBe(true);
-    expect(mocks.create).toHaveBeenCalledTimes(1);
-  });
-});
+// ⛔ 2026-10-01 拿掉 R5-F5(新增客人那兩格的 Enter):那兩格已經不存在。
 
 describe('🔴🔴 R5-F3:中文輸入法組字中的那一下 Enter,不算「執行」', () => {
   // 🔴 病:員工打「王小明」,輸入法跳出候選字,他按 Enter **選字** ⇒ 當場去建客人,
   //    而名字只打到一半 ⇒ 系統裡多出一位「王小」。
   //    📌 這條在英數輸入下**永遠不會發生** ⇒ 開發時測不到,而 Sean 的客人全是中文名字。
   it('組字中(isComposing)的 Enter ⇒ 不擋、也不執行', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    renderPicker();
+    const input = searchBox();
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -750,8 +608,8 @@ describe('🔴🔴 R5-F3:中文輸入法組字中的那一下 Enter,不算「執
   });
 
   it('🔴 對照組:組字結束後的同一下 Enter ⇒ 照常執行(不然這道閘變成把功能關掉)', async () => {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    renderPicker();
+    const input = searchBox();
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Enter', isComposing: false });
     });
@@ -774,8 +632,8 @@ describe('🔴🔴 R5-F2:兩發搜尋並行時,慢的舊那發不得蓋掉新結
       })
       .mockImplementationOnce(async () => found(hit(USER_B, '新電話的人')));
 
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    renderPicker();
+    const input = searchBox();
     // 🔴 兩發都用 Enter 發 —— 第一發還在跑時「找客人」那顆是 disabled(顯示「找…」),
     //    而 Enter 這條路**不看 pending** ⇒ 這正是員工真的會做出兩發並行的那條路。
     await act(async () => {
@@ -845,7 +703,7 @@ describe('🔴🔴 R6:IME 那道要在【兩層一起在場】時量 —— 只 
 
   it('組字中的 Enter:兩層都在場時,那一發【不得】被取消,也不得去查', async () => {
     renderBoth();
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    const input = searchBox();
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -856,7 +714,7 @@ describe('🔴🔴 R6:IME 那道要在【兩層一起在場】時量 —— 只 
 
   it('🔴 對照組:組字結束的同一發 ⇒ 被取消(不送出)而且有去查', async () => {
     renderBoth();
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    const input = searchBox();
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'Enter', isComposing: false });
@@ -884,21 +742,21 @@ describe('🔴🔴 R6:序號要同時協調【搜尋 vs 建立】,不只是搜�
         await slow;
         return found(hit(USER_B, '不相干的人'));
       });
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
 
     // 第二發搜尋:慢的,而且用 Enter 發(不看 pending)
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    const input = searchBox();
     await act(async () => {
       fireEvent.change(input, { target: { value: '0988777666' } });
       fireEvent.keyDown(input, { key: 'Enter' });
     });
 
-    // 搜尋還在飛,而員工用 Enter 建立(同樣不看 pending)
+    // 搜尋還在飛,而員工按「確認」觸發建立(同樣不看 pending)
     mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '王小明') });
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-      fireEvent.keyDown(screen.getByLabelText('客人姓名'), { key: 'Enter' });
+      // 2026-10-01 起建立的入口是事件(按「確認」時送出), 不是建立區那兩格
+      requestManualCustomerCreate(document.querySelector('form'), { name: '王小明', phone: '0900000999' });
     });
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect((screen.getByRole('radio') as HTMLInputElement).checked).toBe(true);
@@ -934,14 +792,14 @@ describe('🔴🔴 R6:序號要同時協調【搜尋 vs 建立】,不只是搜�
       return { ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '王小明') };
     });
 
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-      fireEvent.keyDown(screen.getByLabelText('客人姓名'), { key: 'Enter' });
+      // 2026-10-01 起建立的入口是事件(按「確認」時送出), 不是建立區那兩格
+      requestManualCustomerCreate(document.querySelector('form'), { name: '王小明', phone: '0900000999' });
     });
 
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    const input = searchBox();
     await act(async () => {
       fireEvent.change(input, { target: { value: '0988777666' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -987,16 +845,16 @@ describe('🔴🔴 R6:序號要同時協調【搜尋 vs 建立】,不只是搜�
       return { ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '王小明') };
     });
 
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
 
     // ① 建立先【開始】(慢)
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-      fireEvent.keyDown(screen.getByLabelText('客人姓名'), { key: 'Enter' });
+      // 2026-10-01 起建立的入口是事件(按「確認」時送出), 不是建立區那兩格
+      requestManualCustomerCreate(document.querySelector('form'), { name: '王小明', phone: '0900000999' });
     });
     // ② 建立還在飛的時候,員工又發了一發搜尋(也慢)⇒ 它的序號【比建立大】
-    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
+    const input = searchBox();
     await act(async () => {
       fireEvent.change(input, { target: { value: '0988777666' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -1029,7 +887,7 @@ describe('🔴🔴 R7:預檢撞到一位很像的人 ⇒ 【不得】自動選�
   //   而「同姓名 + 同電話 + 後台開的帳號」**只是一組長得很像的資料, 不是同一個人的證明**
   //   (一家人共用市話 + 剛好同名)⇒ 判得出來的只有人 ⇒ 把那一步交還給他。
   async function createWith(outcome: string) {
-    render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
+    renderPicker();
     await search();
     mocks.create.mockResolvedValue({
       ok: true,
@@ -1037,10 +895,7 @@ describe('🔴🔴 R7:預檢撞到一位很像的人 ⇒ 【不得】自動選�
       outcome,
       candidate: hit(USER_A, '王小明'),
     });
-    fireEvent.change(screen.getByLabelText('客人姓名'), { target: { value: '王小明' } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '建立這位客人' }));
-    });
+    await requestCreate('王小明');
   }
 
   it('existing ⇒ 那位出現在候選裡, 而【一顆都沒有被選起來】', async () => {
@@ -1068,133 +923,42 @@ describe('🔴🔴 R7:預檢撞到一位很像的人 ⇒ 【不得】自動選�
 // ── ⟦b4-收件即建客⟧ 收件那一塊 ⇒ 建客人(2026-09-06,plan §2)────────────────────────
 //  🔴 **這一族全部走【整張表單】渲染, 不能只 render picker** —— 事件的射程就是那張 form,
 //     picker 單獨渲染時 `.form` 是 `null`, 而那個世界的正確行為是「照實說沒接上」(見 ship-to 那支)。
-describe('🔴🔴 ⟦b4-收件即建客⟧:收件那兩格 ⇒ 建客人, 而後面一個字都不分岔', () => {
-  function renderWholeForm() {
-    return render(
-      <ManualOrderFormBody
-        manualRequestId={ORDER_KEY}
-        customerRequestId={CUSTOMER_KEY}
-        activeStaff={[{ id: 'alice', label: '小愛' }]}
-        staffLoadFailed={false}
-      />,
-    );
-  }
-  const fillShipTo = (name: string, phone: string) => {
-    fireEvent.change(screen.getByLabelText('收件人'), { target: { value: name } });
-    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: phone } });
-  };
-  const press = async () => {
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('manual-order-ship-to-create-customer'));
-    });
-  };
-
-  it('A · 兩格有值 ⇒ action 收到的是【收件那兩格】, 而且帶同一顆冪等鍵', async () => {
-    mocks.create.mockResolvedValue({
-      ok: true,
-      idempotent: false,
-      outcome: 'created',
-      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
-    });
-    renderWholeForm();
-    // 🔵 建立區那兩格【故意留空】—— 這樣「它讀錯欄位」與「它讀對欄位」在斷言上分得開。
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    expect(mocks.create).toHaveBeenCalledTimes(1);
-    expect(mocks.create).toHaveBeenCalledWith({
-      name: '陳大文',
-      phone: '0922333444',
-      requestId: CUSTOMER_KEY,
-    });
-  });
-
-  it('A · 建好的那位【自動選起來】, 而選中的真相仍然只住在原生 radio 上', async () => {
-    mocks.create.mockResolvedValue({
-      ok: true,
-      idempotent: false,
-      outcome: 'created',
-      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
-    });
-    renderWholeForm();
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    const radio = await waitFor(() => {
-      const el = document.querySelector('input[type="radio"][name="customer_user_id"]');
-      if (!el) throw new Error('還沒有候選');
-      return el as HTMLInputElement;
-    });
-    expect(radio.value).toBe(USER_A);
-    expect(radio.checked).toBe(true);
-  });
-
-  // 🔴 斷言【不能只比「客人」兩個字】—— 失敗那句「這一頁的『客人』那一塊沒有接上」
-  //    也含那兩個字 ⇒ 那把尺在兩個相反的世界印同一個綠。改比只有成功路才有的字。
-  it('A · 收件那一塊要說出結果去哪裡看(不然員工會站在原地等)', async () => {
-    mocks.create.mockResolvedValue({
-      ok: true,
-      idempotent: false,
-      outcome: 'created',
-      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
-    });
-    renderWholeForm();
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    const said = screen.getByTestId('manual-order-ship-to-notice').textContent ?? '';
-    expect(said).toContain('已送出建立客戶的要求');
-    expect(said).not.toContain('沒有接上');
-  });
-
-  it('🔴 A 負對照 · 只填姓名、電話空著 ⇒ action【零呼叫】+ 說出缺什麼', async () => {
-    renderWholeForm();
-    fireEvent.change(screen.getByLabelText('收件人'), { target: { value: '陳大文' } });
-    await press();
-    expect(mocks.create).toHaveBeenCalledTimes(0);
-    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toContain('都要先填');
-  });
-
-  it('🔴 A 負對照 · 只填電話、姓名空著 ⇒ 一樣零呼叫(兩格【任一】空都要擋)', async () => {
-    renderWholeForm();
-    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: '0922333444' } });
-    await press();
-    expect(mocks.create).toHaveBeenCalledTimes(0);
-  });
-
-  it('🔴🔴 B · `existing` ⇒ 那位【畫得出來】而【沒有被選起來】, 並且有警告', async () => {
-    // 同姓名 + 同電話 + 後台開的帳號 ≠ 同一個人(一家人共用市話 + 剛好同名)。
-    // 📌 這條路走的是 picker 既有的 `existing` 分支 —— 本片沒有在它旁邊開第二條。
-    mocks.create.mockResolvedValue({
-      ok: true,
-      idempotent: false,
-      outcome: 'existing',
-      candidate: { userId: USER_B, name: '陳大文', phone: '0922333444', isManual: true },
-    });
-    renderWholeForm();
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    const radio = await waitFor(() => {
-      const el = document.querySelector('input[type="radio"][name="customer_user_id"]');
-      if (!el) throw new Error('還沒有候選');
-      return el as HTMLInputElement;
-    });
-    expect(radio.value).toBe(USER_B);
-    expect(radio.checked).toBe(false);
-    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('沒有');
-  });
-
-  it('🔴 C · action 拋出去 ⇒ 出現【請勿重複建立】那句(不得叫他重按)', async () => {
-    mocks.create.mockRejectedValue(new Error('boom'));
-    renderWholeForm();
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('請勿重複建立');
-  });
-});
+// ⛔ 2026-10-01 拿掉「⟦b4-收件即建客⟧:收件那兩格 ⇒ 建客人」那一族:那顆「用這份收件人建客人」鈕已經拿掉
+//    (Sean Q24 甲:改成按「確認」時建立)。它守的幾件事改由別處接手 ——
+//    冪等鍵與自動選起來:「新客人:用收件人姓名電話建立」那一族;existing 不自動選:R7;
+//    拋出時叫他勿重複建立:R4-MF3;任一格空不建:`manual-order-submit.test.tsx`(送出前先跑解析器)。
 
 // ── ⟦b4-收件即建客⟧ codex 三條 must-fix 的守門(2026-09-06)─────────────────────────
 //  🔴 這三格全部是【新入口繞過既有保護】那一族。共同形狀:
 //     **保護畫在「舊那條路會經過的東西」上(那顆鈕的 disabled、建立區有沒有字),**
 //     **而新入口不經過它們。**
-describe('🔴🔴 ⟦b4-收件即建客⟧:新入口不得繞過既有的三道保護', () => {
+describe('🔴🔴 ⟦b4-收件即建客⟧ MF1:先選了甲, 再建乙而【失敗】⇒ 一顆 radio 都不准是選中的', () => {
+  // 病:甲仍被選著 + 建單鈕仍亮 ⇒ 員工以為單掛給乙, 而它會掛給甲。
+  // ⛔ 同族的 MF2(搜尋壞掉也要擋)由「查【壞了】與查【無】」那一族接手;MF3(預填電話)隨建立區一起拿掉。
+  it('建立失敗 ⇒ 甲被放掉, 確認鈕灰', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+    await search();
+    await act(async () => {
+      fireEvent.click(document.querySelector('input[type="radio"][name="customer_user_id"]')!);
+    });
+    expect((document.querySelector('input[type="radio"]') as HTMLInputElement).checked).toBe(true);
+    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: '建不出來' });
+    await requestCreate('陳大文', '0922333444');
+    expect(document.querySelector('input[type="radio"]:checked')).toBeNull();
+    expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+// ── 用收件電話自動找客人(Sean 2026-10-01 Q24 甲;計畫 ~/pcm-mailbox/計畫-建單收件資料合併-20261001.md 第 2 節)──
+describe('收件電話自動找客人', () => {
   function renderWholeForm() {
     return render(
       <ManualOrderFormBody
@@ -1205,85 +969,409 @@ describe('🔴🔴 ⟦b4-收件即建客⟧:新入口不得繞過既有的三道
       />,
     );
   }
-  const fillShipTo = (name: string, phone: string) => {
-    fireEvent.change(screen.getByLabelText('收件人'), { target: { value: name } });
-    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: phone } });
-  };
-  const press = async () => {
+  const shipPhone = () => screen.getByLabelText('收件人電話') as HTMLInputElement;
+  const shipName = () => screen.getByLabelText('收件人') as HTMLInputElement;
+  /** 打字(發 input), 再離開欄位(發 focusout ⇒ 不等 0.5 秒) */
+  async function typeShipPhone(v: string, blur = true) {
     await act(async () => {
-      fireEvent.click(screen.getByTestId('manual-order-ship-to-create-customer'));
+      fireEvent.input(shipPhone(), { target: { value: v } });
+      if (blur) fireEvent.focusOut(shipPhone());
     });
-  };
+  }
+  const checked = () => document.querySelector('input[name="customer_user_id"]:checked') as HTMLInputElement | null;
+  const status = () => screen.getByTestId('manual-customer-auto').textContent;
 
-  it('🔴🔴 MF1 · 先選了甲, 再用新入口建乙而【失敗】⇒ 一顆 radio 都不准是選中的', async () => {
-    // 病:甲仍被選著 + 建單鈕仍亮 ⇒ 員工以為單掛給乙, 而它會掛給甲。
-    // ⚠️ `hasConflict` 擋不到:走新入口的人**沒有在建立區打過字** ⇒ 它判「無衝突」。
+  it('剛好一位電話相同 ⇒ 自動選起來, 說「老客人, 已連結」', async () => {
     mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
     renderWholeForm();
-    await search();
-    await act(async () => {
-      fireEvent.click(document.querySelector('input[type="radio"][name="customer_user_id"]')!);
-    });
-    expect((document.querySelector('input[type="radio"]') as HTMLInputElement).checked).toBe(true);
+    await typeShipPhone('0912-345-678');
+    expect(mocks.search).toHaveBeenCalledWith('0912345678');
+    expect(checked()?.value).toBe(USER_A);
+    expect(checked()?.dataset.autoLinked).toBe('1');
+    expect(status()).toBe('收件電話是老客人「王小明」，已連結。');
+  });
 
-    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: '建不出來' });
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    const stillChecked = document.querySelector('input[type="radio"]:checked');
-    expect(stillChecked).toBeNull();
+  it('只有「包含」相符、數字不完全相同 ⇒ 不連結, 說找不到', async () => {
+    mocks.search.mockResolvedValue(found({ ...hit(USER_A, '王小明'), phone: '0912345678' }));
+    renderWholeForm();
+    await typeShipPhone('12345678');
+    expect(checked()).toBeNull();
+    expect(screen.queryByTestId('manual-customer-candidates')).toBeNull();
+    expect(status()).toBe('新客人：收件電話 12345678 找不到客人。按「確認」送出訂單時，會用收件人姓名和這支電話建立客人帳號。');
+  });
+
+  it('同一支電話好幾位 ⇒ 列出來、【不自動選】', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '林大同'), hit(USER_B, '林小美')));
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    expect(document.querySelectorAll('input[name="customer_user_id"]')).toHaveLength(2);
+    expect(checked()).toBeNull();
+    expect(status()).toBe('收件電話 0912345678 有 2 位客人，請選一位。');
+  });
+
+  it('打字途中少於 9 碼不找;離開欄位時 8 碼就找', async () => {
+    renderWholeForm();
+    await typeShipPhone('09123456', false);
+    expect(mocks.search).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.focusOut(shipPhone());
+    });
+    expect(mocks.search).toHaveBeenCalledWith('09123456');
+  });
+
+  it('打字停下 0.5 秒才找, 不是每打一個字找一次', async () => {
+    vi.useFakeTimers();
+    try {
+      renderWholeForm();
+      fireEvent.input(shipPhone(), { target: { value: '091234567' } });
+      fireEvent.input(shipPhone(), { target: { value: '0912345678' } });
+      expect(mocks.search).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(mocks.search).toHaveBeenCalledTimes(1);
+      expect(mocks.search).toHaveBeenCalledWith('0912345678');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('自動連結後電話改短 ⇒ 放掉那位(不能留著上一支電話的人)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    expect(checked()?.value).toBe(USER_A);
+    await typeShipPhone('0912');
+    expect(checked()).toBeNull();
+    expect(screen.queryByTestId('manual-customer-auto')).toBeNull();
+  });
+
+  it('🔴 員工自己找、選好的客人 ⇒ 收件電話再改也【不換人】(朋友代訂、寄公司)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    await search('王小明');
+    fireEvent.click(screen.getByRole('radio'));
+    mocks.search.mockClear();
+    await typeShipPhone('0223456789');
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(checked()?.value).toBe(USER_A);
+  });
+
+  it('收件人和連結的客人不同名 ⇒ 提醒(不擋)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    fireEvent.change(shipName(), { target: { value: '王大明' } });
+    await typeShipPhone('0912345678');
+    expect(screen.getByTestId('manual-customer-auto-name-differs').textContent).toBe(
+      '收件人「王大明」和這位客人的名字不同。如果訂購的不是「王小明」，請改選其他客人。',
+    );
+  });
+
+  it('🔴 自動找也走同一套 fail-closed:查詢壞掉 ⇒ 不能建立客人', async () => {
+    mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    expect(screen.getByTestId('manual-order-new-customer-blocked')).toBeTruthy();
+    expect(checked()).toBeNull();
+  });
+
+  it('🔴 兩發自動查詢:慢的舊那發晚回來 ⇒ 不能蓋掉新結果', async () => {
+    let releaseOld: (v: unknown) => void = () => {};
+    mocks.search
+      .mockImplementationOnce(() => new Promise((r) => (releaseOld = r)))
+      .mockResolvedValueOnce(found(hit(USER_B, '新電話的人')));
+    renderWholeForm();
+    await typeShipPhone('0911111111');
+    await typeShipPhone('0912345678');
+    await act(async () => {
+      releaseOld(found(hit(USER_A, '舊電話的人')));
+    });
+    expect(checked()?.value).toBe(USER_B);
+  });
+});
+
+// 🆕 Sean 2026-10-01 Q24 甲:收件電話找不到客人 ⇒ 按「確認」時建客人, 建好接著送出
+describe('新客人:送出時建立', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+  async function typeShipPhone(v: string) {
+    await act(async () => {
+      fireEvent.input(screen.getByLabelText('收件人電話'), { target: { value: v } });
+      fireEvent.focusOut(screen.getByLabelText('收件人電話'));
+    });
+  }
+  const form = () => document.querySelector('form') as HTMLFormElement;
+  async function requestCreateThenSubmit(name = '陳大華', phone = '0423456789') {
+    const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+    let accepted = false;
+    await act(async () => {
+      accepted = requestManualCustomerCreate(form(), { name, phone, thenSubmit: true });
+    });
+    return accepted;
+  }
+
+  it('找不到客人 ⇒ 畫出「新客人」記號(沒有 name, 不會被送出)', async () => {
+    renderWholeForm();
+    await typeShipPhone('0423456789');
+    const marker = screen.getByTestId('manual-customer-new-pending');
+    expect(marker.getAttribute('name')).toBeNull();
+  });
+
+  it('🔴 查詢壞掉 ⇒ 不畫記號(送出鈕要維持灰的, 免得替已有帳號的人再開一個)', async () => {
+    mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
+    renderWholeForm();
+    await typeShipPhone('0423456789');
+    expect(screen.queryByTestId('manual-customer-new-pending')).toBeNull();
+  });
+
+  it('同電話好幾位 ⇒ 按「都不是, 建立新客人」⇒ 清單收掉、改成新客人', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '林大同'), hit(USER_B, '林小美')));
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    fireEvent.click(screen.getByTestId('manual-customer-auto-none-of-these'));
+    expect(document.querySelectorAll('input[name="customer_user_id"]')).toHaveLength(0);
+    expect(screen.getByTestId('manual-customer-new-pending')).toBeTruthy();
+  });
+
+  it('建好(新建的)⇒ 選起來, 接著送出訂單', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '陳大華') });
+      renderWholeForm();
+      expect(await requestCreateThenSubmit()).toBe(true);
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+      expect((document.querySelector('input[name="customer_user_id"]:checked') as HTMLInputElement).value).toBe(USER_A);
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('🔴 撞到很像的既有帳號 ⇒ 【不送出】, 說訂單還沒送', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'existing', candidate: hit(USER_A, '陳大華') });
+      renderWholeForm();
+      await requestCreateThenSubmit();
+      await waitFor(() => expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('訂單還沒有送出'));
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('🔴 建立失敗 ⇒ 不送出, 說訂單沒有送出', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: false, reason: 'invalid_phone', message: '電話格式不對。' });
+      renderWholeForm();
+      await requestCreateThenSubmit();
+      await waitFor(() => expect(screen.getByTestId('manual-customer-picker-notice').textContent).toBe('電話格式不對。 訂單沒有送出。'));
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('🔴 連線中斷 ⇒ 不送出, 提醒帳號可能已建立', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockRejectedValue(new Error('network'));
+      renderWholeForm();
+      await requestCreateThenSubmit();
+      await waitFor(() => expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('訂單沒有送出'));
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('沒有要求接著送出(舊的建立入口)⇒ 建好也【不】自動送出', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '陳大華') });
+      renderWholeForm();
+      const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+      await act(async () => {
+        requestManualCustomerCreate(form(), { name: '陳大華', phone: '0423456789' });
+      });
+      await waitFor(() => expect(document.querySelector('input[name="customer_user_id"]:checked')).toBeTruthy());
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+});
+
+describe('新客人:建立還在跑的時候', () => {
+  it('🔴 記號留著並標 data-creating ⇒ 確認鈕灰的(不能連按兩次), 會員等級那格仍可用', async () => {
+    let release: (v: unknown) => void = () => {};
+    mocks.create.mockImplementation(() => new Promise((r) => (release = r)));
+    render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+    const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+    await act(async () => {
+      requestManualCustomerCreate(document.querySelector('form'), { name: '陳大華', phone: '0423456789', thenSubmit: true });
+    });
+    expect(screen.getByTestId('manual-customer-new-pending').dataset.creating).toBe('1');
+    await waitFor(() => expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true));
+    expect((screen.getByTestId('manual-order-tier') as HTMLSelectElement).disabled).toBe(false);
+    await act(async () => {
+      release({ ok: false, reason: 'error', message: '建立失敗。' });
+    });
+  });
+});
+
+describe('🔴 Fable R1 必修 1:收件電話一改, 上一支電話的判定立刻作廢', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+  const phoneEl = () => screen.getByLabelText('收件人電話');
+
+  it('A 找不到(新客人)⇒ 改成 B、新查詢還沒回來 ⇒ 「新客人」記號馬上消失, 確認鈕灰', async () => {
+    renderWholeForm();
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0423456789' } });
+      fireEvent.focusOut(phoneEl());
+    });
+    expect(screen.getByTestId('manual-customer-new-pending')).toBeTruthy();
+    mocks.search.mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0423456780' } });
+    });
+    expect(screen.queryByTestId('manual-customer-new-pending')).toBeNull();
     expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('🔴🔴 MF2 · 搜尋【壞掉】⇒ 新入口一樣建不下去(舊那顆鈕的 disabled 管不到它)', async () => {
-    mocks.search.mockResolvedValue({ ok: false, reason: 'denied' });
+  it('A 自動連結甲 ⇒ 改成 B ⇒ 甲馬上被放掉(不能把 B 的單掛給甲)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
     renderWholeForm();
-    await search();
-    expect(screen.getByRole('button', { name: '建立這位客人' }).matches(':disabled')).toBe(true);
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    expect(mocks.create).toHaveBeenCalledTimes(0);
-    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('重新登入');
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0912345678' } });
+      fireEvent.focusOut(phoneEl());
+    });
+    expect(document.querySelector('input[name="customer_user_id"]:checked')).toBeTruthy();
+    mocks.search.mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0912345679' } });
+    });
+    expect(document.querySelector('input[name="customer_user_id"]:checked')).toBeNull();
   });
 
-  it('🔴🔴 MF3 · 搜過查無留下的預填電話, 不得在建成功之後把建單鈕鎖死', async () => {
-    // 病(codex 復現):搜「5678」查無 ⇒ 建立區電話預填 5678 ⇒ 改用新入口建好客人
-    // ⇒ 帳號建好、radio 也選起來了, 而建單鈕是灰的, 因為建立區還寫著 5678。
-    mocks.search.mockResolvedValue(found());
+  it('按「確認」建立失敗之後, 改收件電話仍會自動找客人(Fable R1 建議 1)', async () => {
+    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: '建立失敗。' });
     renderWholeForm();
-    await search('5678');
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('5678');
+    const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+    await act(async () => {
+      requestManualCustomerCreate(document.querySelector('form'), { name: '陳大華', phone: '0423456789', thenSubmit: true });
+    });
+    mocks.search.mockClear();
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0423456780' } });
+      fireEvent.focusOut(phoneEl());
+    });
+    expect(mocks.search).toHaveBeenCalledWith('0423456780');
+  });
+});
 
-    mocks.create.mockResolvedValue({
-      ok: true,
-      idempotent: false,
-      outcome: 'created',
-      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
-    });
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    await waitFor(() => {
-      const r = document.querySelector('input[type="radio"]:checked');
-      if (!r) throw new Error('還沒選起來');
-    });
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('');
-    expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
+// ── 2026-10-01 版面:客人那一塊在收件電話下面, 找客人收在「換一位客人」裡(Sean Q24 甲)──
+describe('版面:客人狀態在收件電話下面', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+
+  it('客人那一塊在收件電話之後、收件地址之前', () => {
+    renderWholeForm();
+    const phone = screen.getByLabelText('收件人電話');
+    const picker = screen.getByTestId('manual-customer-picker');
+    const line = screen.getByLabelText('收件地址');
+    expect(phone.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(picker.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('🔵 MF3 負對照 · 員工【自己】在建立區打過電話 ⇒ 不准清掉他的字, 而且照樣擋', async () => {
-    mocks.search.mockResolvedValue(found());
+  it('一開始看不到找客人的框;按「換一位客人」才出現', () => {
     renderWholeForm();
-    await search('5678');
-    fireEvent.change(screen.getByLabelText('電話'), { target: { value: '0911000222' } });
+    expect(screen.queryByLabelText('找客人(電話 / 姓名 / Email)')).toBeNull();
+    fireEvent.click(screen.getByTestId('manual-customer-change'));
+    expect(screen.getByLabelText('找客人(電話 / 姓名 / Email)')).toBeTruthy();
+  });
 
-    mocks.create.mockResolvedValue({
-      ok: true,
-      idempotent: false,
-      outcome: 'created',
-      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
+  it('🔴 舊的建立區、「同上」、「用這份收件人建客人」都不在了', () => {
+    renderWholeForm();
+    expect(screen.queryByTestId('manual-order-new-customer')).toBeNull();
+    expect(screen.queryByRole('button', { name: '建立這位客人' })).toBeNull();
+    expect(screen.queryByTestId('manual-order-ship-to-copy')).toBeNull();
+    expect(screen.queryByTestId('manual-order-ship-to-create-customer')).toBeNull();
+    expect(document.querySelector('[name="new_customer_name"], [name="new_customer_phone"]')).toBeNull();
+  });
+});
+
+describe('換一位客人 ⇒ 找不到 ⇒ 改用收件電話找客人(Fable 4b R1 建議 1:不能卡死)', () => {
+  it('手動找查無 ⇒ 按「改用收件電話找客人」⇒ 用收件電話重找, 找不到就是新客人', async () => {
+    render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: '0423456789' } });
+    mocks.search.mockResolvedValue(found());
+    await search('王大同');
+    expect(screen.queryByTestId('manual-customer-new-pending')).toBeNull();
+    mocks.search.mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('manual-customer-back-to-auto'));
     });
-    fillShipTo('陳大文', '0922333444');
-    await press();
-    // 他打的字還在 —— 而那兩格現在真的在說另一個人 ⇒ 擋下來是對的(fail-closed)。
-    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0911000222');
+    expect(mocks.search).toHaveBeenCalledWith('0423456789');
+    expect(screen.getByTestId('manual-customer-new-pending')).toBeTruthy();
+    expect(screen.queryByTestId('manual-customer-search')).toBeNull();
+  });
+
+  it('同電話好幾位、還沒選 ⇒ 確認鈕下面叫他【選一位】, 不是叫他填電話', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '林大同'), hit(USER_B, '林小美')));
+    render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+    await act(async () => {
+      fireEvent.input(screen.getByLabelText('收件人電話'), { target: { value: '0912345678' } });
+      fireEvent.focusOut(screen.getByLabelText('收件人電話'));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('manual-order-submit-hint').textContent).toBe('請在收件電話下面選一位客人。'),
+    );
   });
 });

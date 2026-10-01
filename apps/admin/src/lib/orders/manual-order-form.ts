@@ -129,27 +129,8 @@ export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
 export const MANUAL_ORDER_INVOICE_TAX_ID_FIELD = 'invoice_tax_id';
 export const MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD = 'invoice_donate_code';
 
-// ── 面板裡「直接新增這位客人」那一小張表單的兩欄(`createManualCustomerAction` 專用)──────
-// 🔴 **它們不進 `parseManualOrderForm()`** —— 那是**另一張 form**(HTML 不允許 form 巢狀,
-//    而且它送去的是另一支 action)。放在這裡只是為了與其他欄名同一個定義處,
-//    不得因為住在同一支檔就以為建單解析器讀得到它們。
-// 🔴 **只有姓名與電話,沒有地址**:`createManualCustomer`
-//    的 `ManualCustomerInput`(`lib/customers/manual-customer.ts:82`)**沒有地址那一格**。
-//    ⚠️ 2026-08-28 訂正:上一版寫「就只有 `{ name, phone }`」——**而同一份 diff 剛給它加了第三個欄位
-//    `requestId`** ⇒ 那不是行號漂移,是**我描述了一個我自己剛改掉的東西**(R3 F7)。
-//    地址住在**訂單**上(`ship_to_*` 三欄)。
-//    ⚠️ 2026-08-28 第二次訂正:~~「不住在客人檔案上 ⇒ 這裡多開一個地址欄會建出一個
-//    **沒有人會去讀**的值」~~ **作廢**。客人的地址簿是 `customer_addresses`
-//    (`supabase/migrations/20260523034911_init_customers_and_subtables.sql:40`),
-//    欄名 `name` / `phone` / `line` 與 `ship_to_*` 三格**逐字同名**,
-//    而後台**已經在讀它**(`apps/admin/src/lib/customers/load-customer-detail.ts:105`)。
-//    ⇒ **它不是沒有人讀,是【沒有人寫】** —— 全 repo 唯一的寫入點是客人自己在前台
-//      (`apps/storefront/src/app/account/address/actions.ts:70`)。
-//    📌 **形狀:我當時沒查那張表就下了「沒有人會去讀」的結論,而那句話會擋住下一個人做對的事。**
-//       一個沒查的前提被凍進註解之後,讀起來與一個查過的結論**長得一模一樣**。
-//    ✅ Sean 2026-08-28 `Q-建單2 ⇒ 甲`:建單時要把收件那三格順手存進客人的地址簿(**片乙**)。
-export const MANUAL_CUSTOMER_NEW_NAME_FIELD = 'new_customer_name';
-export const MANUAL_CUSTOMER_NEW_PHONE_FIELD = 'new_customer_phone';
+// ⛔ 2026-10-01 拿掉 `MANUAL_CUSTOMER_NEW_NAME_FIELD` / `MANUAL_CUSTOMER_NEW_PHONE_FIELD`(建立新客人那兩格):
+//    新客人改用收件人姓名電話、按「確認」時建立(Sean Q24 甲)。那一段關於地址簿的訂正全文在 git log。
 
 /**
  * 「這張表單此刻長在面板裡」的旗標(值恆為 `'1'`;沒送 = 整頁版)。

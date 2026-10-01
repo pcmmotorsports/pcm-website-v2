@@ -5,7 +5,7 @@
 //   label    12px · fg2 · flex-col · gap 2px
 //   input/select  min-height 28px · border 1px line · radius 6px · padding 0 8px · bg card · fg
 //   .sec     margin 10px 0 0 · border-top 1px line;summary 12.5px / 600 / fg2
-//   .ib      border · radius 7px · padding 2px 8px · 12px · fg2(小鈕:找客人 / 同上 / 再加一樣)
+//   .ib      border · radius 7px · padding 2px 8px · 12px · fg2(小鈕:找客人 / 都不是,建立新客人 / 再加一樣)
 //            ⚠️ 圓角走 token `rounded-md`(= 6px, `--radius` 階梯 sm4/md6/lg8/xl12):圓角守門禁裸值, 7 不在階梯上 ⇒ 取最近的 md。
 //   .btn-p   bg primary · 白字 · min-h 30 · padding 0 12 · radius 8(主鈕)
 //

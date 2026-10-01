@@ -162,19 +162,20 @@ export function ManualOrderFormBody({
               📌 那個停用態在畫面上看起來完全正確:整張表灰掉、一句話指路;
                  而它上面那一塊照常運作,**沒有任何訊號說「這裡不算在停用範圍內」**。 */}
           {/* 🆕 2026-09-14 Sean 問「手動建單彈窗可以改寬一點方便一次填嗎」⇒ 殼 800(wide)+ 表單本體兩欄:
-              左 = 客人(找客人 / 建客人)+ 收件資料 + 通知 email;右 = 訂單來源 / 付款 / 取貨 / 運費 / 稅別 + 發票組;
+              左 = 收件資料(含電話下面的客人狀態, 2026-10-01 起)+ 通知 email;右 = 訂單來源 / 付款 / 取貨 / 運費 / 稅別 + 發票組;
               品項表整排在下。<960 視窗退回單欄(`min-[960px]:`)。🔴 只有包裝 div 與搬位, 每一個 name= / hidden / 順序內語意一個字不動;
               通知 email 從發票 fieldset 搬到左欄 —— 它本來就「不屬於發票區, 只是排版上挨著」(那段註解原話), 現在連挨著也不用了。 */}
           <div className='grid gap-x-5 gap-y-4 min-[960px]:grid-cols-2'>
             <div className='space-y-4'>
-            <ManualCustomerPicker customerRequestId={customerRequestId} />
 
             {/* 🔴 收件那三格 2026-08-28 搬進 `./manual-order-ship-to`(client 子元件)——
-                成因是那顆「同上」要 state,而**本檔是 server component**(檔頭那段)。
+                成因是當時那顆「同上」要 state(2026-10-01 已拿掉),而**本檔是 server component**(檔頭那段)。
                 ⇒ 形狀比照 `./manual-order-lines`,**不把本檔改成 client**。
                 ⚠️ 三個 `name=` 一個字都沒改(`ship_to_name` / `ship_to_phone` / `ship_to_line`)
                    ⇒ `parseManualOrderForm()` 與 RPC 那一側**零改動**。 */}
-            <ManualOrderShipTo />
+            {/* 2026-10-01(Sean Q24 甲):客人那一塊搬進收件資料、放在收件電話下面 ——
+                仍在這個 `disabled` fieldset 裡面(沒有員工 ⇒ 連找客人 / 建客人都停用, 上面那段的契約不變)。 */}
+            <ManualOrderShipTo customer={<ManualCustomerPicker customerRequestId={customerRequestId} />} />
               {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
                   🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,
                      這一格講「寄到哪」—— 兩件事, 不要哪天一起收合起來。
