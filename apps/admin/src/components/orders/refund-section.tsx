@@ -102,7 +102,11 @@ export function RefundSection({
   //    useEffect 版:失敗訊息與表單 reset 在同一次 commit, 重掛 radio 在【下一次】commit ⇒ 兩次之間表單上真的是「全額」
   //    (refund-section.test.tsx [D6] 在那一刻讀表單, useEffect 版 3/3 讀到 full/500;後果是 kind=full 帶金額 ⇒ 判無效、錢不動)。
   //    初值 null:掛載時若已是失敗態也回填一次, 與原本 effect 在掛載時也會跑的行為相同。
-  const [seenState, setSeenState] = useState<RefundActionState | null>(null);
+  // 🔴 2026-10-02:初值【不能一律是 null】—— server 端 useActionState 每次渲染都回傳傳進去的初值物件(每次新做一個),
+  //    null 起手 ⇒ 掛載就 setSeenState ⇒ 重畫時 state 又是新物件 ⇒ 再 set ⇒ server 渲染「Too many re-renders」、
+  //    整頁 500(網站B 10-02 回報;refund-section.ssr.test.tsx)。
+  //    ⇒ 掛載時已是失敗態才用 null(保留「掛載就回填一次」);其他情況用掛載當下那一個 ⇒ 不會在渲染中 set。
+  const [seenState, setSeenState] = useState<RefundActionState | null>(() => (state.status === 'failed' ? null : state));
   if (state !== seenState) {
     setSeenState(state);
     if (state.status === 'failed') {
