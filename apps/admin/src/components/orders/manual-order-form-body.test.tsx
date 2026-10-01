@@ -228,6 +228,9 @@ describe('🔴 建單表單的每一個文字類控制項都要擋 autofill(量�
     'manual-order-lines.tsx',
     'manual-customer-picker.tsx',
     'manual-order-ship-to.tsx',
+    // 2026-10-01 建單簡化:發票與車輛搬成自己的元件(Fable S1 R1 建議)
+    'manual-order-invoice-fields.tsx',
+    'manual-order-vehicle-field.tsx',
   ];
 
   /** 剝註解 ⇒ 抓 `<input>` / `<select>` ⇒ 跳過 hidden/radio/checkbox(瀏覽器不會 autofill 它們)。 */
