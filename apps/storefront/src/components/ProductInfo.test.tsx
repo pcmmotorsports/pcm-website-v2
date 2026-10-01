@@ -242,6 +242,26 @@ describe('ProductInfo', () => {
     expect(screen.getByText('NT$ 23,280')).toBeDefined();
   });
 
+  it('Lightech 牌照架合卡:牌照板維顯「牌照板」, 六種尺寸都能選(2026-10-01)', () => {
+    const plates = [
+      ['A1', '178×178mm・碳纖尼龍'],
+      ['A2', '210×140mm・碳纖尼龍'],
+      ['A3', '220×160mm・碳纖尼龍'],
+      ['B1', '146×110mm・鋁合金（台灣新式大牌可用）'],
+      ['B2', '210×115mm・鋁合金（台灣新式大牌可用）'],
+      ['B3', '230×125mm・鋁合金'],
+    ] as const;
+    const plateProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      price: 3890,
+      variants: plates.map(([s, plate]) => ({ id: `v-${s}`, sku: `TARAP111${s}`, spec: { plate }, price: 3890, images: [] })),
+    };
+    renderInfo(plateProduct);
+    expect(screen.getByText('牌照板')).toBeDefined();
+    expect(screen.queryByText('plate')).toBeNull();
+    for (const [, plate] of plates) expect(screen.getByRole('button', { name: plate })).toBeDefined();
+  });
+
   it('should render single 顏色 dim for cncracing-shaped spec and change price (W2)', () => {
     const cncProduct: MockProduct = {
       ...MOCK_PRODUCTS[0]!,
