@@ -10,6 +10,10 @@
 //    下面那份清單的用途是「**重 gen 之後要重貼什麼**」。
 //    這三塊**重 gen 會自己產出來** ⇒ 把它們寫進去,等於叫下一個人去重貼一個已經在那裡的東西。
 //    ⇒ 📌 **「我手動加的」與「重 gen 會消失的」是兩件事, 而這份清單管的是後者。**
+// 🟢 **2026-10-01 網站B:同一條慣例 —— 蝦皮帳號(20261001160000, 貼板 261, 2026-10-01 已貼正式庫)。**
+//    `customer_shopee_accounts`(Row/Insert/Update + FK)、`orders.shopee_order_no` / `shopee_username` × Row/Insert/Update、
+//    `admin_create_manual_order` 的 `p_shopee_order_no` / `p_shopee_username`。照 migration 手打、形狀照生成器規則、字母序。
+//    🔵 同上:**不進下面那個計數**(重 gen 應逐字相同)。
 // 🟢 **2026-09-13 線 A:同一條慣例再用一次 —— `orders.price_tax_mode` × Row/Insert/Update 三處。**
 //    型別 `string`(DDL `20260905360000:90` = `text NOT NULL DEFAULT 'inclusive'` + 兩值 CHECK;
 //    🔴 **生成器只把【真 enum】變 union, CHECK 不會** ⇒ 產物就是 `string`, 這裡不自作主張收窄)。
@@ -1354,6 +1358,45 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "products_public"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_shopee_accounts: {
+        Row: {
+          account: string
+          created_at: string
+          created_by: string
+          customer_user_id: string
+          id: string
+        }
+        Insert: {
+          account: string
+          created_at?: string
+          created_by: string
+          customer_user_id: string
+          id?: string
+        }
+        Update: {
+          account?: string
+          created_at?: string
+          created_by?: string
+          customer_user_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_shopee_accounts_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "customer_shopee_accounts_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["user_id"]
           },
         ]
       }
@@ -4550,6 +4593,8 @@ export type Database = {
           shipping_home_fee: number
           shipping_method: string
           shipping_method_at_checkout: string
+          shopee_order_no: string | null
+          shopee_username: string | null
           subtotal: number
           tappay_rec_trade_id: string | null
           tax_total: number
@@ -4596,6 +4641,8 @@ export type Database = {
           shipping_home_fee?: number
           shipping_method: string
           shipping_method_at_checkout: string
+          shopee_order_no?: string | null
+          shopee_username?: string | null
           subtotal: number
           tappay_rec_trade_id?: string | null
           tax_total?: number
@@ -4642,6 +4689,8 @@ export type Database = {
           shipping_home_fee?: number
           shipping_method?: string
           shipping_method_at_checkout?: string
+          shopee_order_no?: string | null
+          shopee_username?: string | null
           subtotal?: number
           tappay_rec_trade_id?: string | null
           tax_total?: number
@@ -8616,6 +8665,8 @@ export type Database = {
           p_ship_to: Json
           p_shipping_fee: number
           p_shipping_method: string
+          p_shopee_order_no?: string
+          p_shopee_username?: string
           p_tier?: string
           p_vehicle?: Json
         }

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listAddresses: vi.fn(),
   listVehicles: vi.fn(),
   readEmailVerification: vi.fn(),
+  listShopeeAccounts: vi.fn(),
 }));
 vi.mock('./customer-repository', () => ({
   getAdminCustomerRepository: () => ({ findById: mocks.findById }),
@@ -27,6 +28,8 @@ vi.mock('./email-verification-read', () => ({
   readEmailVerification: mocks.readEmailVerification,
 }));
 vi.mock('server-only', () => ({}));
+// 貼板 261:第八路(蝦皮帳號)也要 mock, 理由同上:不然會真的去打資料庫。
+vi.mock('./shopee-accounts', () => ({ listShopeeAccounts: mocks.listShopeeAccounts }));
 
 import { loadCustomerDetail, WALLET_LEDGER_PAGE_SIZE } from './load-customer-detail';
 
@@ -57,6 +60,7 @@ function allOk() {
   mocks.listSummariesByCustomer.mockResolvedValue([{ id: 'o1' }]);
   mocks.listAddresses.mockResolvedValue([{ id: 'a1' }]);
   mocks.listVehicles.mockResolvedValue([{ id: 'v1' }]);
+  mocks.listShopeeAccounts.mockResolvedValue([]);
   mocks.readEmailVerification.mockResolvedValue({
     confirmedAt: '2026-08-01T00:00:00Z',
     provider: undefined,

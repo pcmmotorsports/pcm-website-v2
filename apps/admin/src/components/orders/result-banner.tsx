@@ -244,6 +244,19 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   },
   // 20260926100000 刪除會員成功後導回列表(列表預設不列已停用, 人不見了要有一句話)
   customer_deleted: { text: '已刪除會員。', tone: 'ok' },
+  // ── 客人頁蝦皮帳號(貼板 261, shopee-account-actions.ts)── 帳號不進網址, 新增 / 刪除的是哪一個看卡片上的清單。
+  customer_shopee_added: { text: '已新增蝦皮帳號。', tone: 'ok' },
+  customer_shopee_exists: { text: '這位客人已經有這個蝦皮帳號，沒有重複新增。', tone: 'ok' },
+  customer_shopee_taken: {
+    text: '這個蝦皮帳號已經記在另一位客人身上，沒有新增。若帳號確實改由這位客人使用，請先到原客人的資料刪除這個帳號。',
+    tone: 'warn',
+  },
+  customer_shopee_deleted: { text: '已刪除蝦皮帳號。', tone: 'ok' },
+  customer_shopee_gone: { text: '這個蝦皮帳號已經不在這位客人身上，可能剛被刪除。畫面已更新。', tone: 'warn' },
+  customer_shopee_invalid: { text: '蝦皮帳號不能空白或有空白字元，最多 64 個字。這次沒有變更。', tone: 'warn' },
+  customer_shopee_denied: { text: '登入已過期，請重新登入後再試。蝦皮帳號沒有變更。', tone: 'error' },
+  customer_shopee_not_found: { text: '找不到這位客人，蝦皮帳號沒有新增。請重新整理頁面。', tone: 'warn' },
+  customer_shopee_error: { text: '蝦皮帳號沒有變更。請重新整理後再試一次；若仍失敗，請聯絡系統管理員。', tone: 'error' },
   // Sean 2026-09-29 Q2 甲:帳號停用後不能變更會員等級(tier-actions.ts)。
   customer_member_disabled: { text: '帳號已停用，恢復後才能變更會員等級。這次沒有變更。', tone: 'warn' },
   customer_member_check_failed: {

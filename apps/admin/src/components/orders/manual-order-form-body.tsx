@@ -20,6 +20,7 @@ import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
 import { ManualOrderShipTo } from './manual-order-ship-to';
+import { ManualOrderShopeeFields } from './manual-order-shopee-fields';
 import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL } from './manual-order-field-classes';
 
 // manual-order-form-body.tsx — M12-A3-b:手動建單表單本體(客人 / 經手人 / 收件 / 發票 / 運費)。
@@ -158,7 +159,7 @@ export function ManualOrderFormBody({
             {/* 2026-10-01(Sean Q24 甲):客人那一塊搬進收件資料、放在收件電話下面 ——
                 仍在這個 `disabled` fieldset 裡面(沒有員工 ⇒ 連找客人 / 建客人都停用, 上面那段的契約不變)。 */}
             {/* 2026-10-01 建單簡化(Sean Q1 甲, S4):「訂單來源」搬到收件資料最上面 ——
-                選「蝦皮」時, 收件電話上方之後會多一格蝦皮帳號(網站B 的計畫, `beforePhone` 那個位置), 兩者在同一個視線範圍。
+                選「蝦皮」時, 收件電話上方多出「蝦皮帳號」「蝦皮訂單編號」兩格(`beforePhone`, 貼板 261), 兩者在同一個視線範圍。
                 🔴 name 與 option 一個字不動;蝦皮鎖通知 email 那支用欄位名找這個下拉, 搬位置不影響。 */}
             <ManualOrderShipTo
               source={
@@ -175,6 +176,7 @@ export function ManualOrderFormBody({
                 </label>
               }
               customer={<ManualCustomerPicker customerRequestId={customerRequestId} />}
+              beforePhone={<ManualOrderShopeeFields />}
             />
               {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
                   🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,

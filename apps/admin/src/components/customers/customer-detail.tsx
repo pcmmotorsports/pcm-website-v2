@@ -27,6 +27,8 @@ import { ListPagination } from '../shared/list-pagination';
 import { WALLET_LEDGER_PAGE_SIZE } from '../../lib/customers/load-customer-detail';
 import { TierEditForm } from './tier-edit-form';
 import { ProfileEditForm } from './profile-edit-form';
+import { CustomerShopeeAccounts } from './customer-shopee-accounts';
+import type { ShopeeAccount } from '../../lib/customers/shopee-accounts';
 // ⟦b4-AUTHMAIL1⟧ 後續片:改客人信箱(Sean 2026-09-08 最終拍 A = 最簡單版)。
 import { EmailChangeForm } from './email-change-form';
 import { PasswordResetButton } from './password-reset-button';
@@ -135,6 +137,8 @@ export function CustomerDetail({
   ordersLoadFailed,
   addresses,
   addressesLoadFailed,
+  shopeeAccounts,
+  shopeeAccountsLoadFailed,
   vehicles,
   vehiclesLoadFailed,
   readOnly = false,
@@ -158,6 +162,9 @@ export function CustomerDetail({
   ordersLoadFailed: boolean;
   addresses: CustomerAddress[];
   addressesLoadFailed: boolean;
+  /** 貼板 261:蝦皮帳號。沒傳(舊呼叫端)⇒ 不畫那一塊。 */
+  shopeeAccounts?: ShopeeAccount[];
+  shopeeAccountsLoadFailed?: boolean;
   vehicles: CustomerVehicle[];
   vehiclesLoadFailed: boolean;
   /**
@@ -282,6 +289,14 @@ export function CustomerDetail({
               name={customer.name}
               phone={customer.phone}
               birthday={customer.birthday}
+            />
+          )}
+          {shopeeAccounts !== undefined && (
+            <CustomerShopeeAccounts
+              customerId={customer.id}
+              accounts={shopeeAccounts}
+              loadFailed={shopeeAccountsLoadFailed ?? false}
+              readOnly={readOnly}
             />
           )}
         </section>

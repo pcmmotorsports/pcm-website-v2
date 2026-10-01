@@ -1550,6 +1550,10 @@ export type AdminOrderDetail = {
    * 顯示端:訂單級有就印它;`null` 不代表「沒車」, 只代表「這張單沒在訂單層記」。`source` = manual_dict(字典帶入)/ manual_text(員工照打, 字典沒有)。
    */
   vehicle: OrderItemVehicleSnapshot | null;
+  /** 貼板 261:建單當下的蝦皮帳號(`orders.shopee_username`);只有蝦皮單可能有值, 沒填 = null。 */
+  shopeeUsername: string | null;
+  /** 貼板 261:蝦皮訂單編號(`orders.shopee_order_no`, 選填)。 */
+  shopeeOrderNo: string | null;
   total: Money;
   /**
    * ⟦b4-PAIDTHENOVERPAID⟧ 應付餘額 —— **`order_balance_base_v.balance_due` 原樣**,
