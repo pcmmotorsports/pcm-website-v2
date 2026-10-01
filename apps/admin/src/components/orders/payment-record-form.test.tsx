@@ -180,6 +180,19 @@ describe('兩軌的欄位不同(不是同一組欄位有些留空)', () => {
     expect(container.querySelector('input[name="received_date"]')).toBeNull();
   });
 
+  it('刷卡:送出 rail=card_terminal、跟現金一樣沒有日期與單號欄,並說明會扣手續費', () => {
+    const { container } = renderForm();
+    fireEvent.change(container.querySelector('input[name="bank_reference"]')!, {
+      target: { value: 'CTBC-12345' },
+    });
+    fireEvent.click(container.querySelector('input[name="rail"][value="card_terminal"]')!);
+    expect(payload(container).getAll('rail')).toEqual(['card_terminal']);
+    expect(payload(container).getAll('bank_reference')).toEqual([]);
+    expect(container.querySelector('input[name="received_date"]')).toBeNull();
+    expect(container.textContent).toContain('刷卡收款時間採用');
+    expect(container.textContent).toContain('自動扣除手續費');
+  });
+
   it('匯款軌:銀行入帳日與單號兩欄都在', () => {
     const { container } = renderForm();
     expect(container.querySelector('input[name="received_date"]')).not.toBeNull();

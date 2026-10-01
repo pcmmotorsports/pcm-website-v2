@@ -81,6 +81,16 @@ export const PAYMENT_LATE_REFUND_NEW_ORDER_RESULT_CODE = 'payment_late_refund_ne
 export const PAYMENT_RAILS = ['bank_transfer', 'cash'] as const;
 export type PaymentRail = (typeof PAYMENT_RAILS)[number];
 
+/**
+ * 表單上「方式」的選項(報價單Q1 2026-10-01):兩條軌 + 店內刷卡。
+ * 🔴 **刷卡不是第三條軌**:送出時仍是 `rail = 'cash'`(當面收款那條路), 另帶付款標記 `card_terminal`
+ *    (主視窗技術決定甲:沿用現金那條路的所有規則)。表單的 `rail` 欄位送的是這裡的值,
+ *    `parsePaymentForm` 把 `card_terminal` 拆回 `rail = 'cash'` + 標記。
+ * 蝦皮進帳不在這裡:蝦皮單在建單時就把進帳一起登記(Sean:選蝦皮來源才出現進帳欄)。
+ */
+export const PAYMENT_METHODS = ['bank_transfer', 'cash', 'card_terminal'] as const;
+export type PaymentMethodChoice = (typeof PAYMENT_METHODS)[number];
+
 export type PaymentFailureCode =
   // ── RPC 的具名 SQLSTATE(逐碼映射,見 `paymentFailureCodeFor`)
   | 'isolation' // P8C01

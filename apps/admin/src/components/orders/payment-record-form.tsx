@@ -5,7 +5,7 @@ import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
 import { recordManualPaymentAction } from '../../lib/orders/payment-actions';
 import {
-  PAYMENT_RAILS,
+  PAYMENT_METHODS,
   PAY_AMOUNT_FIELD,
   PAY_BANK_REFERENCE_FIELD,
   PAY_ORDER_ID_FIELD,
@@ -15,7 +15,7 @@ import {
   paymentStampFields,
   type PaymentActionState,
   type PaymentFormStamp,
-  type PaymentRail,
+  type PaymentMethodChoice,
 } from '../../lib/orders/payment-action-state';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
@@ -35,7 +35,7 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
 /** 可編輯欄位。🔴 **印章不在裡面** —— 兩者脫鉤是 D1 的全部重點(見 `activeStamp`)。 */
 type EditableValues = {
-  rail: PaymentRail;
+  rail: PaymentMethodChoice;
   amount: string;
   receivedDate: string;
   bankReference: string;
@@ -51,13 +51,15 @@ const EMPTY_EDITABLE: EditableValues = {
 };
 
 /** 帶回來的 `rail` 是任意字串(可能來自偽造 payload)⇒ 不認得就落回預設,不讓它污染受控狀態。 */
-function coerceRail(value: string): PaymentRail {
-  return (PAYMENT_RAILS as readonly string[]).includes(value) ? (value as PaymentRail) : 'bank_transfer';
+function coerceRail(value: string): PaymentMethodChoice {
+  return (PAYMENT_METHODS as readonly string[]).includes(value) ? (value as PaymentMethodChoice) : 'bank_transfer';
 }
 
-const RAIL_LABEL: Record<PaymentRail, string> = {
+// 刷卡 = 店內刷卡機;送出時走現金那條路 + 標記(`payment-action-state.ts` PAYMENT_METHODS)。
+const RAIL_LABEL: Record<PaymentMethodChoice, string> = {
   bank_transfer: '銀行匯款',
   cash: '現金',
+  card_terminal: '刷卡',
 };
 
 /**
@@ -237,7 +239,8 @@ export function PaymentRecordForm({
     setConfirmed(false);
   }
 
-  const isCash = values.rail === 'cash';
+  // 刷卡與現金同一條路:沒有日期欄、沒有單號,時間採開表單那一刻。
+  const isCash = values.rail === 'cash' || values.rail === 'card_terminal';
   const submitDisabled = isPending || !detailsReadable || !confirmed;
 
   /**
@@ -263,7 +266,7 @@ export function PaymentRecordForm({
 
       {variant === 'dialog' ? null : (
       <div className='mb-3 flex flex-wrap gap-3'>
-        {PAYMENT_RAILS.map((rail) => (
+        {PAYMENT_METHODS.map((rail) => (
           <label key={rail} className='flex items-center gap-1.5 text-sm'>
             <input
               type='radio'
@@ -280,7 +283,7 @@ export function PaymentRecordForm({
 
       <div className='grid gap-3 sm:grid-cols-2'>
         {variant === 'dialog' ? (
-          // 稿 v22 彈窗 1:方式是下拉、與金額同一列(系統只有 銀行匯款 / 現金 兩條軌;稿的「信用卡」系統沒有 ⇒ 不畫)。
+          // 稿 v22 彈窗 1:方式是下拉、與金額同一列(銀行匯款 / 現金 / 刷卡;刷卡走現金那條軌 + 標記,報價單Q1 2026-10-01)。
           <AdminFormField label='方式'>
             <select
               className={ADMIN_INPUT_CLASS}
@@ -288,7 +291,7 @@ export function PaymentRecordForm({
               value={values.rail}
               onChange={(e) => setValues((v) => ({ ...v, rail: coerceRail(e.target.value) }))}
             >
-              {PAYMENT_RAILS.map((rail) => (
+              {PAYMENT_METHODS.map((rail) => (
                 <option key={rail} value={rail}>{RAIL_LABEL[rail]}</option>
               ))}
             </select>
@@ -407,7 +410,8 @@ export function PaymentRecordForm({
           這個值 FormData 偽造得掉,把它講成可信來源就是把追不到人的時點講成有人負責。 */}
       {isCash && (
         <p className='text-muted-foreground mt-3 text-xs'>
-          現金收款時間採用<strong>開啟表單的時間</strong>，不會隨送出時間更新。
+          {values.rail === 'card_terminal' ? '刷卡' : '現金'}收款時間採用<strong>開啟表單的時間</strong>，不會隨送出時間更新。
+          {values.rail === 'card_terminal' ? '系統會依刷卡手續費率自動扣除手續費，營業額以扣除後的金額計算。' : null}
         </p>
       )}
 

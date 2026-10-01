@@ -194,6 +194,16 @@ describe('🔴 送出去的 args(DEFAULT NULL 的鍵要整個省掉,不是送 nu
     expect(Object.keys(args)).not.toContain('p_bank_reference');
   });
 
+  it('刷卡:現金軌 + p_payment_instrument=card_terminal;現金不帶這個鍵', async () => {
+    const rpc = makeClient({ data: OK, error: null });
+    await recordManualPayment({ ...CASH_ARGS, instrument: 'card_terminal' });
+    const [, args] = rpc.mock.calls[0] as [string, Record<string, unknown>];
+    expect(args).toMatchObject({ p_rail: 'cash', p_payment_instrument: 'card_terminal' });
+    await recordManualPayment({ ...CASH_ARGS, instrument: null });
+    const [, cashArgs] = rpc.mock.calls[1] as [string, Record<string, unknown>];
+    expect(Object.keys(cashArgs)).not.toContain('p_payment_instrument');
+  });
+
   // 🔴 「匯款軌單號留空」那一格**已經刪掉**(關卡2 codex MF2 折面):
   //    型別收緊成 `bankReference: string` 之後,那個輸入**編譯不過**
   //    (實測:改回傳 null 會噴 TS2322)⇒ 留著它就是在測一個構造不出來的輸入。

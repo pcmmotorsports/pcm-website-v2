@@ -86,6 +86,7 @@ describe('正常兩軌', () => {
   it('現金軌:沒有日期欄、單號恆 null', () => {
     expect(parsePaymentForm(cashForm())).toEqual({
       rail: 'cash',
+      instrument: null,
       orderId: ORDER_ID,
       amount: 500,
       bankReference: null,
@@ -93,6 +94,23 @@ describe('正常兩軌', () => {
       payerNote: '客人現場付',
       requestId: REQUEST_ID,
     });
+  });
+
+  it('刷卡:走現金軌 + 標記 card_terminal(報價單Q1 2026-10-01)', () => {
+    expect(parsePaymentForm(cashForm({ [PAY_RAIL_FIELD]: 'card_terminal' }))).toEqual({
+      rail: 'cash',
+      instrument: 'card_terminal',
+      orderId: ORDER_ID,
+      amount: 500,
+      bankReference: null,
+      cashReceivedAt: MINTED_AT,
+      payerNote: '客人現場付',
+      requestId: REQUEST_ID,
+    });
+  });
+
+  it('不認得的方式(例如 shopee)⇒ 拒,蝦皮進帳不走這張表單', () => {
+    expect(parsePaymentForm(cashForm({ [PAY_RAIL_FIELD]: 'shopee' }))).toBeNull();
   });
 
   it('空白的選填欄 ⇒ null(與 RPC 的 btrim 正規化同一個立場)', () => {

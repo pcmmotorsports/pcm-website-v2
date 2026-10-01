@@ -1,5 +1,6 @@
 import { anyMalformed, readSingleString } from '../forms/single-value';
 import {
+  PAYMENT_METHODS,
   PAYMENT_RAILS,
   PAY_AMOUNT_FIELD,
   PAY_CASH_RECEIVED_AT_FIELD,
@@ -10,6 +11,7 @@ import {
   PAY_RECEIVED_DATE_FIELD,
   PAY_REQUEST_ID_FIELD,
   type PaymentFormValues,
+  type PaymentMethodChoice,
   type PaymentRail,
 } from './payment-action-state';
 
@@ -66,6 +68,8 @@ export type ParsedPaymentForm =
     }
   | {
       rail: 'cash';
+      /** 報價單Q1 2026-10-01:`card_terminal` = 店內刷卡(走現金那條路的所有規則, 只多這個標記);`null` = 現金。 */
+      instrument: 'card_terminal' | null;
       orderId: string;
       amount: number;
       /** 🔴 現金軌**沒有**日期欄,單號恆不存在。 */
@@ -136,6 +140,16 @@ function isRail(raw: string): raw is PaymentRail {
   return (PAYMENT_RAILS as readonly string[]).includes(raw);
 }
 
+/** 表單「方式」欄送的值:兩條軌或店內刷卡(`PAYMENT_METHODS`)。 */
+function isMethod(raw: string): raw is PaymentMethodChoice {
+  return (PAYMENT_METHODS as readonly string[]).includes(raw);
+}
+
+/** 方式 ⇒ 軌別:店內刷卡走 `cash`(報價單Q1)。 */
+function railOf(method: PaymentMethodChoice): PaymentRail {
+  return method === 'card_terminal' ? 'cash' : method;
+}
+
 /** 空白字串 → null(RPC 那邊 `btrim` 後全空白也會正規化回 NULL,兩層同一個立場)。 */
 function orNull(raw: string): string | null {
   return raw.trim() === '' ? null : raw;
@@ -150,9 +164,11 @@ export function parsePaymentForm(form: FormData): ParsedPaymentForm | null {
 
   const orderId = one(form, PAY_ORDER_ID_FIELD);
   const requestId = one(form, PAY_REQUEST_ID_FIELD);
-  const rail = one(form, PAY_RAIL_FIELD);
+  const method = one(form, PAY_RAIL_FIELD);
   if (!UUID_RE.test(orderId) || !UUID_RE.test(requestId)) return null;
-  if (!isRail(rail)) return null;
+  if (!isMethod(method)) return null;
+  const rail = railOf(method);
+  const instrument = method === 'card_terminal' ? 'card_terminal' : null;
 
   const amount = toAmount(one(form, PAY_AMOUNT_FIELD));
   if (amount === null) return null;
@@ -176,7 +192,7 @@ export function parsePaymentForm(form: FormData): ParsedPaymentForm | null {
     // 🔴 現金軌**不讀那個日期欄**:它是匯款軌的欄位 ⇒ 塞了也一律忽略(忽略不是拒收:
     //    一個多餘的欄位不該變成阻斷,而員工的裝置時鐘本來就不該有發言權)。
     if (bankReference !== null) return null;
-    return { rail: 'cash', orderId, amount, bankReference: null, cashReceivedAt, payerNote, requestId };
+    return { rail: 'cash', instrument, orderId, amount, bankReference: null, cashReceivedAt, payerNote, requestId };
   }
 
   if (!isRealDate(receivedDate)) return null;
@@ -237,8 +253,9 @@ export function missingPaymentFieldLabels(form: FormData): string[] {
   const requestId = one(form, PAY_REQUEST_ID_FIELD);
   if (!UUID_RE.test(orderId) || !UUID_RE.test(requestId)) return [];
 
-  const rail = one(form, PAY_RAIL_FIELD);
-  if (!isRail(rail)) return [];
+  const method = one(form, PAY_RAIL_FIELD);
+  if (!isMethod(method)) return [];
+  const rail = railOf(method);
 
   // 印章:兩軌都驗(與 `parsePaymentForm` 同一條理由)。
   if (!isIsoInstant(one(form, PAY_CASH_RECEIVED_AT_FIELD))) return [];

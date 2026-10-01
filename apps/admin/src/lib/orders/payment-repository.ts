@@ -192,7 +192,8 @@ export async function recordManualPayment(args: {
     // 🔴 匯款軌的單號**型別上就是必填**(關卡2 codex MF2):RPC `20260810200000:181-183`
     //    對「匯款軌沒單號」是無 ERRCODE 的通用 RAISE ⇒ 讓它編譯不過,比讓它換一句含糊的錯誤好。
     | { rail: 'bank_transfer'; bankReference: string }
-    | { rail: 'cash' }
+    // 報價單Q1 2026-10-01:店內刷卡 = 現金軌 + 標記 `card_terminal`(手續費由 DB trigger 依費率快照)。
+    | { rail: 'cash'; instrument?: 'card_terminal' | null }
   )): Promise<ManualPaymentOutcome> {
   const client = createSupabaseServiceClient();
   const base = {
@@ -207,6 +208,7 @@ export async function recordManualPayment(args: {
       ? await client.rpc('admin_record_manual_payment', {
           ...base,
           p_rail: 'cash',
+          ...(args.instrument ? { p_payment_instrument: args.instrument } : {}),
           ...(args.payerNote === null ? {} : { p_payer_note: args.payerNote }),
         })
       : await client.rpc('admin_record_manual_payment', {
