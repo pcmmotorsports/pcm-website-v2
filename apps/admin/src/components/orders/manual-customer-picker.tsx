@@ -548,6 +548,8 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
 
   /** 收件人姓名與自動連結那位不同 ⇒ 提醒(一家人共用電話時, 不同名多半是不同人)。 */
   const autoLinked = autoLinkId !== null ? candidates?.find((c) => c.userId === autoLinkId) ?? null : null;
+  /** 剛好一位、已連結、沒有打開「換一位客人」⇒ 名字、「已連結」、換一位客人排成一行(建單簡化 S4)。 */
+  const compact = autoResult?.kind === 'one' && autoLinked !== null && !showSearch;
   const shipName = autoLinked
     ? ((formOf()?.querySelector(`[name="${MANUAL_ORDER_SHIP_TO_NAME_FIELD}"]`) as HTMLInputElement | null)?.value ?? '').trim()
     : '';
@@ -577,7 +579,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       )}
 
       {autoResult !== null && (
-        <p role='status' data-testid='manual-customer-auto' className='text-sm'>
+        <p role='status' data-testid='manual-customer-auto' className={compact ? 'sr-only' : 'text-sm'}>
           {autoResult.kind === 'one' && autoLinked
             ? `收件電話是老客人「${autoLinked.name}」，已連結。`
             : autoResult.kind === 'many'
@@ -599,8 +601,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         </p>
       )}
 
+      <div className={compact ? 'flex flex-wrap items-center gap-x-2' : 'space-y-2'}>
       {candidates !== null && candidates.length > 0 && (
-        <ul key={listSeq} className='space-y-1' data-testid='manual-customer-candidates'>
+        <ul key={listSeq} {...(compact ? { 'data-compact': '1' } : {})} className='space-y-1' data-testid='manual-customer-candidates'>
           {candidates.map((c) => (
             <li key={c.userId}>
               <label className='flex items-center gap-2 text-sm'>
@@ -646,6 +649,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                       一個【空括號】而不是「沒有電話」⇒ 員工分不出「沒填」與「畫面壞了」。⟦b4-PICKPHONE1⟧ */}
                   {c.name}({c.phone || '沒有電話'})
                   {c.isManual ? ' · 後台開的帳號' : ''}
+                  {compact && c.userId === autoLinkId ? <span className='text-muted-foreground'> 收件電話是老客人，已連結。</span> : null}
                 </span>
               </label>
             </li>
@@ -714,6 +718,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
           換一位客人
         </button>
       )}
+      </div>
       {searchBroken !== null && (
         // 🔴 **一種原因一句話,而且【不與上面那個 notice 打架】。**
         //    `denied` 那句刻意**短**:上面的 notice 已經把該說的說完了,

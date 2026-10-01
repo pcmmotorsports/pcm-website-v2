@@ -20,13 +20,7 @@ import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
 import { ManualOrderShipTo } from './manual-order-ship-to';
-import {
-  MANUAL_FIELD_GRID,
-  MANUAL_FIELD_INPUT,
-  MANUAL_FIELD_LABEL,
-  MANUAL_SECTION,
-  MANUAL_SECTION_LEGEND,
-} from './manual-order-field-classes';
+import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL } from './manual-order-field-classes';
 
 // manual-order-form-body.tsx — M12-A3-b:手動建單表單本體(客人 / 經手人 / 收件 / 發票 / 運費)。
 // ⛔ ~~🔴 **品項那一列不在本片**(A3-c)。本片先讓「一張沒有品項的單」在畫面上成立…~~
@@ -163,7 +157,25 @@ export function ManualOrderFormBody({
                    ⇒ `parseManualOrderForm()` 與 RPC 那一側**零改動**。 */}
             {/* 2026-10-01(Sean Q24 甲):客人那一塊搬進收件資料、放在收件電話下面 ——
                 仍在這個 `disabled` fieldset 裡面(沒有員工 ⇒ 連找客人 / 建客人都停用, 上面那段的契約不變)。 */}
-            <ManualOrderShipTo customer={<ManualCustomerPicker customerRequestId={customerRequestId} />} />
+            {/* 2026-10-01 建單簡化(Sean Q1 甲, S4):「訂單來源」搬到收件資料最上面 ——
+                選「蝦皮」時, 收件電話上方之後會多一格蝦皮帳號(網站B 的計畫, `beforePhone` 那個位置), 兩者在同一個視線範圍。
+                🔴 name 與 option 一個字不動;蝦皮鎖通知 email 那支用欄位名找這個下拉, 搬位置不影響。 */}
+            <ManualOrderShipTo
+              source={
+                <label className={MANUAL_FIELD_LABEL}>
+                  訂單來源
+                  <select
+                    autoComplete='off'
+                    name={MANUAL_ORDER_SOURCE_FIELD} className={MANUAL_FIELD_INPUT}>
+                    <option value='manual_phone'>電話</option>
+                    <option value='manual_line'>LINE</option>
+                    <option value='manual_other'>其他</option>
+                    <option value='manual_shopee'>蝦皮</option>
+                  </select>
+                </label>
+              }
+              customer={<ManualCustomerPicker customerRequestId={customerRequestId} />}
+            />
               {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
                   🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,
                      這一格講「寄到哪」—— 兩件事, 不要哪天一起收合起來。
@@ -183,19 +195,6 @@ export function ManualOrderFormBody({
                 畫面說 Alice、帳上寫 Bob** ⇒ 一個會說謊的欄位比沒有欄位糟。
                 ⇒ 要顯示經手人的話,值必須來自 `getSessionActor()` 那一個來源;那是另一片。 */}
 
-            <div className={MANUAL_FIELD_GRID}>
-              <label className={MANUAL_FIELD_LABEL}>
-                訂單來源
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SOURCE_FIELD} className={MANUAL_FIELD_INPUT}>
-                  <option value='manual_phone'>電話</option>
-                  <option value='manual_line'>LINE</option>
-                  <option value='manual_other'>其他</option>
-                  <option value='manual_shopee'>蝦皮</option>
-                </select>
-              </label>
-            </div>
 
             {/* 2026-10-01 建單簡化(Sean Q1 甲, S3):會員等級 / 付款 / 取貨 / 運費 / 運費稅別搬成一支元件、重排。
                 欄位名與 defaultValue 一個字不動;報價單Q1 之後要在這一組加「刷卡」與蝦皮進帳, 改那一支就好。 */}

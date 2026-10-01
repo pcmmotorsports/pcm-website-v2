@@ -310,3 +310,29 @@ describe('貼上整段 ⇒ 拆好填進收件人 / 電話 / 地址', () => {
     expect(screen.getByTestId('manual-order-ship-to-paste').getAttribute('name')).toBeNull();
   });
 });
+
+// ── 2026-10-01 建單簡化(Sean Q1 甲, S4):訂單來源在收件資料最上面, 收件電話上方留蝦皮帳號的位置 ──
+describe('收件資料:訂單來源在最上面', () => {
+  it('訂單來源在「收件資料」裡, 而且在貼上整段與收件人之前', () => {
+    renderForm();
+    const group = screen.getByRole('group', { name: '收件資料' });
+    const source = screen.getByLabelText('訂單來源');
+    expect(group.contains(source)).toBe(true);
+    expect(source.compareDocumentPosition(shipName()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(source.compareDocumentPosition(screen.getByTestId('manual-order-ship-to-paste')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // name 與 option 不變
+    expect((source as HTMLSelectElement).name).toBe('order_source');
+    expect([...(source as HTMLSelectElement).options].map((o) => o.value)).toEqual(['manual_phone', 'manual_line', 'manual_other', 'manual_shopee']);
+  });
+
+  it('beforePhone 的位置在收件人與收件電話中間(網站B 的蝦皮帳號之後放這裡)', () => {
+    render(
+      <form>
+        <ManualOrderShipTo beforePhone={<input aria-label='蝦皮帳號' />} />
+      </form>,
+    );
+    const slot = screen.getByLabelText('蝦皮帳號');
+    expect(shipName().compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(slot.compareDocumentPosition(shipPhone()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
