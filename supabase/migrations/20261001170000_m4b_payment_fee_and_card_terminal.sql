@@ -226,7 +226,9 @@ CREATE TRIGGER order_payments_fee_snapshot_bi
 UPDATE public.order_payments p
    SET fee_amount = 0
  WHERE p.reverses_payment_id IS NULL
-   AND NOT (p.rail = 'card' OR (p.rail = 'cash' AND p.payment_instrument = 'card_terminal'));
+   -- 🔴 IS NOT DISTINCT FROM 不是 =:既有列的 payment_instrument 全是 NULL ⇒ 用 = 時現金列整句求值成 NULL ⇒ NOT NULL 仍是 NULL
+   --    ⇒ WHERE 不收那列 ⇒ 手續費留 NULL(10-01 21:26 第一次貼板被後置檢查擋下, 正式庫那 1 筆現金就是它)。
+   AND NOT (p.rail = 'card' OR (p.rail = 'cash' AND p.payment_instrument IS NOT DISTINCT FROM 'card_terminal'));
 
 UPDATE public.order_payments p
    SET fee_rate   = r.rate,

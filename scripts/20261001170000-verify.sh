@@ -69,7 +69,32 @@ P -f "$DOWN" >/dev/null 2>&1 || { echo "🔴 空資料時回滾失敗"; FAIL=1; 
 cell "回滾後函式本體 = 正式庫" "$(Q "$MD5Q")" "admin_create_manual_order=8e1005fa67086c1e0ecca8216312e9f3,admin_list_order_payments=38fcf5f1e5021cf8e98c4a3b643894ad,admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b"
 cell "回滾後建單 RPC 沒有殘留本次的註解(Fable R1 nit 1)" "$(Q "select coalesce(obj_description(p.oid, 'pg_proc'), '') like '%貼板 262%' from pg_proc p where proname = 'admin_create_manual_order'")" "f"
 cell "回滾後新欄與新表都不在" "$(Q "select count(*) from information_schema.columns where table_schema='public' and column_name in ('payment_instrument','fee_rate','fee_amount')")|$(Q "select count(*) from pg_tables where tablename='payment_fee_rates'")" "0|0"
-P -f "$MIG" >/dev/null || { echo "🔴 回滾後再套失敗"; exit 1; }
+# 🔴 既有收款的回填要用【貼板前就在的列】測(10-01 21:26 第一次貼板:空表世界測不到回填, 正式庫那 1 筆現金的手續費留 NULL 被後置檢查擋)。
+#    在貼前版本的函式上造正式庫同形的列:現金、匯款、TapPay 各一筆 + 一組現金沖銷, 再套本支看回填。
+P >/dev/null <<'SEED' || { echo "🔴 貼前收款造不起來"; exit 1; }
+INSERT INTO public.staff (id, label, is_active) VALUES ('probe_seed', '回填測試', true);
+CREATE TEMP TABLE zz_seed (k text PRIMARY KEY, id uuid);
+DO $s$
+DECLARE c uuid := gen_random_uuid();
+BEGIN
+  INSERT INTO auth.users (id, email, raw_user_meta_data) VALUES (c, c::text || '@seed.test', '{}'::jsonb);
+  INSERT INTO public.customers (user_id, email, name, phone, tier) VALUES (c, c::text || '@seed.test', '回填客人', '0912345678', 'general');
+  INSERT INTO zz_seed SELECT k, (public.admin_create_manual_order(c, gen_random_uuid(), 'probe_seed', 'manual_phone', ch, 'home',
+         '{"name":"王小明","phone":"0912000111","line":"台北市測試路1號"}'::jsonb, '{"type":"personal","requested":false}'::jsonb, 100,
+         '[{"sku":"Q1","title":"測試品","qty":1,"unit_price":3000,"spec":{}}]'::jsonb) ->> 'order_id')::uuid
+    FROM (VALUES ('o_cash', 'cash'), ('o_bank', 'bank_transfer'), ('o_card', 'cash')) v(k, ch);
+END $s$;
+SELECT public.admin_record_manual_payment((SELECT id FROM zz_seed WHERE k = 'o_cash'), gen_random_uuid(), 'probe_seed', 'cash', 3100, now(), NULL, NULL);
+SELECT public.admin_record_manual_payment((SELECT id FROM zz_seed WHERE k = 'o_bank'), gen_random_uuid(), 'probe_seed', 'bank_transfer', 3100,
+         (pg_catalog.timezone('Asia/Taipei', now())::date::text || ' 00:00:00+08')::timestamptz, 'REF-SEED', NULL);
+INSERT INTO public.order_payments (order_id, rail, amount, received_at, rec_trade_id, actor)
+  VALUES ((SELECT id FROM zz_seed WHERE k = 'o_card'), 'card', 3100, now(), 'TRADE-SEED-1', 'probe_seed');
+SELECT public.admin_reverse_manual_payment((SELECT p.id FROM public.order_payments p JOIN zz_seed z ON z.id = p.order_id WHERE z.k = 'o_cash'), 'probe_seed', '回填測試沖銷');
+SEED
+cell "貼前世界:造出 4 筆既有收款(現金 / 匯款 / TapPay / 現金沖銷)" "$(Q "select count(*) from public.order_payments where actor = 'probe_seed'")" "4"
+P -f "$MIG" >/dev/null || { echo "🔴 有既有收款時套不上(回填後置檢查?)"; exit 1; }
+SEEDQ="select coalesce(string_agg(rail || case when reverses_payment_id is null then '' else '沖銷' end || '=' || coalesce(fee_amount::text, 'NULL'), ',' order by rail, reverses_payment_id nulls first), '') from public.order_payments where actor = 'probe_seed' or reverses_payment_id in (select id from public.order_payments where actor = 'probe_seed')"
+cell "既有收款回填:匯款 0、TapPay 77、現金 0、現金沖銷 0(沒有任何一列留 NULL)" "$(Q "$SEEDQ")" "bank_transfer=0,card=77,cash=0,cash沖銷=0"
 cell "函式已不是 10-01 正式庫版本(例:已貼過)⇒ 前置閘整筆擋" "$(P -f "$MIG" 2>&1 | grep -c '貼板 262 前置閘')" "1"
 
 cat > "$D/tools.sql" <<'SQL'
