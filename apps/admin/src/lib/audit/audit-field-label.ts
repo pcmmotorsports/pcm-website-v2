@@ -181,6 +181,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   payment_status: '付款狀態',
   amount: '金額',
   rail: '收款管道',
+  // 報價單Q1 2026-10-01(貼板 262):登記收款 / 手動退款 RPC 寫進稽核的兩欄。
+  payment_instrument: '付款方式標記',
+  payment_channel_requested: '建單時送來的收款管道(蝦皮單會改記成現金)',
+  shopee_payout: '蝦皮進帳金額',
   received_at: '收到款項的時間',
   rec_trade_id: 'TapPay 交易編號',
   has_bank_reference: '有沒有填銀行資訊',
@@ -439,6 +443,8 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
   },
   // `20260810100000_m4b_e10_op1_order_payments_m.sql:189` CHECK
   rail: { card: '刷卡', bank_transfer: '匯款', cash: '現金' },
+  // 走現金軌的兩種標記;空值 = 一般現金或匯款。
+  payment_instrument: { card_terminal: '店內刷卡機', shopee: '蝦皮進帳' },
   // `20260717010000_m4a_admin_set_customer_tier_rpc.sql:101` `p_tier NOT IN (…)`
   // 🔴 Sean 2026-09-13 逐字「我們還是變成 會員、車行、經銷,三種就好」⇒ 後台三張表同字面
   //    (另兩張:`lib/orders/order-list-view.ts` MEMBER_TIER_LABEL、

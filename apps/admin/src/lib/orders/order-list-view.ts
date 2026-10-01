@@ -10,6 +10,7 @@ import type {
   OrderGoodsAxis,
   OrderSource,
   PaymentChannel,
+  PaymentInstrument,
   MemberTier,
   OrderItemVehicleSnapshot,
   InvoiceStatus,
@@ -294,6 +295,20 @@ export const PAYMENT_CHANNEL_LABEL: Record<PaymentChannel, string> = {
   cash: '現金',
   none: '未指定',
 };
+
+/**
+ * 付款標記的名稱(報價單Q1 2026-10-01)。店內刷卡與蝦皮都走 `cash` 那條路, 畫面不能印成「現金」。
+ * 「刷卡」與網站的「線上刷卡」是兩件事(手續費率分開設), 名稱也分開。
+ */
+export const PAYMENT_INSTRUMENT_LABEL: Record<PaymentInstrument, string> = {
+  card_terminal: '刷卡',
+  shopee: '蝦皮',
+};
+
+/** 訂單的付款方式要顯示什麼:有付款標記就用標記, 沒有就照付款管道。 */
+export function paymentMethodDisplayLabel(channel: PaymentChannel, instrument?: PaymentInstrument | null): string {
+  return instrument ? PAYMENT_INSTRUMENT_LABEL[instrument] : PAYMENT_CHANNEL_LABEL[channel];
+}
 
 /**
  * 會員等級標籤(orders.tier_at_checkout;M-4a Slice D-1a 列表「會員等級」欄)。

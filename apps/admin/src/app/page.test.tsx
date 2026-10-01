@@ -149,6 +149,7 @@ beforeEach(() => {
     month: '2026-09',
     invoicedAmount: 1000,
     revenueAmount: 4500,
+    revenueMissingFeeCount: 0,
     issuedWithoutDateCount: 0,
     truncated: false,
   });
@@ -220,7 +221,7 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
 
   it('🔴 發票月統計截斷 ⇒ 差額不算、印「不完整,不算」+ 截斷警語(codex must-fix 4:兩個下限相減不是下限)', async () => {
     mocks.loadInvoiceMonthStats.mockResolvedValue({
-      month: '2026-09', invoicedAmount: 1001, revenueAmount: 1002, issuedWithoutDateCount: 0, truncated: true,
+      month: '2026-09', invoicedAmount: 1001, revenueAmount: 1002, revenueMissingFeeCount: 0, issuedWithoutDateCount: 0, truncated: true,
     });
     const { container } = render(await AdminHomePage());
     const box = container.querySelector('[data-testid="invoice-month"]')!;
@@ -249,6 +250,20 @@ describe('AdminHomePage · 今天要做的事 / 發票月統計(2026-09-13)', ()
     expect(box.textContent).toContain('發票作廢重開會讓過去月份的數字跟著變');
     expect(box.textContent).toContain('另有 0 張已開立而沒填開立日期,不計入');
     expect(box.textContent).not.toContain('查詢上限');
+    // 報價單Q1 2026-10-01:營業額的新定義要寫在卡上;沒有缺費率就不出現警語
+    expect(box.textContent).toContain('本月營業額(實收 − 手續費 − 退款)');
+    expect(box.textContent).toContain('營業額按收款日計算,含運費與稅');
+    expect(box.textContent).not.toContain('找不到手續費率');
+  });
+
+  it('營業額有收款找不到手續費率 ⇒ 紅字說出筆數與「營業額會比實際高」', async () => {
+    mocks.loadInvoiceMonthStats.mockResolvedValue({
+      month: '2026-09', invoicedAmount: 0, revenueAmount: 3100, revenueMissingFeeCount: 2, issuedWithoutDateCount: 0, truncated: false,
+    });
+    const { container } = render(await AdminHomePage());
+    const box = container.querySelector('[data-testid="invoice-month"]')!;
+    expect(box.textContent).toContain('本月有 2 筆刷卡收款找不到手續費率');
+    expect(box.textContent).toContain('營業額會比實際高');
   });
 
   it('今天要做的事那支整支拋 ⇒ 三格印「讀取失敗」不印 0,連結仍可點;其餘照舊', async () => {

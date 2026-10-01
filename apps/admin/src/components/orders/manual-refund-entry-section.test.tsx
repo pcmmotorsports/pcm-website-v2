@@ -147,3 +147,12 @@ describe('⟦b4-SETTLEDFORMVANISHES⟧ 帳本已結清時, 有話要說才留下
     );
   });
 });
+
+describe('刷卡退款選項(報價單Q1 2026-10-01)', () => {
+  it('退款方式有 匯款 / 現金 / 刷卡 三個', () => {
+    const { container } = renderSection();
+    const values = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')].map((r) => r.value);
+    expect(values).toEqual(['bank_transfer', 'cash', 'card_terminal']);
+    expect(container.textContent).toContain('刷卡');
+  });
+});

@@ -8,12 +8,10 @@ import { isoBackToTaipeiYmd, taipeiDayStartIso } from '@pcm/domain';
 // 兩個數並排 + 差額(Sean 逐字「我的營業額跟我開發票的金額是覺得不一樣的」⇒ 價值就在看得出差多少):
 //    · 本月開票金額 = Σ `orders.invoice_amount`,`invoice_status = 'issued'` 且 `invoice_issued_at` 在本月
 //      (🔴 按**開立日**分月,不是登記日、不是建單日 —— Sean Q3 乙)。
-//    · 本月營業額   = Σ (`subtotal` − `discount_total`),`created_at` 台北月在本月,扣掉已取消 / 已退款
-//      (🔴 不含運費、不含稅 ⇒ **不能用 `total`**:`orders_total_balances` 是
-//       `total = subtotal + shipping_fee - discount_total + tax_total`,`20260828100000:278-281`)。
-//      ⚠️ 「含稅單 subtotal 已含稅、稅另計單 subtotal 未稅」這條算式通吃的前提是 `inclusive` 單 `tax_total = 0`
-//         —— 那是**今天成立的事實、不是 DB 保證**。2026-09-13 正式庫唯讀重跑:`inclusive AND tax_total <> 0` = **0 張**。
-//         哪天不是 0,算式要改 `subtotal − discount_total − tax_total` 並回頭問 Sean 那種單怎麼來的。
+//    · 本月營業額   = 本月收到的錢 − 手續費 − 本月退出去的錢(2026-10-01 Sean Q33 乙 + Q41 甲,報價單Q1):
+//      按【收款日】分月(不是建單日);運費與稅都算在內(= 實際進帳);刷卡 / TapPay 扣 2.5%、蝦皮扣蝦皮扣款;
+//      手續費不退。算式在 DB 的 `admin_revenue_between`(20261001170000),這裡只讀它的結果。
+//      🔴 舊算式(Σ subtotal − discount_total、按建單日、排除已退款)整個換掉:部分退款單原本整張全額計入。
 //    · 另有 X 張已開立而沒填開立日期,不計入 —— 🔴 **恆印**,連 0 也印:`20260913080000` 的 CHECK 落地後
 //      它理論上恆為 0,而這一行是那道 CHECK 還活著的唯一可見證據。
 //
@@ -32,11 +30,13 @@ export type InvoiceMonthStats = {
   month: string;
   /** Σ invoice_amount(整數元);`null` = 讀取失敗。 */
   invoicedAmount: number | null;
-  /** Σ (subtotal − discount_total),整數元;`null` = 讀取失敗。 */
+  /** 本月收款 − 手續費 − 退款(整數元,`admin_revenue_between`);`null` = 讀取失敗。 */
   revenueAmount: number | null;
+  /** 本月應收手續費而沒有費率的收款筆數(那幾筆手續費先當 0 ⇒ 營業額偏高);`null` = 讀取失敗。 */
+  revenueMissingFeeCount: number | null;
   /** 已開立而沒填開立日期的張數(不計入上面);`null` = 讀取失敗。 */
   issuedWithoutDateCount: number | null;
-  /** 任一支撈列查詢撞到上限 ⇒ 對應那個數是**下限**。 */
+  /** 開票撈列撞到上限 ⇒ 開票金額是**下限**(營業額在 DB 加總, 沒有上限問題)。 */
   truncated: boolean;
 };
 
@@ -91,16 +91,7 @@ export async function loadInvoiceMonthStats(now: Date = new Date()): Promise<Inv
         .lt('invoice_issued_at', toYmd)
         .limit(INVOICE_MONTH_ROW_LIMIT + 1),
     ),
-    settle(
-      supabase
-        .from('orders')
-        .select('subtotal, discount_total')
-        .gte('created_at', fromIso)
-        .lt('created_at', toIso)
-        .is('cancelled_at', null)
-        .neq('payment_status', 'refunded')
-        .limit(INVOICE_MONTH_ROW_LIMIT + 1),
-    ),
+    settle(supabase.rpc('admin_revenue_between', { p_from: fromIso, p_to: toIso })),
     settle(
       supabase
         .from('orders')
@@ -116,16 +107,25 @@ export async function loadInvoiceMonthStats(now: Date = new Date()): Promise<Inv
   };
 
   const issuedRows = issued.error ? fail('開票金額', issued.error) : (issued.data ?? []);
-  const revenueRows = revenue.error ? fail('營業額', revenue.error) : (revenue.data ?? []);
-  const truncated =
-    (issuedRows?.length ?? 0) > INVOICE_MONTH_ROW_LIMIT ||
-    (revenueRows?.length ?? 0) > INVOICE_MONTH_ROW_LIMIT;
+  const truncated = (issuedRows?.length ?? 0) > INVOICE_MONTH_ROW_LIMIT;
+  // RPC 回一列 { received, fees, refunds, revenue, missing_fee_count };bigint 經 PostgREST 可能是字串。
+  const revenueRow = revenue.error
+    ? fail('營業額', revenue.error)
+    : (((Array.isArray(revenue.data) ? revenue.data[0] : revenue.data) ?? null) as Record<string, unknown> | null);
+  const safeInt = (v: unknown, what: string): number | null => {
+    const n = typeof v === 'string' ? Number(v) : v;
+    return typeof n === 'number' && Number.isSafeInteger(n) ? n : fail(what, new Error(`不是安全整數(收到 ${String(v)})`));
+  };
+  if (revenueRow === null && !revenue.error) fail('營業額', new Error('RPC 沒有回任何列'));
+  const revenueAmount = revenueRow === null ? null : safeInt(revenueRow.revenue, '營業額');
+  const revenueMissingFeeCount = revenueRow === null ? null : safeInt(revenueRow.missing_fee_count, '沒有費率筆數');
 
   return {
     month,
     // 🔴 `invoice_amount` 是 nullable(員工可能只登記狀態沒填金額)⇒ 當 0 加,不當失敗。
     invoicedAmount: sumSafe(issuedRows, (r) => (r.invoice_amount === null ? 0 : Number(r.invoice_amount))),
-    revenueAmount: sumSafe(revenueRows, (r) => Number(r.subtotal) - Number(r.discount_total)),
+    revenueAmount,
+    revenueMissingFeeCount,
     issuedWithoutDateCount: missing.error
       ? fail('沒填日期張數', missing.error)
       : Number.isSafeInteger(missing.count)

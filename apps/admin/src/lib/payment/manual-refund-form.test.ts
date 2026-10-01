@@ -275,3 +275,19 @@ describe('勾選「我確認卡上沒退」的解析', () => {
     }
   });
 });
+
+describe('刷卡退款(報價單Q1 2026-10-01)', () => {
+  it('rail=card_terminal ⇒ 現金軌 + 標記 card_terminal', () => {
+    const r = parseManualRefundForm(validForm({ [MANUAL_REFUND_RAIL_FIELD]: 'card_terminal' }));
+    expect(r).toMatchObject({ ok: true, rail: 'cash', instrument: 'card_terminal' });
+  });
+
+  it('現金 / 匯款 ⇒ 沒有標記', () => {
+    expect(parseManualRefundForm(validForm())).toMatchObject({ ok: true, rail: 'cash', instrument: null });
+    expect(parseManualRefundForm(validForm({ [MANUAL_REFUND_RAIL_FIELD]: 'bank_transfer' }))).toMatchObject({ instrument: null });
+  });
+
+  it('shopee 不是退款方式 ⇒ 拒', () => {
+    expect(parseManualRefundForm(validForm({ [MANUAL_REFUND_RAIL_FIELD]: 'shopee' }))).toEqual({ ok: false });
+  });
+});

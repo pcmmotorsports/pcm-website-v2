@@ -273,7 +273,7 @@ export function ManualRefundLedgerSection({
                     {formatOrderDateTime(row.occurredAt)}
                   </td>
                   <td className={`${TD} whitespace-nowrap`}>
-                    {row.rail === 'cash' ? '現金' : '匯款'}
+                    {row.paymentInstrument === 'card_terminal' ? '刷卡' : row.rail === 'cash' ? '現金' : '匯款'}
                   </td>
                   {/* 🔴 金額打刪除線是**唯一**一眼看得出「這筆不算數了」的地方 ——
                       對帳的人掃的是金額欄,不是最右邊那一欄。 */}

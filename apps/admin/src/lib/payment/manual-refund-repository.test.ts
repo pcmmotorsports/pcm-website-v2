@@ -192,6 +192,18 @@ describe('🔵 負對照 —— 證明我沒有把既有那幾條弄壞', () => 
  *    **本節證的是「解析出來的那個值,真的變成 RPC 的第 8 參」。**
  * 📌 而在本片之前,前者可以全綠而後者根本不存在 —— 那正是這一列的成因(只傳 7 個參數)。
  */
+describe('刷卡退款標記(報價單Q1 2026-10-01)', () => {
+  const payload = () => mocks.rpc.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+  it('刷卡 ⇒ 帶 p_payment_instrument=card_terminal;沒標記 ⇒ 不帶這個鍵', async () => {
+    mocks.rpc.mockResolvedValue({ data: { id: 'mr-1' }, error: null });
+    await recordManualRefund({ ...ARGS, rail: 'cash', instrument: 'card_terminal' });
+    expect(payload()).toMatchObject({ p_rail: 'cash', p_payment_instrument: 'card_terminal' });
+    mocks.rpc.mockClear();
+    await recordManualRefund({ ...ARGS, instrument: null });
+    expect(payload()).not.toHaveProperty('p_payment_instrument');
+  });
+});
+
 describe('第 8 參 p_confirm_card_not_refunded 有沒有真的送出去', () => {
   const payload = () => mocks.rpc.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
 

@@ -1,5 +1,6 @@
 import { anyMalformed, readSingleString } from '../forms/single-value';
 import {
+  PAYMENT_METHODS,
   PAYMENT_RAILS,
   PAY_AMOUNT_FIELD,
   PAY_CASH_RECEIVED_AT_FIELD,
@@ -9,7 +10,9 @@ import {
   PAY_RAIL_FIELD,
   PAY_RECEIVED_DATE_FIELD,
   PAY_REQUEST_ID_FIELD,
+  PAY_SHOPEE_PAYOUT_FIELD,
   type PaymentFormValues,
+  type PaymentMethodChoice,
   type PaymentRail,
 } from './payment-action-state';
 
@@ -41,6 +44,7 @@ export const PAYMENT_SINGLE_FIELDS = [
   PAY_BANK_REFERENCE_FIELD,
   PAY_PAYER_NOTE_FIELD,
   PAY_REQUEST_ID_FIELD,
+  PAY_SHOPEE_PAYOUT_FIELD,
 ] as const;
 
 /**
@@ -66,6 +70,10 @@ export type ParsedPaymentForm =
     }
   | {
       rail: 'cash';
+      /** 報價單Q1 2026-10-01:`card_terminal` = 店內刷卡(走現金那條路的所有規則, 只多這個標記);`null` = 現金。 */
+      instrument: 'card_terminal' | 'shopee' | null;
+      /** 蝦皮進帳金額;只有 `instrument = 'shopee'` 時是數字(0 < 進帳 ≤ 金額),其餘 null。 */
+      shopeePayout: number | null;
       orderId: string;
       amount: number;
       /** 🔴 現金軌**沒有**日期欄,單號恆不存在。 */
@@ -136,6 +144,22 @@ function isRail(raw: string): raw is PaymentRail {
   return (PAYMENT_RAILS as readonly string[]).includes(raw);
 }
 
+/** 表單「方式」欄送的值:兩條軌或店內刷卡(`PAYMENT_METHODS`)。 */
+function isMethod(raw: string): raw is PaymentMethodChoice {
+  return (PAYMENT_METHODS as readonly string[]).includes(raw);
+}
+
+/** 方式 ⇒ 軌別:店內刷卡與蝦皮進帳都走 `cash`(報價單Q1)。 */
+function railOf(method: PaymentMethodChoice): PaymentRail {
+  return method === 'bank_transfer' ? 'bank_transfer' : 'cash';
+}
+
+/** 蝦皮進帳金額:正整數且不超過訂單金額(與 RPC 同一條,`P0001` 前先在這裡擋)。 */
+function toShopeePayout(raw: string, amount: number | null): number | null {
+  const payout = toAmount(raw);
+  return payout !== null && payout > 0 && amount !== null && payout <= amount ? payout : null;
+}
+
 /** 空白字串 → null(RPC 那邊 `btrim` 後全空白也會正規化回 NULL,兩層同一個立場)。 */
 function orNull(raw: string): string | null {
   return raw.trim() === '' ? null : raw;
@@ -150,9 +174,11 @@ export function parsePaymentForm(form: FormData): ParsedPaymentForm | null {
 
   const orderId = one(form, PAY_ORDER_ID_FIELD);
   const requestId = one(form, PAY_REQUEST_ID_FIELD);
-  const rail = one(form, PAY_RAIL_FIELD);
+  const method = one(form, PAY_RAIL_FIELD);
   if (!UUID_RE.test(orderId) || !UUID_RE.test(requestId)) return null;
-  if (!isRail(rail)) return null;
+  if (!isMethod(method)) return null;
+  const rail = railOf(method);
+  const instrument = method === 'card_terminal' || method === 'shopee' ? method : null;
 
   const amount = toAmount(one(form, PAY_AMOUNT_FIELD));
   if (amount === null) return null;
@@ -176,7 +202,9 @@ export function parsePaymentForm(form: FormData): ParsedPaymentForm | null {
     // 🔴 現金軌**不讀那個日期欄**:它是匯款軌的欄位 ⇒ 塞了也一律忽略(忽略不是拒收:
     //    一個多餘的欄位不該變成阻斷,而員工的裝置時鐘本來就不該有發言權)。
     if (bankReference !== null) return null;
-    return { rail: 'cash', orderId, amount, bankReference: null, cashReceivedAt, payerNote, requestId };
+    const shopeePayout = instrument === 'shopee' ? toShopeePayout(one(form, PAY_SHOPEE_PAYOUT_FIELD), amount) : null;
+    if (instrument === 'shopee' && shopeePayout === null) return null;
+    return { rail: 'cash', instrument, shopeePayout, orderId, amount, bankReference: null, cashReceivedAt, payerNote, requestId };
   }
 
   if (!isRealDate(receivedDate)) return null;
@@ -196,6 +224,7 @@ export const PAYMENT_FIELD_LABELS = {
   amount: '金額(新臺幣元)',
   receivedDate: '銀行入帳日',
   bankReference: '銀行單號 / 末五碼',
+  shopeePayout: '蝦皮進帳金額(新臺幣元)',
 } as const;
 
 /**
@@ -237,8 +266,9 @@ export function missingPaymentFieldLabels(form: FormData): string[] {
   const requestId = one(form, PAY_REQUEST_ID_FIELD);
   if (!UUID_RE.test(orderId) || !UUID_RE.test(requestId)) return [];
 
-  const rail = one(form, PAY_RAIL_FIELD);
-  if (!isRail(rail)) return [];
+  const method = one(form, PAY_RAIL_FIELD);
+  if (!isMethod(method)) return [];
+  const rail = railOf(method);
 
   // 印章:兩軌都驗(與 `parsePaymentForm` 同一條理由)。
   if (!isIsoInstant(one(form, PAY_CASH_RECEIVED_AT_FIELD))) return [];
@@ -247,7 +277,11 @@ export function missingPaymentFieldLabels(form: FormData): string[] {
   if (rail === 'cash' && orNull(one(form, PAY_BANK_REFERENCE_FIELD)) !== null) return [];
 
   const missing: string[] = [];
-  if (toAmount(one(form, PAY_AMOUNT_FIELD)) === null) missing.push(PAYMENT_FIELD_LABELS.amount);
+  const amount = toAmount(one(form, PAY_AMOUNT_FIELD));
+  if (amount === null) missing.push(PAYMENT_FIELD_LABELS.amount);
+  if (method === 'shopee' && toShopeePayout(one(form, PAY_SHOPEE_PAYOUT_FIELD), amount) === null) {
+    missing.push(PAYMENT_FIELD_LABELS.shopeePayout);
+  }
 
   // 🔵 現金軌**沒有**下面那兩欄(表單根本不渲染)⇒ 它們的缺席不是「漏填」。
   if (rail === 'bank_transfer') {
@@ -305,6 +339,7 @@ export function carryBackPaymentValues(form: FormData): PaymentFormValues {
     receivedDate: one(form, PAY_RECEIVED_DATE_FIELD),
     bankReference: one(form, PAY_BANK_REFERENCE_FIELD),
     payerNote: one(form, PAY_PAYER_NOTE_FIELD),
+    shopeePayout: one(form, PAY_SHOPEE_PAYOUT_FIELD),
     // 🔴 印章也要帶回來(R2 MF2):失敗路徑會 revalidate ⇒ 表單重渲染 ⇒
     //    不帶回的話下一次送出會是**新的一把鍵**,而那正是「可能已經寫進去了」那條路
     //    ⇒ G8 認不出是重送 ⇒ 多一筆刪不掉的收款。

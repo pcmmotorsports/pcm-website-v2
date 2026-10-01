@@ -87,6 +87,10 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   // 2026-10-01 網站B 貼板 260:`orders_shopee_no_notification_email` 的 NULL 短路面靠 order_source 的 NOT NULL 撐
   //   (order_source 為 NULL 時整條求值成 NULL ⇒ 放行;實測見 PROBED_OR_CHECKS 那條)。
   ['orders', 'order_source'],
+  // 2026-10-01 報價單Q1 貼板 262:三條付款標記 CHECK 的 NULL 短路面靠 rail / payment_channel / order_source 的 NOT NULL 撐
+  //   (實測見 PROBED_OR_CHECKS 那三條;orders 兩欄上面已列)。
+  ['order_payments', 'rail'],
+  ['order_manual_refunds', 'rail'],
   // 🔴 2026-09-02 `-15`:`pfes_provenance_valid` 的 NULL 短路面是【開的】,
   //    關著它的是這三個欄位的 NOT NULL(實測見 PROBED_OR_CHECKS 裡那條的註解)。
   //    ⇒ 少了這三列, 未來有人 DROP NOT NULL 時本檔不會紅(codex 抓, 我原本只寫在註解裡)。
@@ -172,6 +176,19 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 2026-10-01 報價單Q1 貼板 262(`20261001170000_m4b_payment_fee_and_card_terminal.sql`;作者就是我)。三條同形:
+  //   付款標記 IS NULL OR (標記值 AND 管道 = cash [AND 來源 = 蝦皮])。
+  //   🔬 拋棄式 PG(09-15 dump + APPLIED 到 261 + 本支), 同一條運算式建 real(NOT NULL)/ weak(可 NULL)兩張暫存表實塞:
+  //     · order_payments:('bank_transfer','card_terminal')·('cash','bogus')·('card','shopee') 三發紅在本 CHECK;
+  //       ('cash','card_terminal')·('bank_transfer',NULL) 進得去。
+  //     · orders:(bank_transfer, manual_phone, card_terminal)·(cash, manual_phone, shopee)·(cash, manual_shopee, bogus) 三發紅;
+  //       (cash, manual_phone, card_terminal)·(cash, manual_shopee, shopee) 進得去。
+  //     · order_manual_refunds:('bank_transfer','card_terminal')·('cash','shopee') 兩發紅;('cash','card_terminal') 進得去。
+  //   🔴 NULL 面:weak 表 rail / payment_channel / order_source 塞 NULL ⇒ 都進得去(整條成 NULL)⇒ 靠 NOT NULL 撐;
+  //     real 表同一發紅在 not-null。已列進 LOAD_BEARING_NOT_NULL。行為面另見 scripts/20261001170000-verify.sh 的 CHECK 格。
+  'order_payments.order_payments_instrument_check',
+  'orders.orders_payment_instrument_check',
+  'order_manual_refunds.order_manual_refunds_instrument_check',
   // 2026-10-01 網站B 貼板 260(`20261001150000_m4b_order_source_manual_shopee.sql`;作者就是我)。
   //   形狀:order_source <> 'manual_shopee' OR notification_email IS NULL(蝦皮單不得有通知信箱, Sean Q16 甲)。
   //   🔬 拋棄式 PG(admin-probe 起的那台, 套完全部 migration)壞形狀:蝦皮 + 有信箱 ⇒ 紅在本 CHECK(23514);

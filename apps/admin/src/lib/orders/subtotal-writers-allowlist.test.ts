@@ -739,6 +739,13 @@ const ALLOWLIST = [
   //    單價、小計累加、order_items 那段一行沒動。
   // 🔬 由拋棄式 PG 行為測試背書(可重跑 supabase/tests/database/shopee_account_behavior.sql)。
   '20261001160000_m4b_shopee_account.sql',
+  // ── 2026-10-01 報價單Q1 agent/Q1-card-terminal-fee(貼板 262 收款手續費與刷卡 / 蝦皮標記)──
+  // 🔴 **命中原因**:⑪ DROP 15 參、CREATE 17 參 `admin_create_manual_order`(貼板 261 之後本體逐字重發, prosrc md5 8e1005fa…),
+  //    本體有 INSERT orders / order_items。
+  // ✅ **它改了什麼**:多兩個選填參數(付款標記、蝦皮進帳), orders INSERT 多一欄 payment_instrument、payment_channel 改寫
+  //    v_channel(蝦皮來源收斂成 cash);單價、小計累加、order_items 那段一行沒動。
+  // 🔬 由拋棄式 PG 行為測試背書(可重跑 bash scripts/20261001170000-verify.sh, 含回滾還原 md5 = 8e1005fa)。
+  '20261001170000_m4b_payment_fee_and_card_terminal.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {

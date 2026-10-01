@@ -482,6 +482,7 @@ export function OrderDetailMoneyTab({
                   cancelled={detail.cancelledAt !== null}
                   cancelAdjusted={orderAmountDueAdjusted(detail)}
                   openPendingRefund={detail.openPendingRefundTotal ?? null}
+                  shopeeOrder={detail.orderSource === 'manual_shopee'}
                 />
               )}
               {/* 🔴 `#841`:這一整塊(判斷 + 文案)**2026-08-23 抽到 `order-hidden-notice.tsx`** ——

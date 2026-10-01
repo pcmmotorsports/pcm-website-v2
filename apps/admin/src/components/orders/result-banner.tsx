@@ -167,6 +167,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '訂單尚未建立。這個蝦皮帳號已經記在另一位客人身上，請先確認選的客人是否正確；若帳號確實改由這位客人使用，請先到原客人的資料刪除這個帳號，再重新送出。',
     tone: 'warn',
   },
+  // 貼板 262(報價單Q1):蝦皮進帳金額大於訂單總額 ⇒ 單沒建。
+  [manualOrderResultCode('shopee_payout_over_total')]: {
+    text: '訂單尚未建立。蝦皮進帳金額不能大於訂單總額（含運費與稅），請對照畫面上的訂單總額與蝦皮頁面的「預估訂單進帳」修正；不確定可以留白，之後到收款明細登記。',
+    tone: 'warn',
+  },
   [manualOrderResultCode('error')]: {
     text: '尚未確認訂單是否建立成功。請先到訂單列表查詢該客戶的新訂單；若已存在，請勿再次送出。確認不存在後，可在目前表單再次送出，系統會沿用同一編號以避免重複建單。',
     tone: 'error',

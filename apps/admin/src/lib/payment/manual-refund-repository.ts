@@ -39,6 +39,8 @@ import type { ManualRefundRail } from './manual-refund-form';
 export interface RecordManualRefundArgs {
   orderId: string;
   rail: ManualRefundRail;
+  /** 刷卡機退回 = 現金軌 + `card_terminal`(報價單Q1 2026-10-01);null / 省略 = 不帶這一參。 */
+  instrument?: 'card_terminal' | null;
   /**
    * 🔴🔴 **⟦b4-MIXEDRAILMANUALREFUND⟧:員工勾了「我確認卡上那筆沒退成功」沒有。**
    * 這一欄送進 RPC 的第 8 參 `p_confirm_card_not_refunded`(`20260905280000:102`)。
@@ -213,6 +215,7 @@ export async function recordManualRefund(
       //    畫面沒有勾選框、這裡沒有傳,而 DB 在等它 ⇒ 混合單按下去必被擋,
       //    而錯誤訊息叫員工去勾一個【不存在】的格子 ⇒ 📌 那不是功能沒做完, 是系統對他說謊。
       p_confirm_card_not_refunded: args.confirmCardNotRefunded,
+      ...(args.instrument ? { p_payment_instrument: args.instrument } : {}),
     }));
   } catch (thrown) {
     return {

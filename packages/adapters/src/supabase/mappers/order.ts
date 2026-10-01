@@ -17,6 +17,7 @@ import type {
   InvoiceStatus,
   OrderSource,
   PaymentChannel,
+  PaymentInstrument,
 } from '@pcm/domain';
 import { toMoneyAmount, orderCancelKindOf, hasNoRealImage, carrierLabelOf, carrierTrackingPageOf } from '@pcm/domain';
 import { narrowMemberTier } from './member-tier';
@@ -734,7 +735,8 @@ export type SupabaseAdminOrderDetailRow = Pick<
   // OD 片 2(需求檔 §0-J J-4):詳情頁「客人明細入口」要連 `/customers/[id]`,得先有 id。
   // 非成本欄、orders 自己的欄位 —— 同 `SupabaseAdminOrderRow` 那條的理由(見 `:239`)。
   | 'customer_user_id'
-> & {
+> & Partial<Pick<Database['public']['Tables']['orders']['Row'], 'payment_instrument'>>  // 報價單Q1:可選, 舊 fixture 不帶也合法
+  & {
   /** 同 SupabaseAdminOrderRow.customers:many-to-one 單物件、防禦容陣列/null。 */
   customers:
     | { name: string | null; email: string | null; phone: string | null }
@@ -1110,6 +1112,8 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     //  都退出明細投影 —— 明細頁的九碼下拉已在 A9w1 下架,那兩欄的唯一用途就是它。)
     orderSource: row.order_source as OrderSource, // DB orders_order_source_check 保證值域
     paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
+    // 報價單Q1 2026-10-01:DB orders_payment_instrument_check 保證值域(NULL / card_terminal / shopee)
+    paymentInstrument: (row.payment_instrument ?? null) as PaymentInstrument | null,
     paymentMethod: row.payment_method,
     paidAt: row.paid_at,
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },

@@ -26,6 +26,10 @@ export interface FormLike {
 export const MANUAL_REFUND_RAILS = ['bank_transfer', 'cash'] as const;
 export type ManualRefundRail = (typeof MANUAL_REFUND_RAILS)[number];
 
+/** 畫面上的退款方式:兩條軌 + 刷卡(刷卡機退回;送出時走現金軌 + 標記,報價單Q1 2026-10-01)。 */
+export const MANUAL_REFUND_METHODS = ['bank_transfer', 'cash', 'card_terminal'] as const;
+export type ManualRefundMethod = (typeof MANUAL_REFUND_METHODS)[number];
+
 /** PG integer 上界(對齊 refund-form.ts 的 MAX_AMOUNT,RPC 的 p_refund_amount 同型)。 */
 const MAX_AMOUNT = 2_147_483_647;
 /**
@@ -63,6 +67,8 @@ export type ManualRefundParse =
       ok: true;
       orderId: string;
       rail: ManualRefundRail;
+      /** `card_terminal` = 刷卡機退回;null = 一般現金 / 匯款。 */
+      instrument: 'card_terminal' | null;
       amount: number;
       reason: string;
       /** ISO 字串;由 <input type="datetime-local"> 值轉換(見呼叫端)。 */
@@ -103,10 +109,11 @@ export function parseManualRefundForm(form: FormLike): ManualRefundParse {
   if (requestToken === null || !isManualRefundRequestToken(requestToken)) return { ok: false };
 
   const railRaw = readString(form, MANUAL_REFUND_RAIL_FIELD);
-  if (railRaw === null || !(MANUAL_REFUND_RAILS as readonly string[]).includes(railRaw)) {
+  if (railRaw === null || !(MANUAL_REFUND_METHODS as readonly string[]).includes(railRaw)) {
     return { ok: false };
   }
-  const rail = railRaw as ManualRefundRail;
+  const instrument = railRaw === 'card_terminal' ? 'card_terminal' : null;
+  const rail: ManualRefundRail = railRaw === 'bank_transfer' ? 'bank_transfer' : 'cash';
 
   const amountRaw = readString(form, MANUAL_REFUND_AMOUNT_FIELD);
   if (amountRaw === null || !AMOUNT_RE.test(amountRaw)) return { ok: false };
@@ -176,6 +183,7 @@ export function parseManualRefundForm(form: FormLike): ManualRefundParse {
     ok: true,
     orderId,
     rail,
+    instrument,
     amount,
     reason,
     confirmCardNotRefunded,

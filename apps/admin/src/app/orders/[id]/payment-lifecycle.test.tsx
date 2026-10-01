@@ -63,6 +63,7 @@ function failureValues(stamp: { requestId: string; cashReceivedAt: string }): Pa
     receivedDate: '2026-08-12',
     bankReference: 'CTBC-1',
     payerNote: '',
+    shopeePayout: '',
     requestId: stamp.requestId,
     cashReceivedAt: stamp.cashReceivedAt,
   };

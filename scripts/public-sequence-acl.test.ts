@@ -252,6 +252,10 @@ const PINNED_IDENTITY_SEQUENCES: readonly string[] = [
   //   `REVOKE ALL ON SEQUENCE public.product_price_changes_id_seq FROM PUBLIC, anon, authenticated, service_role;`
   //   (每日 LINE 摘要的規格變價紀錄表;寫入走 SECURITY DEFINER trigger)。與那支 migration 成對, 同一顆 commit。
   'product_price_changes_id_seq',
+  // 2026-10-01 報價單Q1:`20261001170000_m4b_payment_fee_and_card_terminal.sql`(貼板 262)逐字
+  //   `REVOKE ALL ON SEQUENCE public.payment_fee_rates_id_seq FROM PUBLIC, anon, authenticated, service_role;`
+  //   (手續費率表;改費率 = migration 新增一列, 不給任何角色取號)。與那支 migration 成對, 同一顆 commit。
+  'payment_fee_rates_id_seq',
 ] as const;
 
 describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {

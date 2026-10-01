@@ -59,6 +59,21 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-10-01 · 報價單Q1(貼板 262 收款手續費與營業額;**作者就是我**)────────
+  //    🔴 **為什麼沒在 commit 前紅**:我只跑了 admin 專案的測試, 沒跑 node 專案(同下面兩筆的漏法);rebase 到 868c623af 後全套跑才抓到。
+  //    ✅ **先答那一題**:「這支裡的 `refund_amount` 是讀唯一來源, 還是自己又算了一次?」⇒ 「還能退多少」沒有新算式。
+  '20261001170000_m4b_payment_fee_and_card_terminal.sql': {
+    // 🔴 `count` 用這道閘自己印的數(它逐字印「(9 處)」)。
+    count: 9,
+    why:
+      '三類:① admin_record_manual_refund 的 DROP+CREATE(加付款標記參數), 本體 = 正式庫 2026-10-01 唯讀原文 —— ' +
+      '冪等比對讀那一列自己的欄位、INSERT 欄名清單;上限判斷仍是 v_remaining := public.pcm_order_refundable_remaining(p_order_id), 一字未改。' +
+      '② pcm_d3d_manual_refund_immutable 本體 = 正式庫原文(不可變更欄位名單多一欄 payment_instrument), 那兩處是比對 NEW/OLD 同一欄。' +
+      '③ 新函式 admin_revenue_between 的三個 SUM:某段期間內【已發生】的退款合計(營業額 = 實收 − 手續費 − 退款, Sean Q41 甲), ' +
+      '按退款發生時間切期間、跨訂單加總 —— 不回答任何一張單「還能退多少」, 不被任何退款上限讀。' +
+      '確認退款的判準與 pcm_order_refundable_remaining 對齊(confirmed 未作廢、manual_failed 更正為 money_moved、人工退款未作廢), ' +
+      'Fable R1/R2 審過;⚠️ 有人日後拿 admin_revenue_between 去擋退款上限時, 這一筆 allowlist 就不涵蓋它。',
+  },
   // ── 2026-10-01 · 網站B 貼板 260(訂單來源加蝦皮 manual_shopee)──────────
   //    登記, 不是放寬:那 2 處各在 `pcm_partially_cancelled_email_pending` 與 `pcm_cancelled_email_pending` 的本體裡
   //    (手動退款加總), 兩支本體都是【正式庫現行定義逐字重發】(pg_get_viewdef, md5 a8b6b2c5… / 688a6fa5…),

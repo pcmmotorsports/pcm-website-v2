@@ -8,6 +8,7 @@ import {
   PAY_RAIL_FIELD,
   PAY_RECEIVED_DATE_FIELD,
   PAY_REQUEST_ID_FIELD,
+  PAY_SHOPEE_PAYOUT_FIELD,
 } from './payment-action-state';
 import {
   buildReceivedAt,
@@ -86,6 +87,8 @@ describe('正常兩軌', () => {
   it('現金軌:沒有日期欄、單號恆 null', () => {
     expect(parsePaymentForm(cashForm())).toEqual({
       rail: 'cash',
+      instrument: null,
+      shopeePayout: null,
       orderId: ORDER_ID,
       amount: 500,
       bankReference: null,
@@ -93,6 +96,45 @@ describe('正常兩軌', () => {
       payerNote: '客人現場付',
       requestId: REQUEST_ID,
     });
+  });
+
+  it('刷卡:走現金軌 + 標記 card_terminal(報價單Q1 2026-10-01)', () => {
+    expect(parsePaymentForm(cashForm({ [PAY_RAIL_FIELD]: 'card_terminal' }))).toEqual({
+      rail: 'cash',
+      instrument: 'card_terminal',
+      shopeePayout: null,
+      orderId: ORDER_ID,
+      amount: 500,
+      bankReference: null,
+      cashReceivedAt: MINTED_AT,
+      payerNote: '客人現場付',
+      requestId: REQUEST_ID,
+    });
+  });
+
+  it('蝦皮進帳:走現金軌 + 標記 shopee + 進帳金額(Sean Q47 甲:沖銷後重新登記那條路)', () => {
+    const parsed = parsePaymentForm(cashForm({ [PAY_RAIL_FIELD]: 'shopee', [PAY_AMOUNT_FIELD]: '7900', [PAY_SHOPEE_PAYOUT_FIELD]: '7016' }));
+    expect(parsed).toMatchObject({ rail: 'cash', instrument: 'shopee', shopeePayout: 7016, amount: 7900 });
+  });
+
+  it.each([
+    ['沒填', ''],
+    ['0', '0'],
+    ['超過訂單金額', '7901'],
+    ['不是整數', '70.5'],
+  ])('蝦皮進帳金額%s ⇒ 拒,並指出是「蝦皮進帳金額」這一欄', (_label, payout) => {
+    const f = cashForm({ [PAY_RAIL_FIELD]: 'shopee', [PAY_AMOUNT_FIELD]: '7900', [PAY_SHOPEE_PAYOUT_FIELD]: payout });
+    expect(parsePaymentForm(f)).toBeNull();
+    expect(missingPaymentFieldLabels(f)).toEqual(['蝦皮進帳金額(新臺幣元)']);
+  });
+
+  it('刷卡帶了蝦皮進帳金額 ⇒ 忽略,不會變成蝦皮進帳', () => {
+    const parsed = parsePaymentForm(cashForm({ [PAY_RAIL_FIELD]: 'card_terminal', [PAY_SHOPEE_PAYOUT_FIELD]: '400' }));
+    expect(parsed).toMatchObject({ instrument: 'card_terminal', shopeePayout: null });
+  });
+
+  it('不認得的方式 ⇒ 拒', () => {
+    expect(parsePaymentForm(cashForm({ [PAY_RAIL_FIELD]: 'line_pay' }))).toBeNull();
   });
 
   it('空白的選填欄 ⇒ null(與 RPC 的 btrim 正規化同一個立場)', () => {
@@ -158,6 +200,7 @@ describe('🔴 偽造 payload(FormData 可以偽造,UI 約束在這裡不算數)
       'bank_reference',
       'payer_note',
       'request_id',
+      'shopee_payout',
     ]);
   });
 });
@@ -274,7 +317,7 @@ describe('失敗帶回', () => {
   it('原樣帶回五個可見欄 + 印章兩格(不帶回 =「保留輸入」與「沿用同一把鍵」都是空宣稱)', () => {
     expect(
       carryBackPaymentValues(
-        cashForm({ [PAY_PAYER_NOTE_FIELD]: '週五匯', [PAY_BANK_REFERENCE_FIELD]: '' }),
+        cashForm({ [PAY_PAYER_NOTE_FIELD]: '週五匯', [PAY_BANK_REFERENCE_FIELD]: '', [PAY_SHOPEE_PAYOUT_FIELD]: '450' }),
       ),
     ).toEqual({
       rail: 'cash',
@@ -282,6 +325,7 @@ describe('失敗帶回', () => {
       receivedDate: '',
       bankReference: '',
       payerNote: '週五匯',
+      shopeePayout: '450',
       requestId: REQUEST_ID,
       cashReceivedAt: MINTED_AT,
     });

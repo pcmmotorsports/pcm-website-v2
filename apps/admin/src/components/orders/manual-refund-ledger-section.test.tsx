@@ -202,6 +202,24 @@ describe('ManualRefundLedgerSection — D3', () => {
   });
 });
 
+describe('ManualRefundLedgerSection — 刷卡退款(貼板 262, 報價單Q1 2026-10-01)', () => {
+  it('標記 card_terminal 的列印「刷卡」, 一般現金照印「現金」', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection
+        rows={[
+          row({ id: 'mr-1', rail: 'cash', paymentInstrument: 'card_terminal', refundAmount: 300 }),
+          row({ id: 'mr-2', rail: 'cash', paymentInstrument: null, refundAmount: 700 }),
+        ]}
+        {...WIRE}
+      />,
+    );
+    const cells = [...container.querySelectorAll('tbody tr')].map((tr) => tr.textContent ?? '');
+    expect(cells[0]).toContain('刷卡');
+    expect(cells[1]).toContain('現金');
+    expect(cells[1]).not.toContain('刷卡');
+  });
+});
+
 // ══ ⟦b4-PCM01RECORD⟧ 那條紅 ══════════════════════════════════════════════════
 //
 // 🔴 這一組是 `20260902020000` 的**解封條件**:那支把上限閘從【擋下來】改成【記下來】,

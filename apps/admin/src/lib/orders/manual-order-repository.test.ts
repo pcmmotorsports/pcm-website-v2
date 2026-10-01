@@ -78,6 +78,8 @@ const VALUES: ManualOrderValues = {
   tier: 'store',
   vehicle: null,
   paymentChannel: 'bank_transfer',
+  paymentInstrument: null,
+  shopeePayout: null,
   shippingMethod: 'home',
   shipTo: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },
   invoice: { type: 'personal', carrier: '/ABC1234' },
@@ -187,6 +189,39 @@ describe('createManualOrder — 成功', () => {
     const out = await createManualOrder(ARGS);
     expect(out).toMatchObject({ ok: true, idempotent: true });
   });
+});
+
+describe('貼板 262:刷卡標記 / 蝦皮進帳(報價單Q1 2026-10-01)', () => {
+  const sent = () => mocks.rpc.mock.calls[0]![1] as Record<string, unknown>;
+
+  it('一般單 ⇒ 兩個新參數名都不送(碼比板先上線時照常建單)', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder(ARGS);
+    expect('p_payment_instrument' in sent()).toBe(false);
+    expect('p_shopee_payout' in sent()).toBe(false);
+  });
+
+  it('刷卡 ⇒ cash + p_payment_instrument=card_terminal', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({ values: { ...VALUES, paymentChannel: 'cash', paymentInstrument: 'card_terminal' }, actor: 'sean' });
+    expect(sent()).toMatchObject({ p_payment_channel: 'cash', p_payment_instrument: 'card_terminal' });
+  });
+
+  it('蝦皮 ⇒ 不送標記(DB 依來源帶), 填了進帳才送 p_shopee_payout', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    const shopee: ManualOrderValues = { ...VALUES, orderSource: 'manual_shopee', paymentChannel: 'cash', paymentInstrument: 'shopee', shopeePayout: 7016 };
+    await createManualOrder({ values: shopee, actor: 'sean' });
+    expect('p_payment_instrument' in sent()).toBe(false);
+    expect(sent()).toMatchObject({ p_payment_channel: 'cash', p_shopee_payout: 7016 });
+    mocks.rpc.mockClear();
+    await createManualOrder({ values: { ...shopee, shopeePayout: null }, actor: 'sean' });
+    expect('p_shopee_payout' in sent()).toBe(false);
+  });
+});
+
+it('貼板 262:P2S04(蝦皮進帳大於訂單總額)⇒ shopee_payout_over_total', async () => {
+  mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P2S04', message: 'admin_create_manual_order: 蝦皮進帳 8000 大於訂單總額 7900' } });
+  await expect(createManualOrder(ARGS)).resolves.toMatchObject({ ok: false, code: 'shopee_payout_over_total', sqlstate: 'P2S04' });
 });
 
 describe('貼板 261:蝦皮帳號 / 蝦皮訂單編號', () => {

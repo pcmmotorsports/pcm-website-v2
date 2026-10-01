@@ -121,6 +121,7 @@ export async function recordManualPaymentAction(
     actor: authorization.actorId,
     order_id: orderId,
     rail: parsed.rail,
+    instrument: parsed.rail === 'cash' ? parsed.instrument : null,
     amount: parsed.amount,
     received_at: receivedAt,
     has_bank_reference: parsed.bankReference !== null,
@@ -133,6 +134,8 @@ export async function recordManualPaymentAction(
       parsed.rail === 'cash'
         ? {
             rail: 'cash',
+            instrument: parsed.instrument,
+            shopeePayout: parsed.shopeePayout,
             orderId,
             requestId: parsed.requestId,
             actor: authorization.actorId,

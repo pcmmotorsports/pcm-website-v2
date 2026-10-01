@@ -287,6 +287,13 @@ export type OrderSource = 'web' | 'manual_phone' | 'manual_line' | 'manual_other
 export type PaymentChannel = 'tappay' | 'bank_transfer' | 'cash' | 'none';
 
 /**
+ * 付款標記(orders / order_payments / order_manual_refunds 的 `payment_instrument`;報價單Q1 2026-10-01)。
+ * 店內刷卡與蝦皮都走 `payment_channel = 'cash'`(當面收款)那條路, 只多這個標記;
+ * 畫面顯示付款方式時這一欄優先, NULL ⇒ 照 `payment_channel`。DB CHECK 保證值域。
+ */
+export type PaymentInstrument = 'card_terminal' | 'shopee';
+
+/**
  * 訂單層**貨品軸**四值(`#484a`)。
  *
  * 🔴 **這不是 `FulfillmentStatus`,兩者長得像但不是同一件事**:
@@ -1505,6 +1512,8 @@ export type AdminOrderDetail = {
   // (M-4a D-2 起不攜 orders.workflow_status;A9w1/A9w3 起明細鏈九碼全退場,items[].workflowStatus 彙總已拆。)
   orderSource: OrderSource;
   paymentChannel: PaymentChannel;
+  /** 付款標記(刷卡 / 蝦皮);NULL 或沒帶 ⇒ 照 `paymentChannel` 顯示。可選:舊 fixture 不帶也合法。 */
+  paymentInstrument?: PaymentInstrument | null;
   /** 金流事實軸(付款成功才有值;null=尚無成功請款) */
   paymentMethod: string | null;
   paidAt: string | null;

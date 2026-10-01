@@ -167,6 +167,14 @@ describe('成功路徑', () => {
     );
   });
 
+  it('刷卡:送現金軌 + instrument card_terminal', async () => {
+    mocks.recordManualPayment.mockResolvedValue({ paymentId: 'pay-9', idempotent: false });
+    await recordManualPaymentAction({ status: 'idle' }, cashForm({ [PAY_RAIL_FIELD]: 'card_terminal' }));
+    expect(mocks.recordManualPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ rail: 'cash', instrument: 'card_terminal', receivedAt: MINTED_AT }),
+    );
+  });
+
   it('🔴 冪等重放帶不同的結果碼(不能講成剛剛才記的)', async () => {
     mocks.recordManualPayment.mockResolvedValue({ paymentId: 'pay-3', idempotent: true });
     await recordManualPaymentAction({ status: 'idle' }, bankForm());

@@ -30,6 +30,19 @@ export type OrderPaymentRow = {
    * ⇒ 看正負會把一筆沖銷畫成收款。
    */
   isReversal: boolean;
+  /**
+   * 報價單Q1 2026-10-01(貼板 262):`card_terminal` = 店內刷卡、`shopee` = 蝦皮進帳(都走現金軌);null = 無標記。
+   * 選填只為了不動既有測試 fixture;`parseRow` 一律帶值。
+   */
+  paymentInstrument?: string | null;
+  /** 手續費 / 蝦皮扣款(整數元;沖銷列為負);null = 取不到費率。 */
+  feeAmount?: number | null;
+};
+
+/** 走現金軌的付款標記 ⇒ 畫面上取代「現金」那個標籤。 */
+const INSTRUMENT_LABELS: Record<string, string> = {
+  card_terminal: '刷卡',
+  shopee: '蝦皮進帳',
 };
 
 /**
@@ -394,6 +407,8 @@ export type PaymentListEntry = {
   payerNote: string | null;
   isReversal: boolean;
   reversalReason: string | null;
+  /** 「手續費 NT$77」/「蝦皮扣款 NT$884」;沒有扣款(0 或無標記的現金/匯款)為 `null`。 */
+  feeLabel: string | null;
   /**
    * **這一列已經被別的列沖銷掉了**(#372-A12)。
    * 🔴 與 `isReversal` 方向相反,別混:`isReversal` = 我**是**一列沖銷紀錄;
@@ -410,6 +425,14 @@ export type PaymentListEntry = {
    */
   canReverseByRow: boolean;
 };
+
+function feeLabelOf(row: OrderPaymentRow): string | null {
+  if (row.feeAmount === undefined) return null;
+  const kind = row.paymentInstrument === 'shopee' ? '蝦皮扣款' : '手續費';
+  // 該扣卻取不到費率(刷卡 / TapPay)⇒ 說出來,不畫成 0。
+  if (row.feeAmount === null) return row.rail === 'card' || row.paymentInstrument ? `${kind}未計算(缺費率)` : null;
+  return row.feeAmount === 0 ? null : `${kind} ${formatAmountCompact(row.feeAmount)}`;
+}
 
 /**
  * 「哪些列已經被沖掉了」——一次掃出來,不要每列各掃一遍。
@@ -448,7 +471,8 @@ export function toPaymentListEntry(
     //    (誤沖的更正方式就是沖銷之沖銷,Sean 2026-08-10 拍板)。
     canReverseByRow: row.rail !== 'card' && !isReversed,
     id: row.id,
-    railLabel: railLabel(row.rail),
+    railLabel: row.paymentInstrument ? labelOrRaw(INSTRUMENT_LABELS, row.paymentInstrument) : railLabel(row.rail),
+    feeLabel: feeLabelOf(row),
     amountLabel: formatAmount(row.amount),
     receivedAtDisplay: dateOnly ? received.slice(0, 10) : received,
     createdAtDisplay: formatTaipei(row.createdAt),

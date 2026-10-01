@@ -85,6 +85,7 @@ function Row({
             {e.actorLabel} 登錄於 {e.createdAtDisplay ?? '(時間無法判讀)'}
           </p>
           {e.referenceLabel !== null && <p>憑證 {e.referenceLabel}</p>}
+          {e.feeLabel !== null && <p>{e.feeLabel}</p>}
           {e.reversalReason !== null && <p className='break-words'>沖銷原因:{e.reversalReason}</p>}
           {e.payerNote !== null && (
             <p className='text-foreground whitespace-pre-wrap break-words'>{e.payerNote}</p>

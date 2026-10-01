@@ -527,6 +527,8 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       // 貼板 261 蝦皮帳號兩顆:帳號在別的客人身上 / 已替客人新增帳號。本格加進 MESSAGES 時紅過(2026-10-01 實跑, 162 vs 160)。
       manualOrderResultCode('shopee_taken'),
       MANUAL_ORDER_SHOPEE_ACCOUNT_ADDED,
+      // 貼板 262:蝦皮進帳大於訂單總額。本格加進 MESSAGES 時紅過(2026-10-01 報價單Q1 實跑, 163 vs 162)。
+      manualOrderResultCode('shopee_payout_over_total'),
       // 🔴 `#890` 人工判定更正線七顆(片2c)。**本格在我把它們加進 MESSAGES 的當下真的紅過**
       //    (2026-08-29 實跑,`1 failed | 39 passed (40)`,訊息逐字
       //     `expected [ 'conflict', 'correction_bug', …(38) ] to deeply equal [ Array(33) ]`)
