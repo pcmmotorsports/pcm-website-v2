@@ -17,11 +17,13 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 **`export` 是為了讓守門測得到它** —— 見 `manual-refund-read.test.ts` 的 byte-equal 那格。
 //    不 export 的話, 「有人把新欄從白名單拿掉」這件事**沒有任何東西會紅**(2026-09-07 突變③ 實測)。
 export const ROW_COLUMNS =
-  'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by, over_cap_by, cap_state';
+  'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by, over_cap_by, cap_state, payment_instrument';
 
 export type ManualRefundRow = {
   id: string;
   rail: string;
+  /** 貼板 262(報價單Q1 2026-10-01):`card_terminal` = 退回刷卡;null = 一般現金 / 匯款。選填只為了不動既有 fixture。 */
+  paymentInstrument?: string | null;
   refundAmount: number;
   reason: string;
   actor: string;
@@ -84,12 +86,14 @@ type RawRow = {
   over_cap_by: number | null;
   /** 🔴 **原始值**, 未收斂 —— 收斂在 `toRow()` 用 `toCapState()` 做。 */
   cap_state: unknown;
+  payment_instrument: string | null;
 };
 
 function toRow(raw: RawRow): ManualRefundRow {
   return {
     id: raw.id,
     rail: raw.rail,
+    paymentInstrument: raw.payment_instrument,
     refundAmount: raw.refund_amount,
     reason: raw.reason,
     actor: raw.actor,

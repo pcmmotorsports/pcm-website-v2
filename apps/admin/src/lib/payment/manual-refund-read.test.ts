@@ -149,7 +149,7 @@ describe('⟦b4-PCM01RECORD⟧ readOrderManualRefundRailCap', () => {
 describe('⟦b4-CAPRACE1⟧ ROW_COLUMNS byte-equal 白名單', () => {
   it('🔴 逐欄比對(改這個字串就要來改這一格, 那是刻意的)', () => {
     expect(ROW_COLUMNS).toBe(
-      'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by, over_cap_by, cap_state',
+      'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by, over_cap_by, cap_state, payment_instrument',
     );
   });
 

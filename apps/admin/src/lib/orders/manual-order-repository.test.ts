@@ -219,6 +219,11 @@ describe('貼板 262:刷卡標記 / 蝦皮進帳(報價單Q1 2026-10-01)', () =>
   });
 });
 
+it('貼板 262:P2S04(蝦皮進帳大於訂單總額)⇒ shopee_payout_over_total', async () => {
+  mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P2S04', message: 'admin_create_manual_order: 蝦皮進帳 8000 大於訂單總額 7900' } });
+  await expect(createManualOrder(ARGS)).resolves.toMatchObject({ ok: false, code: 'shopee_payout_over_total', sqlstate: 'P2S04' });
+});
+
 describe('貼板 261:蝦皮帳號 / 蝦皮訂單編號', () => {
   const SHOPEE: ManualOrderValues = { ...VALUES, orderSource: 'manual_shopee', shopeeUsername: 'moto_wang', shopeeOrderNo: '240901ABCD' };
 

@@ -44,6 +44,7 @@ export type ManualOrderSentCode =
   | 'exhausted'
   | 'rejected'
   | 'shopee_taken'
+  | 'shopee_payout_over_total'
   | 'bug'
   | 'error';
 
@@ -100,6 +101,8 @@ const SQLSTATE_CLASSIFICATION = new Map<string, ManualOrderSentCode>([
   ['P2S01', 'shopee_taken'],
   ['P2S02', 'rejected'],
   ['P2S03', 'rejected'],
+  // 貼板 262(報價單Q1):P2S04 = 蝦皮進帳金額大於訂單總額(總額含稅, 表單層算不出來, 只能由 DB 擋)。
+  ['P2S04', 'shopee_payout_over_total'],
 ]);
 
 /**
