@@ -304,3 +304,23 @@ describe('🔴 「這張單要開發票」那顆勾選 —— 預設【不勾】
     expect(hidden!.value).toBe('off');
   });
 });
+
+// ── 2026-10-01 建單簡化(Sean Q1/Q2 甲)版面:兩欄精簡 ────────────────────────────────
+describe('版面:兩欄精簡', () => {
+  it('查商品在「品項」卡片最上面(Q2 甲)', () => {
+    renderForm();
+    const lines = screen.getByTestId('manual-order-lines');
+    const lookup = screen.getByTestId('manual-order-catalog-lookup');
+    expect(lines.contains(lookup)).toBe(true);
+    expect(lookup.compareDocumentPosition(screen.getAllByPlaceholderText('數量')[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('右欄依序:付款與取貨 → 發票 → 車輛', () => {
+    renderForm();
+    const pay = screen.getByTestId('manual-order-payment');
+    const inv = screen.getByTestId('manual-order-invoice');
+    const veh = screen.getByTestId('manual-order-vehicle');
+    expect(pay.compareDocumentPosition(inv) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(inv.compareDocumentPosition(veh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

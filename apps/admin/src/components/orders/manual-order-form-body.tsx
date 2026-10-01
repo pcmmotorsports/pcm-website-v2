@@ -212,12 +212,10 @@ export function ManualOrderFormBody({
           {/* 🔴 品項在收件與發票**之後** —— 員工的動線是「先確認是誰、寄到哪」再逐項打單。
               ⚠️ 這一格沒有稿可以對(OD 那份是訂單【明細】不是【建單】)⇒ 這是我的判斷,不是照稿。 */}
           {/* 🔴 查商品排在品項列【上面】 —— 員工的動線是「先查到資料, 再往下填」。
-              🛑 而它**不會幫他填** —— 那是 Sean 2026-08-31 拍的丙:
-                 查到的顯示在旁邊, 他自己抄。理由(那道用一次誤送整單取消換來的不變式)
-                 寫在 `manual-order-catalog-lookup.tsx` 檔頭, 不在這裡重複。 */}
-          <ManualOrderCatalogLookup />
-
-          <ManualOrderLines />
+              2026-10-01 建單簡化(Sean Q2 甲, S5):搬進「品項」卡片最上面。
+              🛑 而它**不會幫他填既有的列** —— Sean 2026-08-31 拍的丙;點查到的那一列是「加成一列」(09-06)。
+                 理由寫在 `manual-order-catalog-lookup.tsx` 檔頭, 不在這裡重複。 */}
+          <ManualOrderLines lookup={<ManualOrderCatalogLookup />} />
 
           {/* 🔵 ⟦b4-INVOICE5PCT⟧ ①+④(Sean 2026-09-10 拍 §4-c 丙)——
               **勾發票的當下,數字當場變**(1100 ⇒ 1155),而不必建完單進訂單頁才看得到。

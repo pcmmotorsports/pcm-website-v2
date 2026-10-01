@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ManualOrderLinePriceCheck } from './manual-order-line-price-check';
 import {
   MANUAL_ORDER_LINE_SEED_EVENT,
@@ -76,9 +76,14 @@ type LineRow = { id: number; seed?: ManualOrderLineSeed };
 export type ManualOrderLinesProps = {
   /** 一開始擺幾列空白。預設 1 —— 員工進來就看得到一列可以打字的東西。 */
   initialRows?: number;
+  /**
+   * 品項卡片最上面那一塊:查商品(2026-10-01 建單簡化 Q2 甲, S5)。由表單本體塞進來。
+   * 🔴 查到的那一列仍是透過「加成一列」的事件進來(`manual-order-line-seed.ts`), 放在哪裡都一樣;不回寫既有的列(Sean 08-31 丙)。
+   */
+  lookup?: ReactNode;
 };
 
-export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
+export function ManualOrderLines({ initialRows = 1, lookup }: ManualOrderLinesProps) {
   const [rows, setRows] = useState<LineRow[]>(() =>
     Array.from({ length: Math.max(1, initialRows) }, () => ({ id: newRowId() })),
   );
@@ -142,6 +147,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
   return (
     <fieldset className='space-y-2 rounded-md border p-3' data-testid='manual-order-lines'>
       <legend className='px-1 text-sm'>品項</legend>
+      {lookup}
 
       {/* 🔵 2026-09-14 Sean 看彈窗:「這些文字可以精簡扼要嗎」⇒ 原本三段(代購留白 / 單價填未稅 / 🔵 含稅切右邊 / 🛑 不切會多課稅)
           合成一行, 不用 emoji、不用紅字。三個動作都還在:預設(填未稅)· 例外(含稅切稅別, 系統換算)· 代購(商品編號留白, 料號必填);

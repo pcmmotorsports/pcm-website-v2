@@ -106,7 +106,8 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
   };
 
   return (
-    <section className='rounded-md border p-3' data-testid='manual-order-catalog-lookup'>
+    // 2026-10-01 建單簡化(S5):放進「品項」卡片最上面 ⇒ 不再自己畫外框, 用淺底色跟品項列分開。
+    <section className='bg-muted/40 rounded-md p-2' data-testid='manual-order-catalog-lookup'>
       {/* 🔴🔴 **⛔ ~~「請自己填進【上面】那幾格」~~ —— 那句指錯方向**(⟦b4-LOOKUPCOPYDIR⟧,
           2026-09-05 本機後台走查當場撞到)。
           🔬 兩邊逐字讀過:`manual-order-form-body.tsx:220` 的碼註寫著「查商品排在品項列【上面】
