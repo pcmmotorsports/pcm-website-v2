@@ -1,3 +1,4 @@
+import { checkBannerCopy, checkSocialCopy } from '@pcm/domain';
 import type {
   BannerCopy,
   CatalogSkuMatch,
@@ -43,6 +44,8 @@ const SKU_MAX = 50;
 const MATCHED_VARIANT_MAX = 200;
 /** 同 DB home_banners CHECK(20260916150000)。 */
 const COPY_MAX = { eyebrow: 40, title: 60, subtitle: 60, cta: 20 } as const;
+/** 同 DB home_banners_fb_text_check / home_banners_ig_text_check(20261001120000)。超過就不寫, 不截字。 */
+const SOCIAL_MAX = 2200;
 
 export interface DraftSupplierNewProductBannersDeps {
   readonly reader: IInboundMailReader;
@@ -52,6 +55,12 @@ export interface DraftSupplierNewProductBannersDeps {
   readonly senders: readonly SupplierMailSender[];
   /** 測試用;預設 Date.now。 */
   readonly now?: () => number;
+  /**
+   * 一輪的時間上限與封數上限(預設是 Vercel route 的 45 秒 / 20 封)。
+   * mac mini 版(apps/storefront/src/lib/supplier-mail/newsletter-drafts-macmini.ts)用 claude -p 起草, 一封要幾十秒 ⇒ 放寬時間、收緊封數。
+   */
+  readonly timeBudgetMs?: number;
+  readonly maxPerRun?: number;
 }
 
 export interface DraftSupplierNewProductBannersResult {
@@ -213,14 +222,16 @@ export async function draftSupplierNewProductBanners(
   deps: DraftSupplierNewProductBannersDeps,
 ): Promise<DraftSupplierNewProductBannersResult> {
   const now = deps.now ?? Date.now;
+  const timeBudgetMs = deps.timeBudgetMs ?? SUPPLIER_MAIL_TIME_BUDGET_MS;
+  const maxPerRun = deps.maxPerRun ?? SUPPLIER_MAIL_MAX_PER_RUN;
   const startedAt = now();
   const result: DraftSupplierNewProductBannersResult = {
     listed: 0, known: 0, skippedSender: 0, skippedAuth: 0, drafted: 0, noProducts: 0, failed: 0, deferred: 0,
   };
 
   // 列信失敗 ⇒ throw(整輪停);那是權杖失效或 Gmail 掛,重試同一輪不會好
-  const ids = await deps.reader.listMessageIds({ query: SUPPLIER_MAIL_QUERY, max: SUPPLIER_MAIL_MAX_PER_RUN });
-  const batch = ids.slice(0, SUPPLIER_MAIL_MAX_PER_RUN);
+  const ids = await deps.reader.listMessageIds({ query: SUPPLIER_MAIL_QUERY, max: maxPerRun });
+  const batch = ids.slice(0, maxPerRun);
   result.listed = batch.length;
   if (batch.length === 0) return result;
 
@@ -231,7 +242,7 @@ export async function draftSupplierNewProductBanners(
       result.known += 1;
       continue;
     }
-    if (now() - startedAt > SUPPLIER_MAIL_TIME_BUDGET_MS) {
+    if (now() - startedAt > timeBudgetMs) {
       result.deferred = batch.slice(index).filter((rest) => !known.has(rest)).length;
       break;
     }
@@ -286,6 +297,18 @@ export async function draftSupplierNewProductBanners(
         copy = fallbackCopy(message.subject);
         copyFallback = true;
       }
+      const { fbText, igText } = copy;
+      // 大圖文字有禁用字(現貨 / 到貨 / 保固…)⇒ 發布會被資料庫擋 ⇒ 退回用主旨, 不把紅字寫進草稿(FB / IG 另外判)
+      if (!copyFallback && checkBannerCopy([copy.eyebrow, copy.titleLine1, copy.titleLine2, copy.subtitle, copy.ctaLabel]).length > 0) {
+        copy = fallbackCopy(message.subject);
+        copyFallback = true;
+      }
+      // FB / IG:紅字或超過 2,200 字 ⇒ 那一欄留空給員工寫(品牌名開頭的保固句算原廠, 同 social-copy-rules)
+      const brandNames = sender.brandSlugs.map((b) => b.replace(/-/g, ' '));
+      const social = (t: string | null | undefined): string | null => {
+        const v = t?.trim() ?? '';
+        return v === '' || [...v].length > SOCIAL_MAX || checkSocialCopy(v, brandNames).length > 0 ? null : v;
+      };
 
       const status = matches.length > 0 ? 'drafted' : 'no_products';
       const draft: HomeBannerSystemDraft = {
@@ -298,6 +321,8 @@ export async function draftSupplierNewProductBanners(
         imageDesktopUrl: images[0] ?? null,
         imageKind: 'scene',
         matchedVariantIds: matches.slice(0, MATCHED_VARIANT_MAX).map((m) => m.variantId),
+        fbText: social(fbText),
+        igText: social(igText),
       };
       const record: InboundMailRecord = {
         ...base,

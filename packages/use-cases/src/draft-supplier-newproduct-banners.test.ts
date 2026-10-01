@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  BannerCopy,
   BannerCopyInput,
   CatalogSkuMatch,
   HomeBannerSystemDraft,
@@ -66,7 +67,8 @@ class FakeCopywriter implements IBannerCopywriter {
   async draft(input: BannerCopyInput) {
     this.inputs.push(input);
     if (this.failFor.includes(input.subject ?? '')) throw new Error('llm down');
-    return { eyebrow: 'AKRAPOVIC ‧ 新品到貨', titleLine1: 'Slip-On 鈦合金尾段,', titleLine2: '2026 年式新款到貨', subtitle: null, ctaLabel: '看新品'.repeat(10) };
+    // 「到貨」是大圖禁用字(20261001120000 發布擋)⇒ 假 AI 不寫, 否則會走退回主旨那條路
+    return { eyebrow: 'AKRAPOVIC ‧ 新品', titleLine1: 'Slip-On 鈦合金尾段,', titleLine2: '2026 年式新款', subtitle: null, ctaLabel: '看新品'.repeat(10) };
   }
 }
 
@@ -243,6 +245,45 @@ describe('draftSupplierNewProductBanners(假 Gmail + 假 AI + 假 DB 端到端)'
     const store = new FakeStore();
     const result = await draftSupplierNewProductBanners({ reader, copywriter: new FakeCopywriter(), matcher: new FakeMatcher(), store, senders: SENDERS, now: () => clock });
     expect(result).toMatchObject({ listed: 3, noProducts: 1, deferred: 2 });
+  });
+
+  describe('FB / IG 文字與大圖紅字(mac mini 版, 2026-10-01)', () => {
+    const one = () => new FakeReader([msg({ id: 's', htmlBody: '<p>S-B10SO4-HAPXT</p>' })]);
+    const writer = (over: Partial<BannerCopy>): IBannerCopywriter => ({
+      draft: async () => ({ eyebrow: 'AKRAPOVIC ‧ 新品', titleLine1: '鈦合金尾段', titleLine2: null, subtitle: null, ctaLabel: '看新品', ...over }),
+    });
+    const run = async (copywriter: IBannerCopywriter) => {
+      const store = new FakeStore();
+      await draftSupplierNewProductBanners({ reader: one(), copywriter, matcher: new FakeMatcher(), store, senders: SENDERS });
+      return store.records[0]!;
+    };
+
+    it('乾淨的 FB / IG 原樣進草稿;原廠開頭的保固句放行', async () => {
+      const r = await run(writer({ fbText: '鈦合金尾段，原廠提供兩年保固。', igText: '新款尾段\n#Akrapovic' }));
+      expect(r.draft).toMatchObject({ fbText: '鈦合金尾段，原廠提供兩年保固。', igText: '新款尾段\n#Akrapovic', titleLine1: '鈦合金尾段' });
+      expect(r.record.errorCode).toBeNull();
+    });
+
+    it('🔴 FB 有紅字(現貨、本店口吻的保固)⇒ 那一欄留空, IG 照寫;超過 2,200 字也不寫', async () => {
+      expect((await run(writer({ fbText: '現貨供應', igText: '新款尾段' }))).draft).toMatchObject({ fbText: null, igText: '新款尾段' });
+      expect((await run(writer({ fbText: '鈦合金尾段，享兩年保固。' }))).draft).toMatchObject({ fbText: null });
+      expect((await run(writer({ igText: '字'.repeat(2201) }))).draft).toMatchObject({ igText: null });
+    });
+
+    it('🔴 大圖文字有禁用字 ⇒ 退回用主旨(copy_fallback), FB / IG 另外判、乾淨的照寫', async () => {
+      const r = await run(writer({ titleLine1: '原廠保固兩年', fbText: '鈦合金尾段。' }));
+      expect(r.draft).toMatchObject({ titleLine1: 'New Slip-On Line for 2026', eyebrow: null, fbText: '鈦合金尾段。' });
+      expect(r.record.errorCode).toBe('copy_fallback');
+    });
+
+    it('時間與封數上限可以由呼叫端放寬 / 收緊', async () => {
+      const reader = new FakeReader([msg({ id: '1', textBody: 'a' }), msg({ id: '2', textBody: 'b' })]);
+      const result = await draftSupplierNewProductBanners({
+        reader, copywriter: new FakeCopywriter(), matcher: new FakeMatcher(), store: new FakeStore(), senders: SENDERS, maxPerRun: 1, timeBudgetMs: 600_000,
+      });
+      expect(reader.queries).toEqual([{ query: SUPPLIER_MAIL_QUERY, max: 1 }]);
+      expect(result).toMatchObject({ listed: 1, noProducts: 1 });
+    });
   });
 
   it('列信失敗(權杖失效)⇒ 整輪 throw', async () => {

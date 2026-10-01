@@ -273,6 +273,13 @@ export {
   SupabaseCatalogSkuMatcher,
   SupabaseSupplierNewProductStore,
 } from './supplier-mail/SupabaseSupplierNewProductStore';
+// 2026-10-01 mac mini 版(IMAP + 月租 Claude;計畫 ~/pcm-mailbox/計畫-電子報草稿-macmini-20261001.md)
+export { ImapMailReader, ImapReadError, type ImapMailReaderConfig } from './supplier-mail/ImapMailReader';
+export {
+  ClaudeCliBannerCopywriter,
+  ClaudeCliCopyError,
+  type ClaudeCliBannerCopywriterConfig,
+} from './supplier-mail/ClaudeCliBannerCopywriter';
 // 每日自動新品草稿(2026-10-01)
 export { SupabaseNewProductSource, SupabaseNewProductDraftStore } from './new-product-drafts/SupabaseNewProductDrafts';
 export {
