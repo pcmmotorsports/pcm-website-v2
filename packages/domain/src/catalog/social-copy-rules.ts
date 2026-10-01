@@ -23,8 +23,23 @@ const BLOCKED_WORDS: ReadonlyArray<{ word: string; code: SocialCopyIssue['code']
   { word: '品質保證', code: 'quality_promise', why: '不寫本店的品質保證' },
 ];
 
-// 「確保固定」不算保固;「保修」與保固同義(與報價單 storefront_copy_auto 同一條)。
-const WARRANTY = /(?<!確)保(?:固|修)/;
+// 保固寫法清單:逐字照抄報價單 scripts/storefront_copy_lint.py 的 WARRANTY_RE(主視窗 2026-10-01 Q2 甲)。
+//   「保固/保修」裸抓;「保證/保用/保障/擔保/質保」只有黏著期間或補償行為才算 ——
+//   裸抓會誤殺「保證同心度精度」這種規格說法(報價單全庫實測 90 處)。
+//   「確保固定」不算保固(lookbehind)。改字表時兩邊一起改。
+const WARRANTY_NUM = '(?:\\d+|[一二三四五六七八九十兩半])';
+const WARRANTY = new RegExp(
+  '(?<!確)保(?:固|修)' +
+    '|無限(?:期|里程)保' +
+    '|終身(?:免費)?(?:更換|保養|維修|服務|保固)' +
+    `|(?:終身|無限期|${WARRANTY_NUM}\\s*年|${WARRANTY_NUM}\\s*個?月)[^。，；！？\\n]{0,8}?(?:保證|保用)` +
+    `|(?:保證|保用)\\s*(?:期|${WARRANTY_NUM}\\s*年|${WARRANTY_NUM}\\s*個?月)` +
+    '|保證\\s*(?:更換|換新|退換|退貨|維修|修復|賠償)' +
+    `|(?:終身|無限期|${WARRANTY_NUM}\\s*年|${WARRANTY_NUM}\\s*個?月)[^。，；！？\\n]{0,8}?(?:保障|擔保|質保)` +
+    `|(?:保障|擔保|質保)\\s*(?:期|${WARRANTY_NUM}\\s*年)` +
+    `|${WARRANTY_NUM}\\s*(?:年|個?月)\\s*內[^。，；！？\\n]{0,6}?免費\\s*(?:維修|更換|換新|保養)` +
+    '|終身免(?:更換|維修|保養)',
+);
 // 一句話的切法:句號、驚嘆號、問號、分號、換行、逗號。逗號也切 ——
 //   「原廠提供一年保固，本店延長至兩年保固」後半是本店保固, 不切就會因為前半是原廠提供而放過(R1 建議 3)。
 //   「原廠提供兩年保固，限正常使用」切開後, 後半沒有保固二字, 照樣不紅。
@@ -34,8 +49,25 @@ const SENTENCE_SPLIT = /[。！？!?；;\n，,」』]/;
 // 句首的條列符號、編號(1. 1、 1))、引號與空白不算(「・原廠提供…」「1. 原廠提供…」也是原廠提供開頭)
 const LEADING_MARKS = /^(?:[\s・•\-–—*·「『"“]|\d+[.、)）])+/;
 
-/** 一段文字的紅字問題;空陣列 = 可以發。同一個字只報一次。 */
-export function checkSocialCopy(text: string): SocialCopyIssue[] {
+/**
+ * 這一句是不是寫明原廠:「原廠提供…」開頭, 或品牌名開頭再接「(原廠)提供」
+ * (「Samco Sport 原廠提供終身保固」「Samco Sport 提供終身保固」;主視窗 2026-10-01 Q1 甲, 與報價單一致)。
+ */
+function namesTheMaker(sentence: string, brandNames: ReadonlyArray<string>): boolean {
+  if (sentence.startsWith('原廠提供')) return true;
+  const lower = sentence.toLowerCase();
+  return brandNames.some((b) => {
+    const name = b.trim().toLowerCase();
+    if (!name || !lower.startsWith(name)) return false;
+    return /^\s*(?:原廠)?提供/.test(sentence.slice(name.length));
+  });
+}
+
+/**
+ * 一段文字的紅字問題;空陣列 = 可以發。同一個字只報一次。
+ * `brandNames`:這件商品的品牌名(顯示名與英文名都可以給);品牌名開頭的保固句視為原廠提供。
+ */
+export function checkSocialCopy(text: string, brandNames: ReadonlyArray<string> = []): SocialCopyIssue[] {
   const out: SocialCopyIssue[] = [];
   const body = text ?? '';
   for (const b of BLOCKED_WORDS) {
@@ -46,11 +78,11 @@ export function checkSocialCopy(text: string): SocialCopyIssue[] {
   for (const sentence of body.split(SENTENCE_SPLIT)) {
     const s = sentence.replace(LEADING_MARKS, '');
     const m = WARRANTY.exec(s);
-    if (m && !s.startsWith('原廠提供')) {
+    if (m && !namesTheMaker(s, brandNames)) {
       out.push({
         code: 'warranty_not_maker',
         word: m[0],
-        message: `「${s.slice(0, 20)}」：寫保固要用「原廠提供」開頭，例如「原廠提供兩年保固」。`,
+        message: `「${s.slice(0, 20)}」：寫保固要寫明是原廠，例如「原廠提供兩年保固」或「品牌名 原廠提供終身保固」。`,
       });
       break;
     }
@@ -59,6 +91,9 @@ export function checkSocialCopy(text: string): SocialCopyIssue[] {
 }
 
 /** 多段文字一起檢查(大圖的眉標、標題、副標、按鈕字)。 */
-export function checkSocialCopyFields(fields: ReadonlyArray<string | null | undefined>): SocialCopyIssue[] {
-  return checkSocialCopy(fields.filter((f): f is string => !!f).join('\n'));
+export function checkSocialCopyFields(
+  fields: ReadonlyArray<string | null | undefined>,
+  brandNames: ReadonlyArray<string> = [],
+): SocialCopyIssue[] {
+  return checkSocialCopy(fields.filter((f): f is string => !!f).join('\n'), brandNames);
 }

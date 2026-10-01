@@ -11,7 +11,7 @@ describe('checkSocialCopy', () => {
     ['符合規定可合法上路', 'legal_claim:合法上路'],
     ['免登記直上', 'legal_claim:免登記'],
     ['義大利設計製造，品質保證', 'quality_promise:品質保證'],
-    ['終身保固', 'warranty_not_maker:保固'],
+    ['終身保固', 'warranty_not_maker:終身保固'],
     ['本店提供兩年保修', 'warranty_not_maker:保修'],
   ])('該紅:%s', (text, want) => {
     expect(codes(text)).toContain(want);
@@ -27,7 +27,7 @@ describe('checkSocialCopy', () => {
   });
 
   it('保固要整句看:同一則裡另一句是原廠提供, 這一句不是 ⇒ 仍然紅', () => {
-    expect(codes('原廠提供兩年保固。另享終身保固')).toEqual(['warranty_not_maker:保固']);
+    expect(codes('原廠提供兩年保固。另享終身保固')).toEqual(['warranty_not_maker:終身保固']);
   });
 
   it('逗號後半是本店保固 ⇒ 紅(R1 建議 3)', () => {
@@ -40,6 +40,31 @@ describe('checkSocialCopy', () => {
 
   it('引號裡是原廠提供、引號外是本店保固 ⇒ 紅(R2 建議 3)', () => {
     expect(codes('「原廠提供兩年保固」本店再加一年保固')).toEqual(['warranty_not_maker:保固']);
+  });
+
+  describe('主視窗 2026-10-01 Q1 甲:品牌名開頭的保固放行', () => {
+    it.each(['Samco Sport 原廠提供終身保固', 'Samco Sport 提供終身保固', 'samco sport提供終身保固'])('放行:%s', (text) => {
+      expect(checkSocialCopy(text, ['Samco Sport'])).toEqual([]);
+    });
+    it('沒給品牌名時照舊紅', () => {
+      expect(codes('Samco Sport 提供終身保固')).toEqual(['warranty_not_maker:終身保固']);
+    });
+    it('品牌名開頭但不是「提供」⇒ 照舊紅', () => {
+      expect(checkSocialCopy('Samco Sport 終身保固', ['Samco Sport']).map((i) => i.code)).toEqual(['warranty_not_maker']);
+    });
+  });
+
+  describe('主視窗 2026-10-01 Q2 甲:保固寫法照報價單清單', () => {
+    it.each(['保證期兩年', '質保一年', '兩年保證', '保證更換', '三年內免費維修', '終身免費更換'])('該紅:%s', (text) => {
+      expect(checkSocialCopy(text).map((i) => i.code)).toContain('warranty_not_maker');
+    });
+    it.each(['保證同心度精度', '操作壽命保證超過 70 萬次', '行車安全保障', '確保用車安全'])('規格說法不紅:%s', (text) => {
+      expect(checkSocialCopy(text)).toEqual([]);
+    });
+    it('原廠或品牌名開頭的放行', () => {
+      expect(checkSocialCopy('原廠提供兩年保證')).toEqual([]);
+      expect(checkSocialCopy('Puig 原廠提供質保一年', ['Puig'])).toEqual([]);
+    });
   });
 
   it('多個欄位一起檢查, 空欄位略過', () => {
