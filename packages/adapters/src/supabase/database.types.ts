@@ -22,7 +22,8 @@
 // 🟢 **2026-10-01 報價單Q1:同一條慣例 —— 收款手續費與付款標記(20261001170000,尚未貼正式庫)。**
 //    orders / order_manual_refunds 的 payment_instrument、order_payments 的 payment_instrument / fee_rate / fee_amount
 //    × Row/Insert/Update;新表 payment_fee_rates;admin_record_manual_payment 的 p_payment_instrument / p_shopee_payout、
-//    admin_record_manual_refund 的 p_payment_instrument;新函式 admin_revenue_between、pcm_payment_fee_rate。
+//    admin_record_manual_refund 的 p_payment_instrument;admin_create_manual_order 的 p_payment_instrument / p_shopee_payout;
+//    新函式 admin_revenue_between、pcm_payment_fee_rate。
 //    照 migration 手打、形狀照生成器規則(numeric ⇒ number、identity ⇒ Insert/Update never)、字母序。
 //    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
 // 🟢 **2026-09-26 報價單窗 86:同一條慣例 —— 20260926100000(後台刪除 / 停用會員, 尚未貼正式庫)。**
@@ -8710,10 +8711,12 @@ export type Database = {
           p_notification_email?: string | null
           p_order_source: string
           p_payment_channel: string
+          p_payment_instrument?: string
           p_ship_to: Json
           p_shipping_fee: number
           p_shipping_method: string
           p_shopee_order_no?: string
+          p_shopee_payout?: number
           p_shopee_username?: string
           p_tier?: string
           p_vehicle?: Json

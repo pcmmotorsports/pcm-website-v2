@@ -63,9 +63,9 @@ cell "pcm_noncard_settle_recompute 本體" "$(Q "select md5(prosrc) from pg_proc
 P -f "$MIG" >/dev/null || { echo "🔴 migration 套不上"; exit 1; }
 
 echo "── 回滾來回(空資料):回滾後 6 支函式與正式庫 2026-10-01 逐字相同, 再套一次 ──"
-MD5Q="select string_agg(proname || '=' || md5(prosrc), ',' order by proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname, proname) in (('public','admin_list_order_payments'),('public','admin_record_manual_payment'),('public','admin_record_manual_refund'),('public','admin_today_payment_total'),('public','pcm_d3d_manual_refund_immutable'),('public','pcm_op2b_immutable_columns'),('pcm_cron','expire_unpaid_orders'))"
+MD5Q="select string_agg(proname || '=' || md5(prosrc), ',' order by proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname, proname) in (('public','admin_create_manual_order'),('public','admin_list_order_payments'),('public','admin_record_manual_payment'),('public','admin_record_manual_refund'),('public','admin_today_payment_total'),('public','pcm_d3d_manual_refund_immutable'),('public','pcm_op2b_immutable_columns'),('pcm_cron','expire_unpaid_orders'))"
 P -f "$DOWN" >/dev/null 2>&1 || { echo "🔴 空資料時回滾失敗"; FAIL=1; }
-cell "回滾後函式本體 = 正式庫" "$(Q "$MD5Q")" "admin_list_order_payments=38fcf5f1e5021cf8e98c4a3b643894ad,admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b"
+cell "回滾後函式本體 = 正式庫" "$(Q "$MD5Q")" "admin_create_manual_order=8e1005fa67086c1e0ecca8216312e9f3,admin_list_order_payments=38fcf5f1e5021cf8e98c4a3b643894ad,admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b"
 cell "回滾後新欄與新表都不在" "$(Q "select count(*) from information_schema.columns where table_schema='public' and column_name in ('payment_instrument','fee_rate','fee_amount')")|$(Q "select count(*) from pg_tables where tablename='payment_fee_rates'")" "0|0"
 P -f "$MIG" >/dev/null || { echo "🔴 回滾後再套失敗"; exit 1; }
 
@@ -94,6 +94,21 @@ BEGIN
     UPDATE public.orders SET payment_instrument = p_kind WHERE id = v_id;
   END IF;
   RETURN v_id;
+END $f$;
+-- 用新的建單 RPC(17 參)建單:成功回 order_id, 失敗回 SQLSTATE
+CREATE FUNCTION public.zz_create(p_source text, p_channel text, p_instr text, p_payout integer, p_key uuid DEFAULT gen_random_uuid(), p_cust uuid DEFAULT NULL)
+  RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE r jsonb; st text;
+BEGIN
+  r := public.admin_create_manual_order(coalesce(p_cust, public.zz_cust()), p_key, 'probe_q1', p_source, p_channel, 'home',
+         '{"name":"王小明","phone":"0912000111","line":"台北市測試路1號"}'::jsonb,
+         '{"type":"personal","requested":false}'::jsonb, 200,
+         '[{"sku":"Q1","title":"測試品","qty":1,"unit_price":7700,"spec":{}}]'::jsonb,
+         NULL, NULL, NULL, NULL, NULL, p_instr, p_payout);
+  RETURN r ->> 'order_id';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE;
+  RETURN st;
 END $f$;
 CREATE FUNCTION public.zz_pay(p_tag text, p_order uuid, p_key uuid, p_rail text, p_amount integer,
                               p_instr text, p_payout integer, p_at timestamptz DEFAULT now()) RETURNS text LANGUAGE plpgsql AS $f$
@@ -169,7 +184,7 @@ cell "非蝦皮帶進帳金額 ⇒ 拒" "$(pay s5 "$O3" "$(uuid)" cash 100 "'car
 cell "刷卡配匯款 ⇒ 拒" "$(pay s6 "$O3" "$(uuid)" bank_transfer 100 "'card_terminal'" NULL)" "P0001"
 cell "訂單:蝦皮標記配非蝦皮來源 ⇒ CHECK 擋" "$(Q "do \$x\$ begin update public.orders set payment_instrument = 'shopee' where id = '$O3'; exception when check_violation then raise notice 'x'; end \$x\$; select coalesce(payment_instrument, 'NULL') from public.orders where id = '$O3'")" "NULL"
 # Fable R1 #1:現行建單 RPC 建出來的蝦皮單沒有標記 ⇒ 這一段不可以擋(反向約束等建單 RPC 那段才收緊)
-cell "現行建單 RPC 建蝦皮來源的單照樣建得起來" "$(Q "select (public.admin_create_manual_order(public.zz_cust(), gen_random_uuid(), 'probe_q1', 'manual_shopee', 'bank_transfer', 'home', '{\"name\":\"王小明\",\"phone\":\"0912000111\",\"line\":\"台北市測試路1號\"}'::jsonb, '{\"type\":\"personal\",\"requested\":false}'::jsonb, 100, '[{\"sku\":\"Q1\",\"title\":\"測試品\",\"qty\":1,\"unit_price\":100,\"spec\":{}}]'::jsonb) ->> 'order_id') is not null")" "t"
+cell "舊後台(15 參以內)建蝦皮單照樣建得起來" "$(Q "select (public.admin_create_manual_order(public.zz_cust(), gen_random_uuid(), 'probe_q1', 'manual_shopee', 'bank_transfer', 'home', '{\"name\":\"王小明\",\"phone\":\"0912000111\",\"line\":\"台北市測試路1號\"}'::jsonb, '{\"type\":\"personal\",\"requested\":false}'::jsonb, 100, '[{\"sku\":\"Q1\",\"title\":\"測試品\",\"qty\":1,\"unit_price\":100,\"spec\":{}}]'::jsonb) ->> 'order_id') is not null")" "t"
 
 echo "── 冪等 ──"
 K="$(uuid)"; O7="$(Q "select public.zz_order(3000, 100, 'card_terminal')")"; AT="$(Q "select now()::text")"
@@ -213,6 +228,31 @@ cell "營業額函式標出 1 筆沒有費率" "$(Q "select missing_fee_count fr
 P10="$(Q "select id from public.order_payments where order_id = '$O10'")"
 Q "insert into public.order_payments (order_id, rail, amount, received_at, reverses_payment_id, reversal_reason, actor) select order_id, rail, -amount, received_at, id, '測沖銷', 'probe_q1' from public.order_payments where id = '$P10'" >/dev/null
 cell "沒有費率的收款被沖銷 ⇒ 仍只算 1 筆(沖銷列不重複數)" "$(Q "select missing_fee_count from public.admin_revenue_between(now() - interval '1 day', now() + interval '1 day')")" "1"
+
+echo "── 建單 RPC:付款標記與建單時登記蝦皮進帳(⑪)──"
+OLD_SHP="$(Q "select id from public.orders where order_source = 'manual_shopee' and id not in (select order_id from public.order_payments) order by created_at desc limit 1")"
+cell "舊後台送 bank_transfer 的蝦皮單 ⇒ 落成 cash + 蝦皮" "$(Q "select payment_channel || '/' || payment_instrument from public.orders where id = '$OLD_SHP'")" "cash/shopee"
+KC="$(uuid)"; CU="$(Q "select public.zz_cust()")"
+C1="$(Q "select public.zz_create('manual_shopee', 'bank_transfer', NULL, 7016, '$KC', '$CU')")"
+cell "建蝦皮單同時登記進帳 7016" "$(Q "select count(*) || '/' || sum(amount) || '/' || sum(fee_amount) || '/' || min(payment_instrument) from public.order_payments where order_id = '$C1'")" "1/7900/884/shopee"
+cell "建單即已收齊" "$(status_of "$C1")" "paid"
+cell "進帳時間 = 建單當下(不早於訂單成立)" "$(Q "select (p.received_at >= o.created_at and p.received_at <= clock_timestamp())::text from public.order_payments p join public.orders o on o.id = p.order_id where p.order_id = '$C1'")" "true"
+cell "同一顆鍵原樣重送 ⇒ 回同一張單、進帳仍只有 1 筆" "$(Q "select public.zz_create('manual_shopee', 'bank_transfer', NULL, 7016, '$KC', '$CU') = '$C1' and (select count(*) from public.order_payments where order_id = '$C1') = 1")" "t"
+cell "同一顆鍵改了進帳金額 ⇒ 拒(內容不同)" "$(Q "select public.zz_create('manual_shopee', 'bank_transfer', NULL, 7100, '$KC', '$CU')")" "P858B"
+KX="$(uuid)"
+cell "進帳大於訂單總額 ⇒ 拒" "$(Q "select public.zz_create('manual_shopee', 'cash', NULL, 8000, '$KX')")" "P0001"
+cell "進帳被拒 ⇒ 整張單一起回滾(沒有半張單)" "$(Q "select count(*) from public.orders where manual_request_id = '$KX'")" "0"
+C2="$(Q "select public.zz_create('manual_shopee', 'cash', NULL, NULL)")"
+cell "蝦皮單不填進帳也建得起來(之後再登記)" "$(Q "select payment_instrument || '/' || payment_status from public.orders where id = '$C2'")" "shopee/unpaid"
+C3="$(Q "select public.zz_create('manual_phone', 'cash', 'card_terminal', NULL)")"
+cell "刷卡單 ⇒ cash + card_terminal" "$(Q "select payment_channel || '/' || payment_instrument from public.orders where id = '$C3'")" "cash/card_terminal"
+cell "刷卡配匯款 ⇒ 拒" "$(Q "select public.zz_create('manual_phone', 'bank_transfer', 'card_terminal', NULL)")" "P0001"
+cell "非蝦皮單選蝦皮 ⇒ 拒" "$(Q "select public.zz_create('manual_phone', 'cash', 'shopee', NULL)")" "P0001"
+cell "非蝦皮單填進帳金額 ⇒ 拒" "$(Q "select public.zz_create('manual_phone', 'cash', NULL, 100)")" "P0001"
+cell "蝦皮單選刷卡 ⇒ 拒" "$(Q "select public.zz_create('manual_shopee', 'cash', 'card_terminal', NULL)")" "P0001"
+cell "反向約束:蝦皮單拿掉標記 ⇒ CHECK 擋" "$(Q "do \$x\$ begin update public.orders set payment_instrument = NULL where id = '$C2'; exception when check_violation then raise notice 'x'; end \$x\$; select payment_instrument from public.orders where id = '$C2'")" "shopee"
+cell "建單 RPC 只給 service_role" "$(Q "select has_function_privilege('anon', p.oid, 'EXECUTE')::text || has_function_privilege('authenticated', p.oid, 'EXECUTE')::text || has_function_privilege('service_role', p.oid, 'EXECUTE')::text from pg_proc p where proname = 'admin_create_manual_order'")" "falsefalsetrue"
+cell "建單 RPC 只有一支(沒有留下舊簽章的重載)" "$(Q "select count(*) from pg_proc where proname = 'admin_create_manual_order'")" "1"
 
 echo "── 蝦皮單不參加未收款自動取消(Sean Q42 甲)──"
 OX1="$(Q "select public.zz_order(1000, 100, 'shopee')")"; OX2="$(Q "select public.zz_order(1000, 100, NULL)")"
