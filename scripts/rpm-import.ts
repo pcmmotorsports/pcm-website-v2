@@ -102,6 +102,7 @@ import {
   variantSortKey,
   groupRowsToSync,
   isNonProductListing,
+  isFullyDelisted,
   type ProductRow,
   type VariantRow,
   type GroupTransformContext,
@@ -140,6 +141,12 @@ import {
   orphansToDeleteFor,
   hazardGroupsToSkip,
   formatWithheldOrphans,
+  planAutoDelist,
+  applyAutoDelist,
+  shouldSkipNewDiscontinued,
+  readListedProducts,
+  readAllExternalIds,
+  printAutoDelistReport,
   type VariantOrphan,
 } from './rpm-reconcile';
 import {
@@ -179,6 +186,8 @@ const LIMIT = Number(argValue('--limit') ?? '0') || 0; // 篩前 N 群(dry-run)
 // M2(Codex R1 must-fix):預期群數指紋。首灌(target active=0)寫入模式強制要帶——W1 縮水閘該情境恆過。
 const EXPECT_GROUPS = parseExpectGroups(argValue('--expect-groups'));
 const ALLOW_LARGE_DELIST = process.argv.includes('--allow-large-delist'); // S4:放行大比例下架(防誤殺 bypass、需確認來源完整才帶)
+// Q33 自動下架專用(R1 建議 2):不跟 --allow-large-delist 共用, 免得放行自動下架時連變體孤兒刪除也一起放行。
+const ALLOW_LARGE_AUTO_DELIST = process.argv.includes('--allow-large-auto-delist');
 const ALLOW_FETCH_SHRINK = process.argv.includes('--allow-fetch-shrink'); // S5 W1:放行大幅來源縮水(防誤殺 bypass、需確認來源完整才帶)
 // 🔴 S4 下架對賬只在全量模式跑(篩選下 source 不完整、跑了會誤殺全站)。
 // ⚠️ FULL_MODE 是 CLI flag 推斷、非 source 完整性保證;真正防殘缺誤殺的最終防線是 reconcile 兩條 gate(source 空硬 abort + 比例>10% abort)。
@@ -650,6 +659,11 @@ async function main(): Promise<void> {
   //      留下一件沒有規格的商品。⇒ 網站上已有的原樣不動、不下架;要下架另外處理。
   const nonProductSkus = new Set<string>();
   const nonProductWholeGroups: string[] = [];
+  // Q33 / Q34(Sean 2026-10-02):報價單整群停產(view 已過 7 天寬限 ⇒ 每個規格都帶 delisted_at)的群。
+  //   網站在架的那張卡會在 S4 之後自動下架;網站上根本沒有的 ⇒ 這一輪不新建(仍算「在來源裡」)。
+  const fullyDelistedGroups = new Set<string>();
+  const skippedNewDiscontinued: string[] = [];
+  const siteExternalIds = await readAllExternalIds(target, config.supplierSlug);
   for (const [mainSku, variants] of entries) {
     // 🔴 liveVariants 必須在【最上面】算,群內所有衍生值(車款標籤、分類 pair、群層轉換、變體列)
     //    一律吃同一個集合。規則與理由見 rpm-transform.ts 的 liveVariantsOf。
@@ -662,6 +676,12 @@ async function main(): Promise<void> {
     if (productVariants.length === 0) {
       nonProductWholeGroups.push(mainSku);
       withheldExternalIds.add(mainSku); // 仍在來源裡:不觸發「原廠已無此品」
+      continue;
+    }
+    const groupFullyDelisted = isFullyDelisted(productVariants);
+    if (groupFullyDelisted) fullyDelistedGroups.add(mainSku); // mainSku = transformGroup 的 external_id
+    if (shouldSkipNewDiscontinued(mainSku, groupFullyDelisted, siteExternalIds)) {
+      skippedNewDiscontinued.push(mainSku);
       continue;
     }
     const pick = groupRowsToSync(productVariants, onSiteSkus);
@@ -811,7 +831,12 @@ async function main(): Promise<void> {
   if (config.perRowBrand) printManufacturerBrandReport(manufacturerDecisions);
   const variantRows = [...variantsByExternalId.values()].flat();
   // S4 來源消失對賬:本次 source 出現的主碼集合(含內容未補齊而這一輪不建的群 —— 它們還在來源裡)
-  const sourceExternalIds = new Set([...productRows.map((p) => p.external_id), ...withheldExternalIds]);
+  //   Q34 跳過不建的停產群也還在來源裡(網站上本來就沒有它, 但不能讓它被當成「來源消失」)。
+  const sourceExternalIds = new Set([
+    ...productRows.map((p) => p.external_id),
+    ...withheldExternalIds,
+    ...skippedNewDiscontinued,
+  ]);
   if (onSiteSkus) {
     console.log(
       `[rpm-import] 只上架內容補齊的列:要上 ${productRows.length} 群 / ${variantRows.length} 列;` +
@@ -1174,8 +1199,18 @@ async function main(): Promise<void> {
     if (FULL_MODE) {
       const recon = await computeSourceMissing(target, config.supplierSlug, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
       printReconcileReport(recon, { full: DELTA_FULL });
+      const autoDelist = planAutoDelist(await readListedProducts(target, config.supplierSlug), fullyDelistedGroups, {
+        allowLargeDelist: ALLOW_LARGE_AUTO_DELIST,
+      });
+      printAutoDelistReport(autoDelist, skippedNewDiscontinued, config.supplierSlug, { full: DELTA_FULL });
     } else {
       console.log('[rpm-import] 來源消失對賬跳過(--group/--limit 篩選、source 不完整、全量才對賬)');
+      printAutoDelistReport(
+        { toDelist: [], skippedStaff: [], activeCount: 0, ratio: 0, aborted: false, largeBypassed: false },
+        skippedNewDiscontinued,
+        config.supplierSlug,
+      );
+      console.log('  (自動下架只在全量同步算;這一輪是篩選模式)');
     }
     console.log(`\n[rpm-import] DRY-RUN:${productRows.length} 群 / ${variantRows.length} 變體(未寫入)`);
     console.log('→ 看完 delta/離群/下架對賬、Sean 點頭後、跑正式並帶 --confirm-write');
@@ -1433,6 +1468,21 @@ async function main(): Promise<void> {
     // 反向:來源重新出現 → 清回 NULL。沒有這一步,標記會永遠黏著(商品早回來了、畫面還說沒有)。
     const cleared = await clearSourceMissing(target, config.supplierSlug, [...sourceExternalIds]);
     if (cleared) console.log(`[rpm-import] 來源重新出現:清除 ${cleared} 筆「原廠已無此品」標記`);
+    // ── Q33(Sean 2026-10-02):報價單整群停產(已過 7 天寬限)⇒ 網站在架的卡自動下架(走 admin_set_product_listing、寫稽核)──
+    //   推翻 2026-08-15 Q-B-2 甲的「同步不下架」;員工手動上架(listing_set_by=staff)的不動。
+    //   超過在架 10% ⇒ 這一輪不下架 + 非零退出(cron 叫), 確認後帶 --allow-large-auto-delist;超過 50% 不能放行。
+    const autoDelist = planAutoDelist(await readListedProducts(target, config.supplierSlug), fullyDelistedGroups, {
+      allowLargeDelist: ALLOW_LARGE_AUTO_DELIST,
+    });
+    printAutoDelistReport(autoDelist, skippedNewDiscontinued, config.supplierSlug, { full: DELTA_FULL });
+    if (autoDelist.aborted) {
+      // 🔵 非零退出、不 throw(R1 建議 3):其他寫入都已完成, 只是這一家這一輪不下架;cron 看得到, 紀錄是降級完成。
+      console.error(`[rpm-import] 🔴 下架連動報價單安全 gate 觸發、這一輪不下架:${autoDelist.abortReason}`);
+      process.exitCode = 1;
+    } else if (autoDelist.toDelist.length) {
+      const tally = await applyAutoDelist(target, config.supplierSlug, autoDelist.toDelist);
+      console.log(`[rpm-import] 下架連動報價單完成:${JSON.stringify(tally)}(scope ${config.supplierSlug};寫 admin_audit_log)`);
+    }
   } else {
     console.log('[rpm-import] 來源消失對賬跳過(--group/--limit 篩選、非全量、避免誤標與誤清)');
   }

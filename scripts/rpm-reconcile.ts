@@ -1,6 +1,12 @@
 /**
  * rpm-reconcile — S4 來源消失對賬(源頭消失 → **標記**,不下架)+ V1 變體級對賬
  *
+ * 🆕 2026-10-02 Sean Q33 / Q34 甲:**下面「本檔不再下架任何商品」只對「來源消失」那一條仍成立。**
+ *   新增「下架連動報價單」:報價單整群停產(view 已過 7 天寬限 ⇒ 每個規格都帶 delisted_at)⇒
+ *   網站在架的卡由同步自動下架(planAutoDelist / applyAutoDelist,走 admin_set_product_listing、寫稽核;
+ *   員工手動上架的不動;超過在架 10% 擋下、帶 --allow-large-auto-delist 放行;超過 50% 不能放行)。網站上沒有的停產群不新建(shouldSkipNewDiscontinued)。
+ *   這推翻 2026-08-15 Q-B-2 甲。plan:~/pcm-mailbox/計畫-網站下架連動報價單-20261002.md
+ *
  * 🔴🔴 2026-08-15 `#20` 片2b **本檔不再下架任何商品**(規格 `docs/specs/2026-08-15-products-manual-listing-override-plan.md` v5)
  *   Sean 拍板 `Q-B-2=甲`(把自動下架關掉、改成只標記)+ `Q-關哪一條=乙`(鏡射與對賬兩條都關)。
  *   業務理由逐字:「**如果原廠停產,但是我有現貨庫存,那我需要維持上架狀態**」。
@@ -231,6 +237,167 @@ export async function clearSourceMissing(tgt: SupabaseClient, supplierSlug: stri
     n += (data ?? []).length;
   }
   return n;
+}
+
+// ── Q33 / Q34:網站下架連動報價單(Sean 2026-10-02;推翻 2026-08-15 Q-B-2 甲的「同步不下架」)──
+//   plan:~/pcm-mailbox/計畫-網站下架連動報價單-20261002.md
+//   判斷只有一個來源:報價單 view 的 delisted_at(過了 view 的 7 天寬限才有值)+ isFullyDelisted(整群每個規格都有)。
+//   下架走後台同一支 admin_set_product_listing(寫 admin_audit_log);不新增任何寫入路徑。
+
+/** 同一家這一輪自動下架的卡數 / 在架卡數 的上限(對齊來源消失的 10%;確認後 --allow-large-delist 放行)。 */
+export const AUTO_DELIST_RATIO_ABORT = SOURCE_MISSING_RATIO_ABORT;
+/** 不能放行的上限:超過在架一半 ⇒ 多半是 view 出錯(例如整家都帶 delisted_at), 帶參數也不下架(R1 建議 2)。 */
+export const AUTO_DELIST_HARD_CAP = 0.5;
+
+export interface SiteListing {
+  id: string;
+  externalId: string;
+  listingSetBy: string | null;
+}
+
+export interface AutoDelistPlan {
+  toDelist: SiteListing[];
+  /** 員工手動上架(listing_set_by=staff)⇒ 有人刻意要它在架上, 不自動下架, 只列出來。 */
+  skippedStaff: SiteListing[];
+  activeCount: number;
+  ratio: number;
+  aborted: boolean;
+  abortReason?: string;
+  largeBypassed: boolean;
+}
+
+/** 在架卡(active)裡, 報價單那一群已整群停產(fullyDelisted)的 ⇒ 要下架。純函式。 */
+export function planAutoDelist(
+  active: SiteListing[],
+  fullyDelisted: ReadonlySet<string>,
+  opts: { allowLargeDelist: boolean },
+): AutoDelistPlan {
+  const hits = active.filter((l) => fullyDelisted.has(l.externalId));
+  const skippedStaff = hits.filter((l) => l.listingSetBy === 'staff');
+  const candidates = hits.filter((l) => l.listingSetBy !== 'staff');
+  const ratio = active.length === 0 ? 0 : candidates.length / active.length;
+  const large = candidates.length > 0 && ratio > AUTO_DELIST_RATIO_ABORT;
+  if (candidates.length > 0 && ratio > AUTO_DELIST_HARD_CAP) {
+    return {
+      toDelist: [],
+      skippedStaff,
+      activeCount: active.length,
+      ratio,
+      aborted: true,
+      abortReason:
+        `這一輪要自動下架 ${candidates.length}/${active.length} 張(${(ratio * 100).toFixed(1)}%)` +
+        ` > ${AUTO_DELIST_HARD_CAP * 100}%,不能放行:先查報價單 view 是不是整家都帶了 delisted_at`,
+      largeBypassed: false,
+    };
+  }
+  if (large && !opts.allowLargeDelist) {
+    return {
+      toDelist: [],
+      skippedStaff,
+      activeCount: active.length,
+      ratio,
+      aborted: true,
+      abortReason:
+        `這一輪要自動下架 ${candidates.length}/${active.length} 張(${(ratio * 100).toFixed(1)}%)` +
+        ` > ${AUTO_DELIST_RATIO_ABORT * 100}% 上限;確認報價單真的整群停產後帶 --allow-large-auto-delist`,
+      largeBypassed: false,
+    };
+  }
+  return { toDelist: candidates, skippedStaff, activeCount: active.length, ratio, aborted: false, largeBypassed: large };
+}
+
+/** Q34:網站上沒有這張卡(在架或已下架都算有)、而報價單那一群已整群停產 ⇒ 不新建。 */
+export function shouldSkipNewDiscontinued(
+  externalId: string,
+  fullyDelisted: boolean,
+  siteExternalIds: ReadonlySet<string>,
+): boolean {
+  return fullyDelisted && !siteExternalIds.has(externalId);
+}
+
+/** 讀網站該供應商【在架】的卡(id + external_id + listing_set_by)。讀失敗 throw, 不當成「沒有」。 */
+export async function readListedProducts(tgt: SupabaseClient, supplierSlug: string): Promise<SiteListing[]> {
+  const out: SiteListing[] = [];
+  for (let from = 0; ; from += READ_BATCH) {
+    const { data, error } = await tgt
+      .from('products')
+      .select('id, external_id, listing_set_by')
+      .eq('supplier_slug', supplierSlug)
+      .is('delisted_at', null)
+      .order('external_id')
+      .range(from, from + READ_BATCH - 1);
+    if (error) throw new Error(`readListedProducts@${from}: ${error.message}`);
+    const rows = (data ?? []) as { id: string; external_id: string; listing_set_by: string | null }[];
+    out.push(...rows.map((r) => ({ id: r.id, externalId: r.external_id, listingSetBy: r.listing_set_by })));
+    if (rows.length < READ_BATCH) break;
+  }
+  return out;
+}
+
+/** 讀網站該供應商【全部】卡的 external_id(含已下架)⇒ Q34 判斷「網站上有沒有這張卡」。 */
+export async function readAllExternalIds(tgt: SupabaseClient, supplierSlug: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let from = 0; ; from += READ_BATCH) {
+    const { data, error } = await tgt
+      .from('products')
+      .select('external_id')
+      .eq('supplier_slug', supplierSlug)
+      .order('external_id')
+      .range(from, from + READ_BATCH - 1);
+    if (error) throw new Error(`readAllExternalIds@${from}: ${error.message}`);
+    const rows = (data ?? []) as { external_id: string }[];
+    for (const r of rows) out.add(r.external_id);
+    if (rows.length < READ_BATCH) break;
+  }
+  return out;
+}
+
+/** Q33 寫入:逐張走 admin_set_product_listing(寫稽核)。同一張重跑回 NO_CHANGE。回 {結果: 張數}。 */
+export async function applyAutoDelist(
+  tgt: SupabaseClient,
+  supplierSlug: string,
+  items: SiteListing[],
+): Promise<Record<string, number>> {
+  const tally: Record<string, number> = {};
+  for (const l of items) {
+    const { data, error } = await tgt.rpc('admin_set_product_listing', {
+      p_product_id: l.id,
+      p_delisted: true,
+      p_note: 'Sean 2026-10-02 Q33:報價單整群停產(已過 7 天寬限),網站同步自動下架',
+      p_actor: 'sync',
+      p_request_id: `rpm-auto-delist:${supplierSlug}:${l.externalId}`,
+    });
+    if (error) throw new Error(`applyAutoDelist ${l.externalId}: ${error.message}`);
+    const r = String(data);
+    tally[r] = (tally[r] ?? 0) + 1;
+  }
+  return tally;
+}
+
+/** 印 Q33 / Q34 報告(乾跑與正式共用)。 */
+export function printAutoDelistReport(
+  plan: AutoDelistPlan,
+  skippedNew: string[],
+  supplierSlug: string,
+  opts: { full?: boolean } = {},
+): void {
+  const cap = opts.full ? Number.MAX_SAFE_INTEGER : 50;
+  console.log(`\n=== 下架連動報價單(Q33 / Q34;scope ${supplierSlug})===`);
+  if (plan.aborted) console.log(`  🔴 自動下架被擋:${plan.abortReason}`);
+  else {
+    console.log(
+      `  自動下架:${plan.toDelist.length} 張 / 在架 ${plan.activeCount} 張(${(plan.ratio * 100).toFixed(1)}%)` +
+        (plan.largeBypassed ? ' ⚠️ 超過上限、已帶 --allow-large-delist 放行' : ''),
+    );
+    for (const l of plan.toDelist.slice(0, cap)) console.log(`    - ${l.externalId}`);
+    if (plan.toDelist.length > cap) console.log(`    …另 ${plan.toDelist.length - cap} 張(--delta-full 看全部)`);
+  }
+  if (plan.skippedStaff.length) {
+    console.log(`  員工手動上架、不自動下架:${plan.skippedStaff.length} 張 —— ${plan.skippedStaff.map((l) => l.externalId).join('、')}`);
+  }
+  console.log(`  報價單已整群停產、網站上沒有 ⇒ 不新建:${skippedNew.length} 群`);
+  for (const e of skippedNew.slice(0, cap)) console.log(`    - ${e}`);
+  if (skippedNew.length > cap) console.log(`    …另 ${skippedNew.length - cap} 群`);
 }
 
 // ── V1:變體級對賬(孤兒變體=群在、變體 sku 從來源消失;2026-07-05 雙跨模型審查 must-fix)──
