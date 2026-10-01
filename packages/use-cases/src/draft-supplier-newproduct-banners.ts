@@ -122,7 +122,10 @@ export function authAligned(headers: readonly string[], fromDomain: string): boo
   // 🔴 R2 K2:header 順序是假設 ⇒ 出現兩條以上 mx.google.com 就不信任何一條(轉寄過 Gmail 的信本來就會掉)
   const google = headers.filter((h) => /^\s*mx\.google\.com\s*;/i.test(h));
   if (google.length !== 1) return false;
-  const trusted = google[0]!;
+  // 🔵 2026-10-01 mac mini 實測:Gmail 會把 DKIM 簽章值寫成 `header.b="AbCd1234"`(lightech.it 那封)⇒ 整行有引號 ⇒ 下面那條把真信判成不過。
+  //    只拿掉【簽章值本身】:限 base64 字元、引號要成對(主視窗 10-01 甲:其他引號判斷一律不放寬)。
+  //    簽章值不參與下面任何判斷;不是 base64 的(例 `header.b="x;dmarc=pass"`)不會被拿掉 ⇒ 照樣撞引號那條。
+  const trusted = google[0]!.replace(/\bheader\.b=(?:"[A-Za-z0-9+/=]*"|[A-Za-z0-9+/=]+)/gi, 'header.b=_');
   // 🔴 R2 K1:用 `;` 切會切到註解 / 引號裡的字(寄件地址可以帶 `"x;dmarc=pass header.from=…"`)⇒ 有引號就不過
   if (trusted.includes('"')) return false;
   const parts = trusted.toLowerCase().split(';').map((p) => p.trim());

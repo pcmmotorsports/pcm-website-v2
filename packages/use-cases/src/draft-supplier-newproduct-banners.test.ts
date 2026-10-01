@@ -323,6 +323,26 @@ describe('純函式', () => {
     expect(authAligned(['mx.google.com; dmarc=pass header.from=akrapovic.com; dmarc=fail header.from=akrapovic.com'], 'akrapovic.com')).toBe(false);
   });
 
+  it('🔵 Gmail 把 DKIM 簽章值包在引號裡(mac mini 10-01 實測 lightech.it)⇒ 照樣過;其他引號一律不放寬', () => {
+    // 真信的形狀(簽章值換成假的;其餘逐字照 mac mini 讀到的那封)
+    const lightech =
+      'mx.google.com; dkim=pass header.i=@lightech.it header.s=resend header.b="Ab+/9xY="; ' +
+      'dkim=pass header.i=@amazonses.com header.s=shh3fegwg5fppqsuzphvschd53n6ihuv header.b=Q1w2E3r4; ' +
+      'spf=pass (google.com: domain of 0102@send.lightech.it designates 54.240.3.9 as permitted sender) smtp.mailfrom=0102@send.lightech.it; ' +
+      'dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=lightech.it';
+    expect(authAligned([lightech], 'lightech.it')).toBe(true);
+    // 🔴 偽造:pass 寫在引號裡 ⇒ 不過
+    expect(authAligned(['mx.google.com; dkim="pass" header.i=@lightech.it header.b="Ab9"; dmarc=pass header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 簽章值不是 base64(有空白)⇒ 不拿掉 ⇒ 撞引號那條。其餘欄位全是 pass:放寬成「任何引號都拿掉」這行就會變 true(R1 必修)
+    expect(authAligned(['mx.google.com; dkim=pass header.i=@lightech.it header.b="Ab 9"; dmarc=pass header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 引號裡夾著假的驗證結果、本身就驗不過的信 ⇒ 不過
+    expect(authAligned(['mx.google.com; dkim=fail header.i=@evil.example header.b="x;dmarc=pass header.from=lightech.it"; dmarc=fail header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 引號不成對 ⇒ 不拿掉
+    expect(authAligned(['mx.google.com; dkim=pass header.i=@lightech.it header.b="Ab9; dmarc=pass header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 寄件地址裡的引號(R2 K1 原本那條)照擋
+    expect(authAligned(['mx.google.com; spf=pass smtp.mailfrom="a;dmarc=pass header.from=lightech.it"@evil.example; dmarc=fail header.from=evil.example'], 'lightech.it')).toBe(false);
+  });
+
   it('extractImages / extractSkuCandidates / buildLinkPath', () => {
     expect(extractImages('<img src="http://a/b.jpg" width="900"><img src=\'https://a/c.jpg\'>')).toEqual(['https://a/c.jpg']);
     expect(extractImages(`<img src="https://a/${'x'.repeat(2100)}.jpg">`)).toEqual([]);
