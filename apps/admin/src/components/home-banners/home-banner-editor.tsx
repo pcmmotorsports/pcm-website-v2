@@ -10,6 +10,9 @@ import {
   duplicateHomeBannerAction,
 } from '../../lib/home-banners/home-banner-actions';
 import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD, publishKeepsLiveHint, titleLayoutHint } from '../../lib/home-banners/home-banner-constants';
+import { bannerSourceLabel, bannerTextIssues } from '../../lib/home-banners/home-banner-social';
+import { preventEnterSubmit } from '../../lib/home-banners/home-banner-enter-guard';
+import { HomeBannerSocial } from './home-banner-social';
 import {
   BANNER_STATE_LABEL,
   formatBannerTime,
@@ -103,8 +106,11 @@ export function HomeBannerEditor({
   //    Q6 乙:信件來的草稿要配到商品、連結要指到 /products;員工自己新增的不受這條管(見 20260916180000 檔頭)。
   const fromMail = banner !== null && banner.sourceEmailId !== null;
   const link = d.link.trim();
+  // 🔴 大圖文字的紅字(每日自動新品草稿, 20261001120000):與資料庫發布那一道同一串字, 比 FB / IG 嚴(保固一律不寫)
+  const redIssues = bannerTextIssues([d.eyebrow, d.title1, d.title2, d.subtitle, d.cta]);
   const publishWhy =
     banner === null ? '先存草稿再發布'
+    : redIssues.length > 0 ? '大圖文字有紅字,改字、存草稿後才能發布'
     : dirty ? '有改動還沒存,先存草稿再發布'
     : !/^\/(products|brands)($|[?/])/.test(link) ? '連結要指到商品或品牌頁(/products… 或 /brands…)才能發布'
     : fromMail && banner.matchedVariantIds.length === 0 ? '這張還沒配到商品,配到商品才能發布'
@@ -117,7 +123,8 @@ export function HomeBannerEditor({
 
   return (
     <aside className='hb-panel' aria-label='編輯首頁大圖' data-testid='home-banner-panel'>
-      <form action={saveHomeBannerDraftAction}>
+      {/* 🔴 單行輸入框按 Enter 不送出:表單第一顆送出鈕可能是「封存」(主視窗 2026-10-01;理由見 enter-guard 檔頭) */}
+      <form action={saveHomeBannerDraftAction} onKeyDown={preventEnterSubmit}>
         <input type='hidden' name={HB_FIELD.view} value={view} />
         {banner !== null ? <input type='hidden' name={HB_FIELD.id} value={banner.id} /> : null}
         {/* 🔴 原字串原樣送回(微秒);不要改成 new Date(...).toISOString() */}
@@ -126,6 +133,7 @@ export function HomeBannerEditor({
         <div className='hd'>
           <h3>{banner === null ? '新增首頁大圖' : '編輯首頁大圖'}</h3>
           <span className={`hb-cap ${state ?? 'draft'}`}>{BANNER_STATE_LABEL[state ?? 'draft']}</span>
+          {banner !== null ? <span className='hb-src' data-testid='home-banner-source'>{bannerSourceLabel(banner)}</span> : null}
           <Link href={closeHref} className='x' aria-label='關閉'>×</Link>
         </div>
 
@@ -243,6 +251,11 @@ export function HomeBannerEditor({
                   <Counter value={d.cta} soft={HB_SOFT_MAX.cta} />
                 </label>
               </div>
+              {redIssues.length > 0 ? (
+                <ul className='hb-red' role='status' data-testid='home-banner-red'>
+                  {redIssues.map((i) => <li key={i.word}>{i.message}</li>)}
+                </ul>
+              ) : null}
             </div>
 
             <div className='sec'>
@@ -279,6 +292,7 @@ export function HomeBannerEditor({
               <div className='eta'>發布後約 1 分鐘內出現在首頁。</div>
             </div>
           </fieldset>
+          {banner !== null && state !== 'archived' ? <HomeBannerSocial banner={banner} /> : null}
         </div>
 
         <div className='ft'>

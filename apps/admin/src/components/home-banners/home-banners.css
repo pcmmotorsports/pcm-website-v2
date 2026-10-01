@@ -86,3 +86,12 @@
 .hb-panel .rights label.must input { width: 15px; height: 15px; accent-color: var(--hb-primary); }
 .hb-panel .eta { font-size: 12px; color: var(--hb-mut); margin-top: 4px; }
 @media (max-width: 640px) { .hb-panel .grid2 { grid-template-columns: 1fr; } }
+
+/* 每日自動新品草稿(2026-10-01):來源標示、紅字清單、FB / IG 貼文區塊。沿用面板既有的字級與間距變數。 */
+.hb-src { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--hb-line); color: var(--hb-fg2); }
+.hb-red { margin: 8px 0 0; padding: 8px 12px 8px 28px; border-radius: 6px; background: var(--hb-warn-bg); color: var(--hb-danger); font-size: 13px; line-height: 1.5; }
+.hb-red li + li { margin-top: 2px; }
+.hb-social textarea { width: 100%; min-height: 160px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.5; padding: 8px; box-sizing: border-box; }
+.hb-social-box + .hb-social-box { margin-top: 14px; }
+.hb-social-act { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.hb-social > .hint { margin: 0 0 8px; font-size: 12px; color: var(--hb-mut); }

@@ -27,6 +27,16 @@ export interface HomeBannerRow {
   readonly sourceEmailId: string | null;
   /** 信件草稿配到的商品。Sean 09-16 Q6 乙:信件來的要配到商品才准發(手動的不受管)。 */
   readonly matchedVariantIds: readonly string[];
+  /** 每日自動新品草稿:來自哪個新商品(20261001120000);手動與廠商信來的是 null。 */
+  readonly sourceProductId: string | null;
+  /** FB / IG 貼文文字(20261001120000);小編複製去貼。 */
+  readonly fbText: string | null;
+  readonly igText: string | null;
+  /**
+   * 來源商品的品牌名(每日新品草稿才有;手動與廠商信來的是 null)。FB / IG 紅字判斷用它放行「品牌名 提供保固」——
+   * 不拿眉標頂替:品名已經以品牌開頭時眉標是空的, 手動新增的眉標可能是任何字(R1 必修 1)。
+   */
+  readonly sourceBrandName: string | null;
   /** 🔴 原字串(PostgREST 給的微秒精度)—— 發布時原樣送回,不轉 Date。 */
   readonly updatedAt: string;
 }

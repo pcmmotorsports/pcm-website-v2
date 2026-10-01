@@ -1,4 +1,4 @@
-import { HB_DB_MAX, HB_FIELD } from './home-banner-constants';
+import { HB_DB_MAX, HB_FIELD, HB_SOCIAL_MAX } from './home-banner-constants';
 import { taipeiLocalToIso, type HomeBannerKind } from './home-banner-view';
 
 // home-banner-form.ts — 首頁大圖表單的純解析器(無 IO)。形狀照 DB CHECK(20260916150000)先擋一次,
@@ -129,4 +129,17 @@ export function parseHomeBannerPublishForm(form: FormLike): { ok: true; id: stri
 export function parseHomeBannerIdForm(form: FormLike): string | null {
   const id = readId(form);
   return id === INVALID ? null : id;
+}
+
+/** FB / IG 文字存檔:id + 兩段文字(各 ≤ 2200 字;空字串照送, 資料庫存成 NULL)。 */
+export function parseHomeBannerSocialForm(
+  form: FormLike,
+): { ok: true; id: string; fbText: string; igText: string } | { ok: false } {
+  const id = readId(form);
+  if (id === INVALID || id === null) return { ok: false };
+  const fb = form.get(HB_FIELD.fbText);
+  const ig = form.get(HB_FIELD.igText);
+  if (typeof fb !== 'string' || typeof ig !== 'string') return { ok: false };
+  if ([...fb].length > HB_SOCIAL_MAX || [...ig].length > HB_SOCIAL_MAX) return { ok: false };
+  return { ok: true, id, fbText: fb, igText: ig };
 }

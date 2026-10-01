@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HB_FIELD } from './home-banner-constants';
-import { parseHomeBannerDraftForm, parseHomeBannerIdForm, parseHomeBannerPublishForm } from './home-banner-form';
+import { parseHomeBannerDraftForm, parseHomeBannerIdForm, parseHomeBannerPublishForm, parseHomeBannerSocialForm } from './home-banner-form';
 
 const ID = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
 
@@ -74,5 +74,16 @@ describe('parseHomeBannerIdForm', () => {
   it('uuid ⇒ 原樣;亂寫 ⇒ null', () => {
     expect(parseHomeBannerIdForm(form({ [HB_FIELD.id]: ID }))).toBe(ID);
     expect(parseHomeBannerIdForm(form({ [HB_FIELD.id]: '../x' }))).toBeNull();
+  });
+});
+
+describe('parseHomeBannerSocialForm(FB / IG 文字)', () => {
+  const ID = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
+  it('🔴 文字含換行要能存(貼文本來就是多行;不可比照其他欄位擋控制字元)', () => {
+    expect(parseHomeBannerSocialForm(form({ [HB_FIELD.id]: ID, [HB_FIELD.fbText]: 'a\nb', [HB_FIELD.igText]: '' })))
+      .toEqual({ ok: true, id: ID, fbText: 'a\nb', igText: '' });
+  });
+  it('超過 2200 字 ⇒ 不收', () => {
+    expect(parseHomeBannerSocialForm(form({ [HB_FIELD.id]: ID, [HB_FIELD.fbText]: 'x'.repeat(2201), [HB_FIELD.igText]: '' }))).toEqual({ ok: false });
   });
 });

@@ -273,6 +273,8 @@ export {
   SupabaseCatalogSkuMatcher,
   SupabaseSupplierNewProductStore,
 } from './supplier-mail/SupabaseSupplierNewProductStore';
+// 每日自動新品草稿(2026-10-01)
+export { SupabaseNewProductSource, SupabaseNewProductDraftStore } from './new-product-drafts/SupabaseNewProductDrafts';
 export {
   readBingWeekly,
   formatBingWeeklyLine,

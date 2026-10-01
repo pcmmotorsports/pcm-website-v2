@@ -267,3 +267,13 @@ export {
   type DraftSupplierNewProductBannersDeps,
   type DraftSupplierNewProductBannersResult,
 } from './draft-supplier-newproduct-banners';
+// 每日自動新品草稿(2026-10-01)
+export {
+  draftNewProductPosts,
+  buildNewProductDraft,
+  NEW_PRODUCT_DRAFTS_PER_DAY,
+  NEW_PRODUCT_LOOKBACK_HOURS,
+  type DraftNewProductPostsDeps,
+  type DraftNewProductPostsResult,
+  type NewProductSkipReason,
+} from './draft-new-product-posts';

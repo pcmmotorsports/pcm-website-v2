@@ -5,9 +5,9 @@ import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 import { authorizeAdminMutation } from '../session/authorize';
 import { HB_FIELD, HOME_BANNERS_PATH, type HomeBannerResultCode } from './home-banner-constants';
-import { parseHomeBannerDraftForm, parseHomeBannerIdForm, parseHomeBannerPublishForm } from './home-banner-form';
+import { parseHomeBannerDraftForm, parseHomeBannerIdForm, parseHomeBannerPublishForm, parseHomeBannerSocialForm } from './home-banner-form';
 import { uploadBannerImage } from './home-banner-image-upload';
-import { archiveHomeBanner, duplicateHomeBanner, publishHomeBanner, saveHomeBannerDraft } from './home-banner-repository';
+import { archiveHomeBanner, duplicateHomeBanner, publishHomeBanner, saveHomeBannerDraft, saveHomeBannerSocial } from './home-banner-repository';
 import { parseTab, type HomeBannerTab } from './home-banner-view';
 
 // home-banner-actions.ts — 首頁大圖 存草稿 / 發布 / 下架(DB 20260916150000;PRD §6,Sean Q5 甲)。
@@ -48,6 +48,9 @@ function classifyError(tag: string, requestId: string, error: unknown): HomeBann
     if (message.startsWith('連結要指到')) return 'linkscope';
     if (message.startsWith('下架時間')) return 'window';
     if (message.startsWith('只有草稿')) return 'notdraft';
+    // 20261001120000:發布前的大圖紅字檢查、封存後不能改 FB / IG 文字
+    if (message.startsWith('大圖文字有不能寫的字')) return 'redflag';
+    if (message.startsWith('已封存的大圖不能改')) return 'archivedlocked';
     if (message.startsWith('找不到這張大圖')) return 'notfound';
     if (message === '參數不正確') return 'invalid';
   }
@@ -189,4 +192,31 @@ export async function archiveHomeBannerAction(formData: FormData): Promise<void>
 
   revalidatePath(HOME_BANNERS_PATH);
   go(view, id, code);
+}
+
+// FB / IG 文字存檔(每日自動新品草稿, 20261001120000)。草稿與已發布都可以改(那是貼文用的文字, 不是首頁上的內容),
+// 封存的不行。🔴 存完會更新 updated_at ⇒ 頁面重新讀取後, 發布帶的 expected_updated_at 也會跟著是新的那個。
+export async function saveHomeBannerSocialAction(formData: FormData): Promise<void> {
+  const view = viewOf(formData);
+  const authorization = await authorizeAdminMutation();
+  if (!authorization) go(view, parseHomeBannerIdForm(formData), 'denied');
+
+  const parsed = parseHomeBannerSocialForm(formData);
+  if (!parsed.ok) go(view, parseHomeBannerIdForm(formData), 'invalid');
+
+  const requestId = await getRequestId();
+  console.info('[admin/home-banners] home_banner.social_update.attempt', {
+    request_id: requestId, sid: authorization.sid, actor: authorization.actorId, banner_id: parsed.id,
+  });
+
+  let code: HomeBannerResultCode;
+  try {
+    await saveHomeBannerSocial({ id: parsed.id, fbText: parsed.fbText, igText: parsed.igText, actor: authorization.actorId, requestId });
+    code = 'socialsaved';
+  } catch (error) {
+    code = classifyError('[admin/home-banners] FB / IG 文字存檔失敗', requestId, error);
+  }
+
+  revalidatePath(HOME_BANNERS_PATH);
+  go(view, parsed.id, code);
 }

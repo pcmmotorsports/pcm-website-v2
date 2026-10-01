@@ -20,6 +20,7 @@ function row(over: Partial<HomeBannerRow>): HomeBannerRow {
     linkPath: '/brands/a', imageDesktopUrl: 'https://x/a.jpg', imageMobileUrl: null, imageKind: 'scene',
     rightsConfirmed: false, rightsNote: null, startsAt: null, endsAt: null, createdBy: 's', updatedBy: 's',
     publishedBy: null, archivedAt: null, sourceEmailId: null, matchedVariantIds: [],
+    sourceProductId: null, fbText: null, igText: null, sourceBrandName: null,
     updatedAt: '2026-09-16T00:00:00.123456+00:00', ...over,
   };
 }
