@@ -135,6 +135,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   display_id: '單號(對客人講的那個)',
   customer_user_id: '客人',
   order_source: '這張單怎麼來的',
+  // 貼板 261(Sean 2026-10-01 蝦皮帳號)。
+  shopee_username: '蝦皮帳號',
+  shopee_order_no: '蝦皮訂單編號',
+  shopee_account_added: '有沒有替客人新增蝦皮帳號',
   payment_channel: '客人怎麼付款',
   shipping_fee: '運費',
   // 🔴 **不是「總件數」** —— 它數的是有幾『樣』不同的東西,一樣買三個仍算一樣。

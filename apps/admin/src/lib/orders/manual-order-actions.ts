@@ -17,6 +17,7 @@ import { saveManualOrderAddress } from '../customers/manual-order-address';
 // 🔴 常數住在隔壁那支檔, 因為 `'use server'` 檔【只能匯出 async 函式】(該檔頭有實測紀錄)。
 import {
   MANUAL_ORDER_ADDRESS_NOT_SAVED,
+  MANUAL_ORDER_SHOPEE_ACCOUNT_ADDED,
   MANUAL_ORDER_PATH,
   MANUAL_ORDER_RESULT_PARAM,
   manualOrderBasePath,
@@ -168,8 +169,14 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
   // 🔴 建好之後**留在原來那個容器**:彈窗裡建的單 ⇒ 就地展開它(`?open=<id>`, P-b 的形狀);
   //    整頁建的 ⇒ 整頁明細。(面板那條 `?panel=<id>` 2026-09-13 連面板一起拆了。)
   const target = container === 'dialog' ? `/orders?open=${outcome.orderId}` : `/orders/${outcome.orderId}`;
+  // 貼板 261:替客人新增了蝦皮帳號 ⇒ 帶一句提示。`?r=` 只放得下一顆碼 ⇒ 地址沒存那句(要員工留意)優先。
+  const notice = !address.ok
+    ? MANUAL_ORDER_ADDRESS_NOT_SAVED
+    : outcome.shopeeAccountAdded
+      ? MANUAL_ORDER_SHOPEE_ACCOUNT_ADDED
+      : null;
   redirect(
-    address.ok ? target : appendResultQuery(target, `${MANUAL_ORDER_RESULT_PARAM}=${MANUAL_ORDER_ADDRESS_NOT_SAVED}`),
+    notice === null ? target : appendResultQuery(target, `${MANUAL_ORDER_RESULT_PARAM}=${notice}`),
     RedirectType.replace,
   );
 }

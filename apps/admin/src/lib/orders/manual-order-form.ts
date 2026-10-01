@@ -123,6 +123,9 @@ export function readInvoiceRequestedFromForm(form: HTMLFormElement): boolean | n
  *       而它的代價是:表單與解析端漂開的那一天, **沒有東西會叫**。⇒ 選 fail-loud。
  */
 export const MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD = 'notification_email';
+/** 貼板 261:蝦皮帳號、蝦皮訂單編號(選填, 只有蝦皮單才送)。 */
+export const MANUAL_ORDER_SHOPEE_USERNAME_FIELD = 'shopee_username';
+export const MANUAL_ORDER_SHOPEE_ORDER_NO_FIELD = 'shopee_order_no';
 export const MANUAL_ORDER_INVOICE_TYPE_FIELD = 'invoice_type';
 export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
@@ -545,6 +548,10 @@ export type ManualOrderValues = {
    * 🛑 空字串會被 `orders_notification_email_valid` 的 `~ '^[!-~]+$'` 擋掉 ⇒ 整張單建不出來。
    */
   notificationEmail: string | null;
+  /** 貼板 261:蝦皮帳號(只有蝦皮單才可能有值;null = 沒填)。 */
+  shopeeUsername: string | null;
+  /** 貼板 261:蝦皮訂單編號(只有蝦皮單才可能有值;null = 沒填)。 */
+  shopeeOrderNo: string | null;
   shippingFee: number;
   lines: ManualOrderLineInput[];
 };
@@ -1101,6 +1108,30 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       error: '蝦皮訂單不寄通知信。請把「通知 email」清空後再送出。',
     };
   }
+  // 貼板 261(Sean 2026-10-01 蝦皮帳號 Q2、Q4 甲):蝦皮帳號、蝦皮訂單編號, 都選填。
+  //   缺欄 = 沒填(畫面還沒接上這兩格時照常建單)。只有蝦皮單才送;換成別的來源 ⇒ 不送(格子是蝦皮才出現的)。
+  //   格式與 DB 約束 orders_shopee_username_shape / orders_shopee_order_no_shape 同一條;這裡先擋是為了給員工看得懂的話。
+  let shopeeUsername: string | null = null;
+  let shopeeOrderNo: string | null = null;
+  if (orderSource === 'manual_shopee') {
+    const usernameRead = readOptional(form, MANUAL_ORDER_SHOPEE_USERNAME_FIELD);
+    const orderNoRead = readOptional(form, MANUAL_ORDER_SHOPEE_ORDER_NO_FIELD);
+    if (usernameRead === 'invalid' || orderNoRead === 'invalid') {
+      return { ok: false, error: '蝦皮帳號或蝦皮訂單編號送出的資料壞掉了，請重新整理再試。' };
+    }
+    shopeeUsername = usernameRead === null || isBlank(usernameRead) ? null : usernameRead.trim();
+    shopeeOrderNo = orderNoRead === null || isBlank(orderNoRead) ? null : orderNoRead.trim();
+    if (shopeeUsername !== null && !/^\S{1,64}$/u.test(shopeeUsername)) {
+      return { ok: false, error: '蝦皮帳號中間不能有空白，最多 64 個字。請檢查後再送出。', focusField: MANUAL_ORDER_SHOPEE_USERNAME_FIELD };
+    }
+    if (shopeeOrderNo !== null && !/^[A-Za-z0-9_-]{1,40}$/.test(shopeeOrderNo)) {
+      return {
+        ok: false,
+        error: '蝦皮訂單編號只能有英文字母、數字、底線或連字號，最多 40 個字。請檢查後再送出。',
+        focusField: MANUAL_ORDER_SHOPEE_ORDER_NO_FIELD,
+      };
+    }
+  }
   const optionalInvoice = [
     [MANUAL_ORDER_INVOICE_CARRIER_FIELD, 'carrier', '載具'],
     [MANUAL_ORDER_INVOICE_TITLE_FIELD, 'title', '抬頭'],
@@ -1172,6 +1203,8 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       invoice,
       invoiceRequested,
       notificationEmail,
+      shopeeUsername,
+      shopeeOrderNo,
       shippingFee,
       lines,
     },

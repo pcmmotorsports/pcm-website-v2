@@ -732,6 +732,13 @@ const ALLOWLIST = [
   // ✅ **它改了什麼**:只有來源白名單多 'manual_shopee' 一個值;單價、小計累加、INSERT 的欄位清單一行沒動。
   // 🔬 由拋棄式 PG 行為測試背書(可重跑 supabase/tests/database/manual_shopee_behavior.sql)。
   '20261001150000_m4b_order_source_manual_shopee.sql',
+  // ── 2026-10-01 網站B agent/B-shopee-account(貼板 261 蝦皮帳號)──
+  // 🔴 **命中原因**:它 DROP 13 參、CREATE 15 參 `admin_create_manual_order`(貼板 260 之後本體逐字重發, prosrc md5 6bc6cc31…),
+  //    本體有 INSERT orders / order_items。
+  // ✅ **它改了什麼**:多兩個選填參數, orders INSERT 多兩欄 shopee_username / shopee_order_no(不是金額欄);
+  //    單價、小計累加、order_items 那段一行沒動。
+  // 🔬 由拋棄式 PG 行為測試背書(可重跑 supabase/tests/database/shopee_account_behavior.sql)。
+  '20261001160000_m4b_shopee_account.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {

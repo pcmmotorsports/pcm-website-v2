@@ -70,7 +70,11 @@ import {
   ORDER_AMOUNT_REJECTED_RESULT_CODE,
 } from '../../lib/orders/amount-action-state';
 
-import { MANUAL_ORDER_ADDRESS_NOT_SAVED, manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
+import {
+  MANUAL_ORDER_ADDRESS_NOT_SAVED,
+  MANUAL_ORDER_SHOPEE_ACCOUNT_ADDED,
+  manualOrderResultCode,
+} from '@/lib/orders/manual-order-action-state';
 import {
   MANUAL_CANCEL_NOTICE_MESSAGES,
   MANUAL_CANCEL_REVOKE_MESSAGES,
@@ -116,6 +120,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '訂單已建立，但無法確認收件地址是否已存進客人資料。下次幫這位客人建單時，請確認地址有沒有自動帶入。',
     tone: 'warn',
   },
+  // 貼板 261(Sean 2026-10-01 Q3 甲):帳號不進網址, 是哪個帳號看這張單的明細。
+  [MANUAL_ORDER_SHOPEE_ACCOUNT_ADDED]: {
+    text: '訂單已建立，並已替客人新增這個蝦皮帳號。',
+    tone: 'ok',
+  },
   [manualOrderResultCode('denied')]: {
     text: '登入已過期，請重新登入後建立訂單。',
     tone: 'error',
@@ -152,6 +161,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   [manualOrderResultCode('rejected')]: {
     text: '訂單尚未建立。請重新整理表單，確認客戶與經手人資料有效後再試。',
     tone: 'error',
+  },
+  // 貼板 261:蝦皮帳號已記在另一位客人身上 ⇒ 單沒建。多半是客人選錯;真的換人用才去原客人那裡刪。
+  [manualOrderResultCode('shopee_taken')]: {
+    text: '訂單尚未建立。這個蝦皮帳號已經記在另一位客人身上，請先確認選的客人是否正確；若帳號確實改由這位客人使用，請先到原客人的資料刪除這個帳號，再重新送出。',
+    tone: 'warn',
   },
   [manualOrderResultCode('error')]: {
     text: '尚未確認訂單是否建立成功。請先到訂單列表查詢該客戶的新訂單；若已存在，請勿再次送出。確認不存在後，可在目前表單再次送出，系統會沿用同一編號以避免重複建單。',
