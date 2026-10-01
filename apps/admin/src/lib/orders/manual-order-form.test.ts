@@ -156,6 +156,8 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       // 基準表單沒有車種欄 ⇒ null(沒填, 合法)。
       vehicle: null,
       paymentChannel: 'bank_transfer',
+      paymentInstrument: null,
+      shopeePayout: null,
       shippingMethod: 'home',
       shipTo: { name: '王小明', phone: '0912345678', line: '台北市中正區某路 1 號' },
       invoice: { type: 'personal' },
@@ -1262,5 +1264,45 @@ describe('parseManualOrderForm:蝦皮帳號 / 蝦皮訂單編號(貼板 261, 202
     const r = parseManualOrderForm(withShopee('manual_shopee', username, orderNo));
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.error).toContain(word);
+  });
+});
+
+describe('parseManualOrderForm:付款方式刷卡 / 蝦皮進帳(貼板 262, 報價單Q1 2026-10-01)', () => {
+  const pick = (source: string, method: string, payout: string | null = null) =>
+    base(
+      [
+        [FIELDS.source, source],
+        [FIELDS.channel, method],
+        ...(payout === null ? [] : ([['shopee_payout', payout]] as Array<[string, string]>)),
+      ],
+      [FIELDS.source, FIELDS.channel],
+    );
+
+  it('刷卡 ⇒ 現金軌 + card_terminal', () => {
+    expect(ok(parseManualOrderForm(pick('manual_phone', 'card_terminal')))).toMatchObject({
+      paymentChannel: 'cash', paymentInstrument: 'card_terminal', shopeePayout: null,
+    });
+  });
+
+  it('蝦皮來源 ⇒ 一律現金軌 + shopee(舊表單送 bank_transfer 也一樣)', () => {
+    expect(ok(parseManualOrderForm(pick('manual_shopee', 'shopee')))).toMatchObject({ paymentChannel: 'cash', paymentInstrument: 'shopee' });
+    expect(ok(parseManualOrderForm(pick('manual_shopee', 'bank_transfer')))).toMatchObject({ paymentChannel: 'cash', paymentInstrument: 'shopee' });
+  });
+
+  it('非蝦皮來源選蝦皮 ⇒ 拒', () => {
+    const r = parseManualOrderForm(pick('manual_phone', 'shopee'));
+    expect(r.ok === false && r.error).toContain('只有來源是蝦皮');
+  });
+
+  it('蝦皮進帳:填整數 ⇒ 收;留白 ⇒ null;非蝦皮單送了 ⇒ 忽略', () => {
+    expect(ok(parseManualOrderForm(pick('manual_shopee', 'shopee', '7016'))).shopeePayout).toBe(7016);
+    expect(ok(parseManualOrderForm(pick('manual_shopee', 'shopee', '  '))).shopeePayout).toBeNull();
+    expect(ok(parseManualOrderForm(pick('manual_phone', 'cash', '7016'))).shopeePayout).toBeNull();
+  });
+
+  it.each(['0', '-5', '70.5', '七千'])('蝦皮進帳 %s ⇒ 拒, 游標跳到那一格', (raw) => {
+    const r = parseManualOrderForm(pick('manual_shopee', 'shopee', raw));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.focusField).toBe('shopee_payout');
   });
 });

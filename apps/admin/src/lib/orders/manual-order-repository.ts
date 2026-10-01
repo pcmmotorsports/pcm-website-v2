@@ -333,6 +333,10 @@ export async function createManualOrder(
       //   萬一碼比板先上線, 只有「帶蝦皮帳號的蝦皮單」會建不出來, 其他單照常。
       ...(values.shopeeUsername !== null ? { p_shopee_username: values.shopeeUsername } : {}),
       ...(values.shopeeOrderNo !== null ? { p_shopee_order_no: values.shopeeOrderNo } : {}),
+      // 貼板 262:第 16、17 參, 同上只在需要時送。蝦皮標記不送(DB 依來源自己帶), 只送刷卡;
+      //   ⇒ 碼比板先上線時, 只有「刷卡單」與「填了進帳的蝦皮單」建不出來。
+      ...(values.paymentInstrument === 'card_terminal' ? { p_payment_instrument: 'card_terminal' } : {}),
+      ...(values.shopeePayout !== null ? { p_shopee_payout: values.shopeePayout } : {}),
       p_lines: resolved.lines,
     }));
   } catch (thrown) {

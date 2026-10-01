@@ -126,6 +126,8 @@ export const MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD = 'notification_email';
 /** 貼板 261:蝦皮帳號、蝦皮訂單編號(選填, 只有蝦皮單才送)。 */
 export const MANUAL_ORDER_SHOPEE_USERNAME_FIELD = 'shopee_username';
 export const MANUAL_ORDER_SHOPEE_ORDER_NO_FIELD = 'shopee_order_no';
+/** 貼板 262(報價單Q1 2026-10-01):蝦皮進帳金額(選填, 只有蝦皮單才出現;抄蝦皮頁面上的「預估訂單進帳」)。 */
+export const MANUAL_ORDER_SHOPEE_PAYOUT_FIELD = 'shopee_payout';
 export const MANUAL_ORDER_INVOICE_TYPE_FIELD = 'invoice_type';
 export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
@@ -442,6 +444,12 @@ export type ManualOrderTier = (typeof MANUAL_ORDER_TIERS)[number];
  */
 export const MANUAL_PAYMENT_CHANNELS = ['bank_transfer', 'cash'] as const;
 export type ManualPaymentChannel = (typeof MANUAL_PAYMENT_CHANNELS)[number];
+/**
+ * 畫面上「付款方式」那一格送的值(貼板 262, 報價單Q1 2026-10-01):兩條軌 + 刷卡 + 蝦皮。
+ * 刷卡 = 現金軌 + card_terminal;蝦皮 = 現金軌 + shopee(只限蝦皮來源, 蝦皮來源也只能是它)。
+ */
+export const MANUAL_PAYMENT_METHODS = ['bank_transfer', 'cash', 'card_terminal', 'shopee'] as const;
+export type ManualPaymentInstrument = 'card_terminal' | 'shopee';
 
 /** `20260824020000:279`。 */
 export const MANUAL_SHIPPING_METHODS = ['home', 'store'] as const;
@@ -535,6 +543,10 @@ export type ManualOrderValues = {
   /** 🆕 #956 乙:這張單一台車;null = 沒填(RPC 第 13 參 DEFAULT NULL)。字典帶入 = dict、照打 = free;source 由 RPC 寫。 */
   vehicle: ManualOrderVehicleInput | null;
   paymentChannel: ManualPaymentChannel;
+  /** 貼板 262:刷卡 / 蝦皮標記;null = 一般匯款或現金。 */
+  paymentInstrument: ManualPaymentInstrument | null;
+  /** 貼板 262:蝦皮進帳金額(只有蝦皮單;null = 沒填, 之後到收款明細登記)。 */
+  shopeePayout: number | null;
   shippingMethod: ManualShippingMethod;
   shipTo: ManualOrderShipTo;
   invoice: ManualOrderInvoice;
@@ -922,12 +934,27 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     readSingleString(form, MANUAL_ORDER_VEHICLE_PICK_FIELD),
   );
 
-  const paymentChannel = readSingleString(form, MANUAL_ORDER_PAYMENT_CHANNEL_FIELD);
+  const paymentMethod = readSingleString(form, MANUAL_ORDER_PAYMENT_CHANNEL_FIELD);
   if (
-    paymentChannel === null ||
-    !(MANUAL_PAYMENT_CHANNELS as readonly string[]).includes(paymentChannel)
+    paymentMethod === null ||
+    !(MANUAL_PAYMENT_METHODS as readonly string[]).includes(paymentMethod)
   ) {
-    return { ok: false, error: '沒有選收款方式。手動建的單只能選匯款或現金,線上刷卡的單不能用這裡建。' };
+    return { ok: false, error: '沒有選付款方式。手動建的單只能選匯款、現金、刷卡或蝦皮，線上刷卡的單不能用這裡建。' };
+  }
+  // 貼板 262:蝦皮來源一律是蝦皮付款(畫面也只給這個選項;DB 也會收斂成 cash + shopee)。
+  let paymentChannel: ManualPaymentChannel;
+  let paymentInstrument: ManualPaymentInstrument | null;
+  if (orderSource === 'manual_shopee') {
+    paymentChannel = 'cash';
+    paymentInstrument = 'shopee';
+  } else if (paymentMethod === 'shopee') {
+    return { ok: false, error: '只有來源是蝦皮的單可以選蝦皮付款。請改選付款方式，或把來源改成蝦皮。' };
+  } else if (paymentMethod === 'card_terminal') {
+    paymentChannel = 'cash';
+    paymentInstrument = 'card_terminal';
+  } else {
+    paymentChannel = paymentMethod as ManualPaymentChannel;
+    paymentInstrument = null;
   }
 
   const shippingMethod = readSingleString(form, MANUAL_ORDER_SHIPPING_METHOD_FIELD);
@@ -1113,7 +1140,25 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
   //   格式與 DB 約束 orders_shopee_username_shape / orders_shopee_order_no_shape 同一條;這裡先擋是為了給員工看得懂的話。
   let shopeeUsername: string | null = null;
   let shopeeOrderNo: string | null = null;
+  let shopeePayout: number | null = null;
   if (orderSource === 'manual_shopee') {
+    // 貼板 262:蝦皮進帳金額, 選填(缺欄或留白 = 還不知道, 之後到收款明細登記)。
+    //   不可超過訂單總額由 DB 擋(這裡還不知道總額)。
+    const payoutRead = readOptional(form, MANUAL_ORDER_SHOPEE_PAYOUT_FIELD);
+    if (payoutRead === 'invalid') {
+      return { ok: false, error: '蝦皮進帳金額送出的資料壞掉了，請重新整理再試。' };
+    }
+    if (payoutRead !== null && !isBlank(payoutRead)) {
+      const trimmed = payoutRead.trim();
+      if (!/^[1-9][0-9]{0,8}$/.test(trimmed)) {
+        return {
+          ok: false,
+          error: '蝦皮進帳金額請填大於 0 的整數（新臺幣元），或留白之後再登記。',
+          focusField: MANUAL_ORDER_SHOPEE_PAYOUT_FIELD,
+        };
+      }
+      shopeePayout = Number(trimmed);
+    }
     const usernameRead = readOptional(form, MANUAL_ORDER_SHOPEE_USERNAME_FIELD);
     const orderNoRead = readOptional(form, MANUAL_ORDER_SHOPEE_ORDER_NO_FIELD);
     if (usernameRead === 'invalid' || orderNoRead === 'invalid') {
@@ -1197,7 +1242,9 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       orderSource: orderSource as ManualOrderSource,
       tier: tier as ManualOrderTier,
       vehicle,
-      paymentChannel: paymentChannel as ManualPaymentChannel,
+      paymentChannel,
+      paymentInstrument,
+      shopeePayout,
       shippingMethod: shippingMethod as ManualShippingMethod,
       shipTo: { name, phone, line },
       invoice,

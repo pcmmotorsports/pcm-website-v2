@@ -1,11 +1,11 @@
 import {
   MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
   MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
-  MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_SHIPPING_FEE_FIELD,
   MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD,
   MANUAL_ORDER_SHIPPING_METHOD_FIELD,
 } from '@/lib/orders/manual-order-form';
+import { ManualOrderPaymentMethod, ManualOrderShopeePayout } from './manual-order-payment-method';
 import { ManualOrderTierSelect } from './manual-order-tier-select';
 import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL, MANUAL_SECTION, MANUAL_SECTION_LEGEND } from './manual-order-field-classes';
 
@@ -13,7 +13,8 @@ import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL, MANUAL_SECTION, MANUAL_SECTION_
 //   Sean 建單簡化 Q1 甲, 計畫 ~/pcm-mailbox/計畫-建單畫面簡化-20261001.md S3)。
 //   第一排:會員等級 / 付款方式 / 取貨方式;第二排:運費 / 運費稅別。
 // 🔴 只搬位置:每一格的 name 與 defaultValue 與搬家前逐字相同(付款方式 = 匯款、取貨方式 = 宅配、運費 '0'、運費稅別 = 未稅)。
-// 🔵 報價單Q1 之後要在這一組加「刷卡」與蝦皮進帳金額 / 日期(~/pcm-mailbox/計畫-刷卡付款與營業額-20261001.md 第 6 節), 改這一支就好。
+// 🔵 報價單Q1(貼板 262):付款方式加「刷卡」;來源蝦皮 ⇒ 付款方式只剩「蝦皮」並出現蝦皮進帳金額(manual-order-payment-method.tsx)。
+//    進帳日期不放(主視窗轉 Sean:撥款日不知道, 進帳時間記建單當下)。
 //    本檔目前沒有 state, 不需要 'use client';會員等級那格自己是 client 元件。
 
 const GRID_3 = 'my-[6px] grid grid-cols-3 gap-x-2 gap-y-[6px]';
@@ -26,13 +27,7 @@ export function ManualOrderPaymentFields() {
       <div className={GRID_3}>
         {/* 🆕 T2(2026-09-14):會員等級, 預設客人現在的、沒選客人 disabled(island 讀客人 radio 的 data-customer-tier)。 */}
         <ManualOrderTierSelect />
-        <label className={MANUAL_FIELD_LABEL}>
-          付款方式
-          <select autoComplete='off' name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD} className={MANUAL_FIELD_INPUT}>
-            <option value='bank_transfer'>匯款</option>
-            <option value='cash'>現金</option>
-          </select>
-        </label>
+        <ManualOrderPaymentMethod />
         <label className={MANUAL_FIELD_LABEL}>
           取貨方式
           <select autoComplete='off' name={MANUAL_ORDER_SHIPPING_METHOD_FIELD} className={MANUAL_FIELD_INPUT}>
@@ -41,6 +36,7 @@ export function ManualOrderPaymentFields() {
           </select>
         </label>
       </div>
+      <ManualOrderShopeePayout />
       <div className={GRID_2}>
         <label className={MANUAL_FIELD_LABEL}>
           運費
