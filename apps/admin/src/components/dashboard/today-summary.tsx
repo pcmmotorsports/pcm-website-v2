@@ -200,6 +200,8 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
       )}
       <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
         {/* 🔴 「實收」不是「營業額」:它是今天實際收到的錢,含沖銷。
+            報價單Q1 2026-10-01(Sean Q3 甲):扣掉手續費(刷卡 / TapPay 2.5%、蝦皮扣款),= 實際進帳;
+            算式在 DB 的 admin_today_payment_total(20261001170000)。
             🪦 原本這句後半寫「退錢給客人不走這格、**走下一格**」—— **那一格 2026-08-15 拆掉了**,
                留著會指向一個不存在的地方。退款金額目前**全站沒有任何一格在顯示**。 */}
         <Stat
@@ -209,7 +211,7 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
               ? null
               : `NT$ ${formatOrderAmount(summary.receivedAmount)}`
           }
-          hint='含沖銷;以實際收到錢的日期計'
+          hint='含沖銷,已扣刷卡手續費與蝦皮扣款;以實際收到錢的日期計'
         />
         {/* 🪦 這裡原本是「今日退款(已完成)」那一格,2026-08-15 拆掉。
             🔴 **不是漏做,是刻意拿掉的** —— 它疊了兩層沒查證過的假設,而 Sean 拍板這格

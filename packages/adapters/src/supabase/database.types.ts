@@ -19,6 +19,12 @@
 //    🔴 **生成器只把【真 enum】變 union, CHECK 不會** ⇒ 產物就是 `string`, 這裡不自作主張收窄)。
 //    Row 必填 / Insert · Update 選填(有 DEFAULT)。位置照生成器的字母序, 排在 `payment_status` 之後。
 //    🔵 同上:**不進下面那個計數**(重 gen 自己會產出來)。
+// 🟢 **2026-10-01 報價單Q1:同一條慣例 —— 收款手續費與付款標記(20261001170000,尚未貼正式庫)。**
+//    orders / order_manual_refunds 的 payment_instrument、order_payments 的 payment_instrument / fee_rate / fee_amount
+//    × Row/Insert/Update;新表 payment_fee_rates;admin_record_manual_payment 的 p_payment_instrument / p_shopee_payout、
+//    admin_record_manual_refund 的 p_payment_instrument;新函式 admin_revenue_between、pcm_payment_fee_rate。
+//    照 migration 手打、形狀照生成器規則(numeric ⇒ number、identity ⇒ Insert/Update never)、字母序。
+//    🔵 同上:**不進下面那個計數**(貼上之後重 gen 應逐字相同)。
 // 🟢 **2026-09-26 報價單窗 86:同一條慣例 —— 20260926100000(後台刪除 / 停用會員, 尚未貼正式庫)。**
 //    customers 四欄 × Row/Insert/Update、`admin_customer_list_v.disabled_at`、`admin_search_customers` 的 `p_status`、
 //    四支新函式。🔴 **這次是照 migration 手打的, 不是從生成器切下來的**(貼正式庫之前生成器還產不出來);
@@ -3076,6 +3082,7 @@ export type Database = {
           occurred_at: string
           order_id: string
           over_cap_by: number | null
+          payment_instrument: string | null
           rail: string
           reason: string
           refund_amount: number
@@ -3092,6 +3099,7 @@ export type Database = {
           occurred_at: string
           order_id: string
           over_cap_by?: number | null
+          payment_instrument?: string | null
           rail: string
           reason: string
           refund_amount: number
@@ -3108,6 +3116,7 @@ export type Database = {
           occurred_at?: string
           order_id?: string
           over_cap_by?: number | null
+          payment_instrument?: string | null
           rail?: string
           reason?: string
           refund_amount?: number
@@ -3458,10 +3467,13 @@ export type Database = {
           amount: number
           bank_reference: string | null
           created_at: string
+          fee_amount: number | null
+          fee_rate: number | null
           id: string
           note: string | null
           order_id: string
           payer_note: string | null
+          payment_instrument: string | null
           rail: string
           rec_trade_id: string | null
           received_at: string
@@ -3476,10 +3488,13 @@ export type Database = {
           amount: number
           bank_reference?: string | null
           created_at?: string
+          fee_amount?: number | null
+          fee_rate?: number | null
           id?: string
           note?: string | null
           order_id: string
           payer_note?: string | null
+          payment_instrument?: string | null
           rail: string
           rec_trade_id?: string | null
           received_at: string
@@ -3494,10 +3509,13 @@ export type Database = {
           amount?: number
           bank_reference?: string | null
           created_at?: string
+          fee_amount?: number | null
+          fee_rate?: number | null
           id?: string
           note?: string | null
           order_id?: string
           payer_note?: string | null
+          payment_instrument?: string | null
           rail?: string
           rec_trade_id?: string | null
           received_at?: string
@@ -4584,6 +4602,7 @@ export type Database = {
           order_source: string
           paid_at: string | null
           payment_channel: string
+          payment_instrument: string | null
           payment_method: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
           price_tax_mode: string
@@ -4632,6 +4651,7 @@ export type Database = {
           order_source?: string
           paid_at?: string | null
           payment_channel?: string
+          payment_instrument?: string | null
           payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           price_tax_mode?: string
@@ -4680,6 +4700,7 @@ export type Database = {
           order_source?: string
           paid_at?: string | null
           payment_channel?: string
+          payment_instrument?: string | null
           payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           price_tax_mode?: string
@@ -5416,6 +5437,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payment_fee_rates: {
+        Row: {
+          created_at: string
+          effective_from: string
+          fee_kind: string
+          id: number
+          note: string
+          rate: number
+        }
+        Insert: {
+          created_at?: string
+          effective_from: string
+          fee_kind: string
+          id?: never
+          note: string
+          rate: number
+        }
+        Update: {
+          created_at?: string
+          effective_from?: string
+          fee_kind?: string
+          id?: never
+          note?: string
+          rate?: number
+        }
+        Relationships: []
       }
       payment_refund_events: {
         Row: {
@@ -8989,9 +9037,11 @@ export type Database = {
           p_bank_reference?: string
           p_order_id: string
           p_payer_note?: string
+          p_payment_instrument?: string
           p_rail: string
           p_received_at: string
           p_request_id: string
+          p_shopee_payout?: number
         }
         Returns: Json
       }
@@ -9011,6 +9061,7 @@ export type Database = {
           p_confirm_card_not_refunded?: boolean
           p_occurred_at: string
           p_order_id: string
+          p_payment_instrument?: string
           p_rail: string
           p_reason: string
           p_refund_amount: number
@@ -9068,6 +9119,16 @@ export type Database = {
           p_request_id: string
         }
         Returns: Json
+      }
+      admin_revenue_between: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          fees: number
+          missing_fee_count: number
+          received: number
+          refunds: number
+          revenue: number
+        }[]
       }
       admin_reverse_manual_payment: {
         Args: { p_actor: string; p_payment_id: string; p_reason: string }
@@ -9812,6 +9873,10 @@ export type Database = {
       pcm_partially_cancelled_email_dedup_key: {
         Args: { p_cancellation_id: string; p_order_id: string }
         Returns: string
+      }
+      pcm_payment_fee_rate: {
+        Args: { p_at: string; p_fee_kind: string }
+        Returns: number
       }
       pcm_pending_refund_amounts: {
         Args: { p_order_id: string }

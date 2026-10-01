@@ -46,7 +46,7 @@ export function InvoiceMonth({ stats }: { stats: InvoiceMonthStats | null }) {
         <>
           <div className='grid gap-2 sm:grid-cols-3'>
             <Amount label='本月開了多少發票' value={stats.invoicedAmount} />
-            <Amount label='本月營業額(不含運費、不含稅)' value={stats.revenueAmount} />
+            <Amount label='本月營業額(實收 − 手續費 − 退款)' value={stats.revenueAmount} />
             <Amount label='差額(營業額 − 開票金額)' value={diff} failText={stats.truncated ? '不完整,不算' : undefined} />
           </div>
           {stats.truncated && (
@@ -54,7 +54,15 @@ export function InvoiceMonth({ stats }: { stats: InvoiceMonthStats | null }) {
               本月訂單超過查詢上限，以上金額僅計入部分訂單，實際金額可能更高。
             </p>
           )}
-          <p className={`${SUB} mt-2`}>發票作廢重開會讓過去月份的數字跟著變。</p>
+          <p className={`${SUB} mt-2`}>
+            營業額按收款日計算,含運費與稅;刷卡與網站刷卡扣 2.5% 手續費,蝦皮扣蝦皮扣款,退款不退手續費。
+          </p>
+          {stats.revenueMissingFeeCount !== null && stats.revenueMissingFeeCount > 0 && (
+            <p className='text-destructive mt-1 text-[12px] leading-[1.4]'>
+              本月有 {stats.revenueMissingFeeCount} 筆刷卡收款找不到手續費率,這幾筆先不扣手續費,營業額會比實際高。請聯絡系統管理員補上費率。
+            </p>
+          )}
+          <p className={SUB}>發票作廢重開會讓過去月份的數字跟著變。</p>
           <p className={SUB}>
             {stats.issuedWithoutDateCount === null
               ? '「已開立而沒填開立日期」的張數讀取失敗。'

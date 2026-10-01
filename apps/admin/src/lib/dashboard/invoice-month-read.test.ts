@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const mocks = vi.hoisted(() => ({ from: vi.fn() }));
+const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
 vi.mock('@pcm/adapters/server', () => ({
-  createSupabaseServiceClient: () => ({ from: mocks.from }),
+  createSupabaseServiceClient: () => ({ from: mocks.from, rpc: mocks.rpc }),
 }));
 
 import { INVOICE_MONTH_ROW_LIMIT, loadInvoiceMonthStats, taipeiMonthRange } from './invoice-month-read';
@@ -29,10 +29,19 @@ function makeChain(result: { data?: unknown; count?: unknown; error?: unknown; r
   return { chain, calls };
 }
 
-/** 三支查詢照呼叫順序回:① 開票列 ② 營業額列 ③ 沒填日期 count。 */
-function arm(issued: ReturnType<typeof makeChain>, revenue: ReturnType<typeof makeChain>, missing: ReturnType<typeof makeChain>) {
-  mocks.from.mockReturnValueOnce(issued.chain).mockReturnValueOnce(revenue.chain).mockReturnValueOnce(missing.chain);
+type RpcResult = { data?: unknown; error?: unknown; reject?: unknown };
+/** 兩支撈列照呼叫順序回:① 開票列 ② 沒填日期 count;營業額走 RPC admin_revenue_between。 */
+function arm(issued: ReturnType<typeof makeChain>, revenue: RpcResult, missing: ReturnType<typeof makeChain>) {
+  mocks.from.mockReturnValueOnce(issued.chain).mockReturnValueOnce(missing.chain);
+  mocks.rpc.mockReturnValueOnce(
+    revenue.reject !== undefined
+      ? Promise.reject(revenue.reject)
+      : Promise.resolve({ data: revenue.data ?? null, error: revenue.error ?? null }),
+  );
 }
+const revRow = (revenue: unknown, missing_fee_count: unknown = 0) => ({
+  data: [{ received: 0, fees: 0, refunds: 0, revenue, missing_fee_count }],
+});
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -51,35 +60,31 @@ describe('taipeiMonthRange', () => {
 });
 
 describe('loadInvoiceMonthStats', () => {
-  it('🔴 三支查詢各釘死述詞:開票按【開立日】分月只算 issued;營業額按建單台北月、排除已取消 / 已退款、Σ(subtotal − discount_total);沒填日期 = issued × 日期 NULL', async () => {
+  it('🔴 開票按【開立日】分月只算 issued;營業額走 admin_revenue_between(本月台北月界、按收款日;Sean 2026-10-01);沒填日期 = issued × 日期 NULL', async () => {
     const issued = makeChain({ data: [{ invoice_amount: 300 }, { invoice_amount: null }, { invoice_amount: 700 }] });
-    const revenue = makeChain({ data: [{ subtotal: 5000, discount_total: 500 }, { subtotal: 1000, discount_total: 0 }] });
     const missing = makeChain({ count: 0 });
-    arm(issued, revenue, missing);
+    // 3100 刷卡 ⇒ 3023(手續費 77);bigint 經 PostgREST 可能是字串
+    arm(issued, { data: [{ received: '3100', fees: '77', refunds: '0', revenue: '3023', missing_fee_count: '0' }] }, missing);
 
     const out = await loadInvoiceMonthStats(NOW);
     expect(out).toEqual({
       month: '2026-09',
       invoicedAmount: 1000,
-      revenueAmount: 5500,
+      revenueAmount: 3023,
+      revenueMissingFeeCount: 0,
       issuedWithoutDateCount: 0,
       truncated: false,
     });
-    expect(mocks.from.mock.calls.map((c) => c[0])).toEqual(['orders', 'orders', 'orders']);
+    expect(mocks.from.mock.calls.map((c) => c[0])).toEqual(['orders', 'orders']);
+    expect(mocks.rpc.mock.calls).toEqual([
+      ['admin_revenue_between', { p_from: '2026-09-01T00:00:00+08:00', p_to: '2026-10-01T00:00:00+08:00' }],
+    ]);
 
     expect(issued.calls).toEqual([
       { fn: 'select', args: ['invoice_amount'] },
       { fn: 'eq', args: ['invoice_status', 'issued'] },
       { fn: 'gte', args: ['invoice_issued_at', '2026-09-01'] },
       { fn: 'lt', args: ['invoice_issued_at', '2026-10-01'] },
-      { fn: 'limit', args: [INVOICE_MONTH_ROW_LIMIT + 1] },
-    ]);
-    expect(revenue.calls).toEqual([
-      { fn: 'select', args: ['subtotal, discount_total'] },
-      { fn: 'gte', args: ['created_at', '2026-09-01T00:00:00+08:00'] },
-      { fn: 'lt', args: ['created_at', '2026-10-01T00:00:00+08:00'] },
-      { fn: 'is', args: ['cancelled_at', null] },
-      { fn: 'neq', args: ['payment_status', 'refunded'] },
       { fn: 'limit', args: [INVOICE_MONTH_ROW_LIMIT + 1] },
     ]);
     expect(missing.calls).toEqual([
@@ -95,7 +100,7 @@ describe('loadInvoiceMonthStats', () => {
 
   it('撞上限 ⇒ truncated = true(金額仍回,畫面標下限)', async () => {
     const rows = Array.from({ length: INVOICE_MONTH_ROW_LIMIT + 1 }, () => ({ invoice_amount: 1 }));
-    arm(makeChain({ data: rows }), makeChain({ data: [] }), makeChain({ count: 0 }));
+    arm(makeChain({ data: rows }), revRow(0), makeChain({ count: 0 }));
     const out = await loadInvoiceMonthStats(NOW);
     expect(out.truncated).toBe(true);
     expect(out.invoicedAmount).toBe(INVOICE_MONTH_ROW_LIMIT + 1);
@@ -103,7 +108,7 @@ describe('loadInvoiceMonthStats', () => {
 
   it('🔴 一支失敗 ⇒ 那格 null 不是 0,另外兩格照算;transport reject 同樣被接住', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    arm(makeChain({ error: { message: 'x' } }), makeChain({ data: [{ subtotal: 10, discount_total: 1 }] }), makeChain({ reject: new Error('net') }));
+    arm(makeChain({ error: { message: 'x' } }), revRow(9), makeChain({ reject: new Error('net') }));
     const out = await loadInvoiceMonthStats(NOW);
     expect(out.invoicedAmount).toBeNull();
     expect(out.revenueAmount).toBe(9);
@@ -114,11 +119,29 @@ describe('loadInvoiceMonthStats', () => {
 
   it('🔴 零列 ⇒ 0(月初常態),不是 null;count 不是安全整數 ⇒ null', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    arm(makeChain({ data: [] }), makeChain({ data: [] }), makeChain({ count: '3' }));
+    arm(makeChain({ data: [] }), revRow(0), makeChain({ count: '3' }));
     const out = await loadInvoiceMonthStats(NOW);
     expect(out.invoicedAmount).toBe(0);
     expect(out.revenueAmount).toBe(0);
     expect(out.issuedWithoutDateCount).toBeNull();
     spy.mockRestore();
+  });
+
+  it('🔴 營業額 RPC 失敗 / 被拒 ⇒ 營業額與沒有費率筆數都是 null(不是 0),開票照算', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    arm(makeChain({ data: [{ invoice_amount: 5 }] }), { error: { message: 'boom' } }, makeChain({ count: 0 }));
+    const a = await loadInvoiceMonthStats(NOW);
+    expect([a.invoicedAmount, a.revenueAmount, a.revenueMissingFeeCount]).toEqual([5, null, null]);
+    arm(makeChain({ data: [] }), { reject: new Error('net') }, makeChain({ count: 0 }));
+    const b = await loadInvoiceMonthStats(NOW);
+    expect([b.revenueAmount, b.revenueMissingFeeCount]).toEqual([null, null]);
+    spy.mockRestore();
+  });
+
+  it('沒有費率的筆數照回(畫面要標示營業額偏高)', async () => {
+    arm(makeChain({ data: [] }), revRow(2900, 1), makeChain({ count: 0 }));
+    const out = await loadInvoiceMonthStats(NOW);
+    expect(out.revenueAmount).toBe(2900);
+    expect(out.revenueMissingFeeCount).toBe(1);
   });
 });
