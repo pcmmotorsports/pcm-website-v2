@@ -219,6 +219,7 @@ export const CRON_JOB_NAME = {
   expireUnpaidOrders: 'pcm-expire-unpaid-orders',
   /** 每週一 Bing 週報(2026-09-29,計畫 ~/pcm-mailbox/計畫-Bing週報LINE-20260929.md)。不接 healthchecks, 見 pingTarget。 */
   bingWeekly: 'pcm-bing-weekly',
+  newProductDrafts: 'pcm-new-product-drafts',
 } as const;
 
 export type CronJobName = (typeof CRON_JOB_NAME)[keyof typeof CRON_JOB_NAME];
@@ -300,6 +301,10 @@ export function pingTarget(jobName: CronJobName): {
     case 'pcm-bing-weekly':
       // 走 route, 但不接 healthchecks:每週一 Sean 固定收到一則 LINE 週報, 那一則本身就是存活訊號。
       return { envName: '(不適用:每週通知本身就是存活訊號)', url: undefined, notApplicable: true };
+    case 'pcm-new-product-drafts':
+      // 走 route, 但不接 healthchecks:後台排程健康頁看心跳(門檻兩天)就夠, 晚一天產草稿不是急事,
+      // 不值得多一支外部 check 與一個 env(2026-10-01 每日新品草稿片 6)。
+      return { envName: '(不適用:後台排程健康頁看心跳就夠)', url: undefined, notApplicable: true };
   }
 }
 

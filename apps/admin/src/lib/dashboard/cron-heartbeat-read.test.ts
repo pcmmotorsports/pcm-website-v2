@@ -93,8 +93,10 @@ describe('白名單這張表本身', () => {
         'pcm-cron-run-log-purge',
         // 🔵 2026-09-29 加(migration 20260929040000 Bing 週報;貼完立刻手動觸發一次寫第一筆心跳)
         'pcm-bing-weekly',
+        // 🔵 2026-10-01 加(migration 20261001130000 每日新品草稿;貼完立刻手動觸發一次寫第一筆心跳)
+        'pcm-new-product-drafts',
     ]);
-    expect(CRON_JOB_WHITELIST).toHaveLength(12);
+    expect(CRON_JOB_WHITELIST).toHaveLength(13);
     // 🔴 而這【十】個名字必須與**正式庫 cron.job 實際排的**一致。
     //    ⛔ ~~前一次量到的是 2026-08-28 的【六】…後面三支未重量~~
     //    ✅ **2026-09-08 重量了(`tidy`, `pcm_readonly` 唯讀, 2026-09-07 18:23:02 UTC)**:

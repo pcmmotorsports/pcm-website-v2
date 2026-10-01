@@ -2,14 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { runSpy, depsSpy, siteUrl } = vi.hoisted(() => ({
+const { runSpy, depsSpy, siteUrl, okBeat, failBeat } = vi.hoisted(() => ({
   runSpy: vi.fn(),
   depsSpy: vi.fn(),
+  okBeat: vi.fn(),
+  failBeat: vi.fn(),
   siteUrl: { value: 'https://www.pcmmotorsports.com' as string | undefined },
 }));
 vi.mock('@pcm/use-cases', () => ({ draftNewProductPosts: runSpy }));
 vi.mock('@/lib/new-product-drafts/composition', () => ({ getNewProductDraftDeps: depsSpy }));
 vi.mock('@/lib/site-url', () => ({ resolveSiteUrl: () => siteUrl.value }));
+vi.mock('@/lib/cron/heartbeat', () => ({
+  CRON_JOB_NAME: { newProductDrafts: 'pcm-new-product-drafts' },
+  recordHeartbeatSuccess: okBeat,
+  recordHeartbeatFailure: failBeat,
+}));
 
 import { GET } from './route';
 import { resetCronRateLimit } from '@/lib/cron/rate-limit';
@@ -52,11 +59,14 @@ describe('GET /api/cron/new-product-drafts', () => {
     expect(runSpy).not.toHaveBeenCalled();
   });
 
-  it('旗標開但正式網址沒設 ⇒ 不建', async () => {
+  it('旗標開但正式網址沒設 ⇒ 503 + 失敗心跳, 不建(設定錯誤要看得到)', async () => {
     vi.stubEnv('NEW_PRODUCT_DRAFTS_ENABLED', 'on');
     siteUrl.value = undefined;
-    expect(await (await GET(req(`Bearer ${SECRET}`))).json()).toMatchObject({ skipped: 'missing_site_url' });
+    const res = await GET(req(`Bearer ${SECRET}`));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ skipped: 'missing_site_url' });
     expect(runSpy).not.toHaveBeenCalled();
+    expect(failBeat).toHaveBeenCalledWith('pcm-new-product-drafts');
   });
 
   it('旗標開 ⇒ 用正式網址組依賴, 回傳結果', async () => {
@@ -75,5 +85,21 @@ describe('GET /api/cron/new-product-drafts', () => {
     const res = await GET(req(`Bearer ${SECRET}`));
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ ok: false, error: 'PGRST301' });
+  });
+
+  it('心跳:跑完記成功、整輪失敗記失敗、旗標關不記', async () => {
+    const res1 = await GET(req(`Bearer ${SECRET}`));
+    expect(res1.status).toBe(200);
+    expect(okBeat).not.toHaveBeenCalled();
+    expect(failBeat).not.toHaveBeenCalled();
+
+    vi.stubEnv('NEW_PRODUCT_DRAFTS_ENABLED', 'on');
+    runSpy.mockResolvedValueOnce({ candidates: 0, created: 0, duplicate: 0, skipped: {} });
+    await GET(req(`Bearer ${SECRET}`));
+    expect(okBeat).toHaveBeenCalledWith('pcm-new-product-drafts');
+
+    runSpy.mockRejectedValueOnce(new Error('x'));
+    await GET(req(`Bearer ${SECRET}`));
+    expect(failBeat).toHaveBeenCalledWith('pcm-new-product-drafts');
   });
 });
