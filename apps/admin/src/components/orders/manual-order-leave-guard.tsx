@@ -68,7 +68,7 @@ export function ManualOrderLeaveGuard({ formId }: { formId: string }) {
  *
  * 🔴 **判準是原生的「髒」:現在的值 vs 它出生時的值** —— 不是「有沒有東西」。
  *    ⚠️ **而那個差別不是風格, 是 R1 抓到的兩個真缺陷**:
- *    · 誤報:運費欄 `defaultValue='0'`(`manual-order-form-body.tsx:181`)⇒ 用「非空」判
+ *    · 誤報:運費欄 `defaultValue='0'`(2026-10-01 起在 `manual-order-payment-fields.tsx`)⇒ 用「非空」判
  *      ⇒ **每一張沒填任何東西的表單都會被攔** —— 誤報率 100%。
  *    · 漏報:訂單來源 / 付款方式 / 取貨方式 / 發票類型**四格都是 `<select>`** ⇒ 我原本整族跳過
  *      ⇒ 員工把「匯款」改成「現金」再離開 ⇒ **零提醒**。

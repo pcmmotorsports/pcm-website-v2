@@ -2,13 +2,7 @@ import { ManualOrderInvoiceFields } from './manual-order-invoice-fields';
 import {
   MANUAL_ORDER_IN_PANEL_FIELD,
   MANUAL_ORDER_IN_DIALOG_VALUE,
-  MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
-  MANUAL_ORDER_SHIPPING_FEE_FIELD,
-  MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD,
-  MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
-  MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
-  MANUAL_ORDER_SHIPPING_METHOD_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import { ManualCustomerPicker } from './manual-customer-picker';
@@ -19,7 +13,7 @@ import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import type { ManualOrderContainer } from '@/lib/orders/manual-order-action-state';
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
-import { ManualOrderTierSelect } from './manual-order-tier-select';
+import { ManualOrderPaymentFields } from './manual-order-payment-fields';
 import { ManualOrderNotificationEmail } from './manual-order-notification-email';
 import { ManualOrderVehicleField } from './manual-order-vehicle-field';
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
@@ -180,9 +174,6 @@ export function ManualOrderFormBody({
                      ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
               {/* 2026-10-01:搬成一支小 client 元件 —— 選「蝦皮」時清空並鎖住(貼板 260, Sean Q16 甲)。 */}
               <ManualOrderNotificationEmail />
-              {/* 🆕 #956 乙(Sean 2026-09-14 拍;圖 956-B-一格.png):車輛一格, 左欄最底(圖上在通知 email 下面)。
-                  留白 = 沒填(合法, RPC 第 13 參 DEFAULT NULL)。 */}
-              <ManualOrderVehicleField />
             </div>
             <div className='space-y-4'>
 
@@ -204,67 +195,18 @@ export function ManualOrderFormBody({
                   <option value='manual_shopee'>蝦皮</option>
                 </select>
               </label>
-              {/* 🆕 T2(2026-09-14):會員等級, 預設客人現在的、沒選客人 disabled(island 讀客人 radio 的 data-customer-tier)。 */}
-              <ManualOrderTierSelect />
-              <label className={MANUAL_FIELD_LABEL}>
-                付款方式
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}
-                  className={MANUAL_FIELD_INPUT}
-                >
-                  <option value='bank_transfer'>匯款</option>
-                  <option value='cash'>現金</option>
-                </select>
-              </label>
-              <label className={MANUAL_FIELD_LABEL}>
-                取貨方式
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SHIPPING_METHOD_FIELD}
-                  className={MANUAL_FIELD_INPUT}
-                >
-                  <option value='home'>宅配</option>
-                  <option value='store'>門市自取</option>
-                </select>
-              </label>
-              <label className={MANUAL_FIELD_LABEL}>
-                運費
-                <input
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SHIPPING_FEE_FIELD}
-                  inputMode='numeric'
-                  defaultValue='0'
-                  className={MANUAL_FIELD_INPUT}
-                />
-              </label>
-              {/* ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費也要說是未稅還是含稅。
-                  🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時沒有人宣告過稅基,
-                     而 RPC 一律當未稅再加 5% ⇒ 員工填一個含稅的 105, 稅就多算 5 元,
-                     **而每一筆都長得很正常**。
-                  🔵 形狀**照抄** `manual-order-lines.tsx:264-277` 那一格(`select` 兩個 option,
-                     預設 `untaxed`)—— 不自己發明第二種寫法。
-                  🔴 `autoComplete='off'` 不可省:`select` 也會被瀏覽器 autofill, 而
-                     `manual-order-form-body.test.tsx` 有一道**分母守門**在數同表單的控制項。
-                  🛑 **換算不在這裡做** —— 這一格只是宣告, 換算在 `parseManualOrderForm()` 裡
-                     (同品項那一格的理由:兩邊各算一次, 員工看到的與進 DB 的就有兩個來源)。 */}
-              <label className={MANUAL_FIELD_LABEL}>
-                運費是未稅還是含稅
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD}
-                  defaultValue={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}
-                  className={MANUAL_FIELD_INPUT}
-                >
-                  <option value={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}>未稅</option>
-                  <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
-                </select>
-              </label>
             </div>
+
+            {/* 2026-10-01 建單簡化(Sean Q1 甲, S3):會員等級 / 付款 / 取貨 / 運費 / 運費稅別搬成一支元件、重排。
+                欄位名與 defaultValue 一個字不動;報價單Q1 之後要在這一組加「刷卡」與蝦皮進帳, 改那一支就好。 */}
+            <ManualOrderPaymentFields />
 
             {/* 發票那一組 2026-10-01 搬成 client 元件:勾了才展開, 依發票類型只出對應的格子(Sean 建單簡化 Q3 甲)。
                 收起只是看不到, 每一格都還在、照樣送出;`invoice_requested` 那一對的理由搬到該檔檔頭。 */}
             <ManualOrderInvoiceFields />
+            {/* 🆕 #956 乙(Sean 2026-09-14 拍):車輛一格, 留白 = 沒填(合法, RPC 第 13 參 DEFAULT NULL)。
+                2026-10-01 建單簡化(S2/S3):預設收起, 搬到右欄發票下面(草稿乙)。 */}
+            <ManualOrderVehicleField />
             </div>
           </div>
 
