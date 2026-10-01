@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  BannerCopy,
   BannerCopyInput,
   CatalogSkuMatch,
   HomeBannerSystemDraft,
@@ -66,7 +67,8 @@ class FakeCopywriter implements IBannerCopywriter {
   async draft(input: BannerCopyInput) {
     this.inputs.push(input);
     if (this.failFor.includes(input.subject ?? '')) throw new Error('llm down');
-    return { eyebrow: 'AKRAPOVIC ‧ 新品到貨', titleLine1: 'Slip-On 鈦合金尾段,', titleLine2: '2026 年式新款到貨', subtitle: null, ctaLabel: '看新品'.repeat(10) };
+    // 「到貨」是大圖禁用字(20261001120000 發布擋)⇒ 假 AI 不寫, 否則會走退回主旨那條路
+    return { eyebrow: 'AKRAPOVIC ‧ 新品', titleLine1: 'Slip-On 鈦合金尾段,', titleLine2: '2026 年式新款', subtitle: null, ctaLabel: '看新品'.repeat(10) };
   }
 }
 
@@ -245,6 +247,45 @@ describe('draftSupplierNewProductBanners(假 Gmail + 假 AI + 假 DB 端到端)'
     expect(result).toMatchObject({ listed: 3, noProducts: 1, deferred: 2 });
   });
 
+  describe('FB / IG 文字與大圖紅字(mac mini 版, 2026-10-01)', () => {
+    const one = () => new FakeReader([msg({ id: 's', htmlBody: '<p>S-B10SO4-HAPXT</p>' })]);
+    const writer = (over: Partial<BannerCopy>): IBannerCopywriter => ({
+      draft: async () => ({ eyebrow: 'AKRAPOVIC ‧ 新品', titleLine1: '鈦合金尾段', titleLine2: null, subtitle: null, ctaLabel: '看新品', ...over }),
+    });
+    const run = async (copywriter: IBannerCopywriter) => {
+      const store = new FakeStore();
+      await draftSupplierNewProductBanners({ reader: one(), copywriter, matcher: new FakeMatcher(), store, senders: SENDERS });
+      return store.records[0]!;
+    };
+
+    it('乾淨的 FB / IG 原樣進草稿;原廠開頭的保固句放行', async () => {
+      const r = await run(writer({ fbText: '鈦合金尾段，原廠提供兩年保固。', igText: '新款尾段\n#Akrapovic' }));
+      expect(r.draft).toMatchObject({ fbText: '鈦合金尾段，原廠提供兩年保固。', igText: '新款尾段\n#Akrapovic', titleLine1: '鈦合金尾段' });
+      expect(r.record.errorCode).toBeNull();
+    });
+
+    it('🔴 FB 有紅字(現貨、本店口吻的保固)⇒ 那一欄留空, IG 照寫;超過 2,200 字也不寫', async () => {
+      expect((await run(writer({ fbText: '現貨供應', igText: '新款尾段' }))).draft).toMatchObject({ fbText: null, igText: '新款尾段' });
+      expect((await run(writer({ fbText: '鈦合金尾段，享兩年保固。' }))).draft).toMatchObject({ fbText: null });
+      expect((await run(writer({ igText: '字'.repeat(2201) }))).draft).toMatchObject({ igText: null });
+    });
+
+    it('🔴 大圖文字有禁用字 ⇒ 退回用主旨(copy_fallback), FB / IG 另外判、乾淨的照寫', async () => {
+      const r = await run(writer({ titleLine1: '原廠保固兩年', fbText: '鈦合金尾段。' }));
+      expect(r.draft).toMatchObject({ titleLine1: 'New Slip-On Line for 2026', eyebrow: null, fbText: '鈦合金尾段。' });
+      expect(r.record.errorCode).toBe('copy_fallback');
+    });
+
+    it('時間與封數上限可以由呼叫端放寬 / 收緊', async () => {
+      const reader = new FakeReader([msg({ id: '1', textBody: 'a' }), msg({ id: '2', textBody: 'b' })]);
+      const result = await draftSupplierNewProductBanners({
+        reader, copywriter: new FakeCopywriter(), matcher: new FakeMatcher(), store: new FakeStore(), senders: SENDERS, maxPerRun: 1, timeBudgetMs: 600_000,
+      });
+      expect(reader.queries).toEqual([{ query: SUPPLIER_MAIL_QUERY, max: 1 }]);
+      expect(result).toMatchObject({ listed: 1, noProducts: 1 });
+    });
+  });
+
   it('列信失敗(權杖失效)⇒ 整輪 throw', async () => {
     const reader: IInboundMailReader = { listMessageIds: async () => { throw new Error('invalid_grant'); }, getMessage: async () => { throw new Error('x'); } };
     await expect(draftSupplierNewProductBanners({ reader, copywriter: new FakeCopywriter(), matcher: new FakeMatcher(), store: new FakeStore(), senders: SENDERS })).rejects.toThrow('invalid_grant');
@@ -280,6 +321,26 @@ describe('純函式', () => {
       authAligned(['mx.google.com; spf=pass smtp.mailfrom="x;dmarc=pass header.from=akrapovic.com z"@evil.example; dmarc=fail header.from=evil.example'], 'akrapovic.com'),
     ).toBe(false);
     expect(authAligned(['mx.google.com; dmarc=pass header.from=akrapovic.com; dmarc=fail header.from=akrapovic.com'], 'akrapovic.com')).toBe(false);
+  });
+
+  it('🔵 Gmail 把 DKIM 簽章值包在引號裡(mac mini 10-01 實測 lightech.it)⇒ 照樣過;其他引號一律不放寬', () => {
+    // 真信的形狀(簽章值換成假的;其餘逐字照 mac mini 讀到的那封)
+    const lightech =
+      'mx.google.com; dkim=pass header.i=@lightech.it header.s=resend header.b="Ab+/9xY="; ' +
+      'dkim=pass header.i=@amazonses.com header.s=shh3fegwg5fppqsuzphvschd53n6ihuv header.b=Q1w2E3r4; ' +
+      'spf=pass (google.com: domain of 0102@send.lightech.it designates 54.240.3.9 as permitted sender) smtp.mailfrom=0102@send.lightech.it; ' +
+      'dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=lightech.it';
+    expect(authAligned([lightech], 'lightech.it')).toBe(true);
+    // 🔴 偽造:pass 寫在引號裡 ⇒ 不過
+    expect(authAligned(['mx.google.com; dkim="pass" header.i=@lightech.it header.b="Ab9"; dmarc=pass header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 簽章值不是 base64(有空白)⇒ 不拿掉 ⇒ 撞引號那條。其餘欄位全是 pass:放寬成「任何引號都拿掉」這行就會變 true(R1 必修)
+    expect(authAligned(['mx.google.com; dkim=pass header.i=@lightech.it header.b="Ab 9"; dmarc=pass header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 引號裡夾著假的驗證結果、本身就驗不過的信 ⇒ 不過
+    expect(authAligned(['mx.google.com; dkim=fail header.i=@evil.example header.b="x;dmarc=pass header.from=lightech.it"; dmarc=fail header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 引號不成對 ⇒ 不拿掉
+    expect(authAligned(['mx.google.com; dkim=pass header.i=@lightech.it header.b="Ab9; dmarc=pass header.from=lightech.it'], 'lightech.it')).toBe(false);
+    // 🔴 寄件地址裡的引號(R2 K1 原本那條)照擋
+    expect(authAligned(['mx.google.com; spf=pass smtp.mailfrom="a;dmarc=pass header.from=lightech.it"@evil.example; dmarc=fail header.from=evil.example'], 'lightech.it')).toBe(false);
   });
 
   it('extractImages / extractSkuCandidates / buildLinkPath', () => {

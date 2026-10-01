@@ -93,6 +93,8 @@ export class SupabaseSupplierNewProductStore implements ISupplierNewProductStore
               link_path: draft.linkPath,
               image_desktop_url: draft.imageDesktopUrl,
               image_kind: draft.imageKind,
+              fb_text: draft.fbText ?? null,
+              ig_text: draft.igText ?? null,
               // 🟢 **這一個 cast 型別上【可證成立】**(與上面那個不同):元素型別就是 `string`,
               //    只是 `readonly string[]` 不滿足 `Json[]`(`Json` 要可變陣列)—— 純變異性摩擦。
               //    🛑 **刻意不用 `[...draft.matchedVariantIds]` 展開** —— 那會是一次 runtime 變更,

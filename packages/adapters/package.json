@@ -23,6 +23,7 @@
     "@pcm/domain": "workspace:*",
     "@pcm/ports": "workspace:*",
     "@supabase/supabase-js": "^2.105.3",
+    "imapflow": "^2.1.2",
     "pg": "^8.21.0",
     "server-only": "^0.0.1"
   },

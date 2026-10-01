@@ -41,6 +41,9 @@ export interface BannerCopy {
   readonly titleLine2: string | null;
   readonly subtitle: string | null;
   readonly ctaLabel: string | null;
+  /** FB / IG 貼文草稿(mac mini 版起草才有;2026-10-01)。use-case 會跑 checkSocialCopy, 有紅字就不寫。 */
+  readonly fbText?: string | null;
+  readonly igText?: string | null;
 }
 
 export interface IBannerCopywriter {
@@ -87,6 +90,9 @@ export interface HomeBannerSystemDraft {
   readonly imageDesktopUrl: string | null;
   readonly imageKind: 'scene' | 'product';
   readonly matchedVariantIds: readonly string[];
+  /** 寫進 home_banners.fb_text / ig_text(20261001140000 起 system_supplier_mail_record 才收);≤ 2200 字。 */
+  readonly fbText?: string | null;
+  readonly igText?: string | null;
 }
 
 export interface ISupplierNewProductStore {

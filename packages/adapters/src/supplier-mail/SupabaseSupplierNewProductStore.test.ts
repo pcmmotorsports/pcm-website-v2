@@ -70,9 +70,17 @@ describe('SupabaseSupplierNewProductStore', () => {
       p_draft: {
         eyebrow: 'E', title_line1: 'T1', title_line2: null, subtitle: null, cta_label: '看', link_path: '/brands/akrapovic',
         image_desktop_url: 'https://x/a.jpg', image_kind: 'scene', matched_variant_ids: ['v1'],
+        // 20261001140000 起收這兩欄;沒帶 ⇒ 送 null(舊版函式會忽略多的鍵)
+        fb_text: null, ig_text: null,
       },
       p_request_id: 'req-fixed',
     });
+  });
+
+  it('草稿帶 FB / IG 文字 ⇒ 原樣送 fb_text / ig_text', async () => {
+    const { client, calls } = fakeClient({ data: 'recorded', error: null });
+    await new SupabaseSupplierNewProductStore(asClient(client), () => 'r').record(record, { ...draft, fbText: 'FB 文字', igText: 'IG 文字' });
+    expect(calls.find((c) => c.kind === 'rpc')!.args[1]).toMatchObject({ p_draft: { fb_text: 'FB 文字', ig_text: 'IG 文字' } });
   });
 
   it('duplicate 原樣回;DB 錯 throw;怪回傳碼 throw', async () => {
