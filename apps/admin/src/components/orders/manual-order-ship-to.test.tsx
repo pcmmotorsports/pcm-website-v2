@@ -453,3 +453,48 @@ describe('Codex R1 必修:換客人時不能把上一位的地址帶給下一位
     expect(screen.queryByLabelText('從地址簿選')).toBeNull();
   });
 });
+
+// ── 貼上整段(Sean 2026-10-01 Q25 甲:貼上就立刻填好三格)──────────────────────────────
+describe('貼上整段 ⇒ 拆好填進收件人 / 電話 / 地址', () => {
+  const paste = (text: string) =>
+    fireEvent.paste(screen.getByTestId('manual-order-ship-to-paste'), { clipboardData: { getData: () => text } });
+
+  it('三樣都認得 ⇒ 三格都填好, 並說「請確認」', () => {
+    renderForm();
+    paste('王小明 0912-345-678 台北市 中正區 忠孝東路一段 1號5樓');
+    expect(shipName().value).toBe('王小明');
+    expect(shipPhone().value).toBe('0912345678');
+    expect(shipLine().value).toBe('台北市中正區忠孝東路一段1號5樓');
+    expect(screen.getByTestId('manual-order-ship-to-paste-note').textContent).toBe('已填入收件人、電話、地址，請確認。');
+  });
+
+  it('沒認出地址 ⇒ 地址那格原本的字【不清掉】, 並說哪一格沒認出', () => {
+    renderForm();
+    fireEvent.change(shipLine(), { target: { value: '原本打好的地址' } });
+    paste('王小明 0912345678');
+    expect(shipLine().value).toBe('原本打好的地址');
+    expect(screen.getByTestId('manual-order-ship-to-paste-note').textContent).toBe(
+      '已填入收件人、電話，請確認。沒有認出地址，請自己填。',
+    );
+  });
+
+  it('兩支電話 ⇒ 填第一支, 第二支講出來', () => {
+    renderForm();
+    paste('王小明 0912345678 0223456789 台北市中正區忠孝東路一段1號');
+    expect(shipPhone().value).toBe('0912345678');
+    expect(screen.getByTestId('manual-order-ship-to-paste-note').textContent).toContain('另一支電話 0223456789 沒有填入。');
+  });
+
+  it('填值時補發 input 事件(送出鈕與找客人靠它知道值變了)', () => {
+    const { container } = renderForm();
+    const seen: string[] = [];
+    container.querySelector('form')!.addEventListener('input', (e) => seen.push((e.target as HTMLInputElement).name));
+    paste('王小明 0912345678 台北市中正區忠孝東路一段1號');
+    expect(seen).toEqual(['ship_to_name', 'ship_to_phone', 'ship_to_line']);
+  });
+
+  it('框本身沒有 name ⇒ 貼的原文不會被送出', () => {
+    renderForm();
+    expect(screen.getByTestId('manual-order-ship-to-paste').getAttribute('name')).toBeNull();
+  });
+});

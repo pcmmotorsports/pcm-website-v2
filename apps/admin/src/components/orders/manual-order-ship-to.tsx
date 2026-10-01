@@ -16,6 +16,7 @@ import {
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import { requestManualCustomerCreate } from '@/lib/orders/manual-customer-create-request';
+import { splitRecipientPaste } from '@/lib/orders/split-recipient-paste';
 import { loadManualCustomerAddressesAction } from '@/lib/customers/manual-order-address-actions';
 import type { AddressChoice } from '@/lib/customers/manual-order-address';
 
@@ -67,6 +68,8 @@ export function ManualOrderShipTo() {
   //    📌 **一顆「按了沒反應」的鈕,與一顆「按了但我看不出來」的鈕,在畫面上長一樣。**
   const [seq, setSeq] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  // 「貼上整段」拆完的結果說明(Sean 2026-10-01 Q25 甲)。與上面那個 notice 分開:這一句是確認, 不是警告。
+  const [pasteNote, setPasteNote] = useState<string | null>(null);
   // 選起來那位客人的地址簿(最近用過的在前)。空 = 沒有可選的 ⇒ 不畫下拉。
   const [book, setBook] = useState<AddressChoice[]>([]);
   // 這份地址簿是哪位客人的。🔴 新建客人(defaultChecked)與重新搜尋(整批 radio 重掛)都【不發 change】
@@ -204,6 +207,36 @@ export function ManualOrderShipTo() {
     setNotice('已送出建立客戶的要求，請查看上方「客人」區塊的處理結果。');
   }
 
+  // ── 貼上整段 ⇒ 拆成收件人 / 電話 / 地址(Sean 2026-10-01 Q25 甲:貼上就立刻填好, 三格都可以再改)──────
+  // 🔴 只覆蓋【有認出值】的那一格:沒認出地址時, 地址那格原本的字不清掉(計畫第 2 節)。
+  // 🔴 寫值後補發 `input` 事件:直接改 `.value` 不會發事件, 而送出鈕與之後的「用電話找客人」都靠事件知道值變了。
+  function onPasteWhole(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const r = splitRecipientPaste(e.clipboardData.getData('text/plain'));
+    const [nameEl, phoneEl, lineEl] = shipFields();
+    const filled: string[] = [];
+    const put = (el: HTMLInputElement | null, value: string, label: string) => {
+      if (!el || value === '') return;
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      filled.push(label);
+    };
+    put(nameEl, r.name, '收件人');
+    put(phoneEl, r.phone, '電話');
+    put(lineEl, r.address, '地址');
+    const missing = [
+      ...(r.name === '' ? ['收件人'] : []),
+      ...(r.phone === '' ? ['電話'] : []),
+      ...(r.address === '' ? ['地址'] : []),
+    ];
+    setPasteNote(
+      [
+        filled.length > 0 ? `已填入${filled.join('、')}，請確認。` : '沒有認出收件人、電話或地址，請自己填寫下面三格。',
+        filled.length > 0 && missing.length > 0 ? `沒有認出${missing.join('、')}，請自己填。` : '',
+        r.extraPhones.length > 0 ? `另一支電話 ${r.extraPhones.join('、')} 沒有填入。` : '',
+      ].join(''),
+    );
+  }
+
   function copyFromCustomer() {
     const form = rootRef.current?.form;
     if (!form) return;
@@ -314,6 +347,24 @@ export function ManualOrderShipTo() {
       {notice && (
         <p role='status' data-testid='manual-order-ship-to-notice' className='text-xs text-amber-700'>
           {notice}
+        </p>
+      )}
+
+      {/* 沒有 name ⇒ 不會被送出;貼上的那一刻拆好填進下面三格。 */}
+      <label className={MANUAL_FIELD_LABEL}>
+        貼上整段(姓名、電話、地址一起貼,系統幫你分好)
+        <textarea
+          rows={2}
+          autoComplete='off'
+          onPaste={onPasteWhole}
+          placeholder='例:王小明 0912345678 台北市中正區忠孝東路一段1號'
+          data-testid='manual-order-ship-to-paste'
+          className={MANUAL_FIELD_INPUT}
+        />
+      </label>
+      {pasteNote && (
+        <p role='status' data-testid='manual-order-ship-to-paste-note' className='text-muted-foreground text-xs'>
+          {pasteNote}
         </p>
       )}
 
