@@ -11,6 +11,7 @@ import {
 } from '../../lib/home-banners/home-banner-actions';
 import { HB_DB_MAX, HB_FIELD, HB_SOFT_MAX, HB_UPLOAD, publishKeepsLiveHint, titleLayoutHint } from '../../lib/home-banners/home-banner-constants';
 import { bannerSourceLabel, bannerTextIssues } from '../../lib/home-banners/home-banner-social';
+import { preventEnterSubmit } from '../../lib/home-banners/home-banner-enter-guard';
 import { HomeBannerSocial } from './home-banner-social';
 import {
   BANNER_STATE_LABEL,
@@ -122,7 +123,8 @@ export function HomeBannerEditor({
 
   return (
     <aside className='hb-panel' aria-label='編輯首頁大圖' data-testid='home-banner-panel'>
-      <form action={saveHomeBannerDraftAction}>
+      {/* 🔴 單行輸入框按 Enter 不送出:表單第一顆送出鈕可能是「封存」(主視窗 2026-10-01;理由見 enter-guard 檔頭) */}
+      <form action={saveHomeBannerDraftAction} onKeyDown={preventEnterSubmit}>
         <input type='hidden' name={HB_FIELD.view} value={view} />
         {banner !== null ? <input type='hidden' name={HB_FIELD.id} value={banner.id} /> : null}
         {/* 🔴 原字串原樣送回(微秒);不要改成 new Date(...).toISOString() */}
