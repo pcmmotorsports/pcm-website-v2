@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  MANUAL_CUSTOMER_NEW_NAME_FIELD,
-  MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
   MANUAL_ORDER_SHIP_TO_NAME_FIELD,
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
@@ -58,55 +56,9 @@ const NEW_CUSTOMER_PENDING = '[data-new-customer-pending="1"]:not([data-creating
  */
 const PLACEHOLDER_CUSTOMER_ID = '00000000-0000-4000-8000-000000000000';
 
-/**
- * **選了一位客人, 而建立區描述的是【另一個人】** ⇒ 這張單要擋下來。
- *
- * 🔴🔴 **判準是「不一樣」, 不是「有沒有字」**(codex R2 must-fix,2026-08-28 推翻我上一版)。
- *
- *   我 R1 的版本寫的是「有 radio 被選 && 建立區兩格任一非空 ⇒ 擋」——
- *   codex R2 用**兩條正常流程**打爆它:
- *     ① 搜甲 ⇒ 搜尋成功會把那支電話**預填進建立區**(`key={searchedPhone}` + `defaultValue`)
- *        ⇒ 再點選甲 ⇒ **建單的主線流程當場鎖死。**
- *     ② 建立乙**成功** ⇒ 那兩格的字**還在**、而乙的 radio 被自動勾起來
- *        ⇒ 立刻 conflict ⇒ 畫面叫他「請先按建立這位客人」⇒ **他剛按過, 這是死路。**
- *   📌 **形狀:我拿「欄位有沒有字」當「他想建另一個人」的代理, 而那兩件事在【成功路徑上】就會分家。**
- *      ⇒ 一道用來擋錯誤的閘, 擋住的全是對的操作。
- *
- *   正解:比**內容**。建立區某一格有字、而它與**選起來那位**的對應欄位不同 ⇒ 才是兩個人。
- *   ⚠️ **空欄位一律略過**:搜尋只預填電話、不填姓名 ⇒ 姓名那格是空的,
- *      而「空」不是「叫另一個名字」。拿空去比會把①打回來。
- */
-function hasConflict(form: HTMLFormElement): boolean {
-  const picked = form.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]:checked`);
-  if (!(picked instanceof HTMLElement)) return false;
-  const read = (field: string): string => {
-    const el = form.querySelector(`[name="${field}"]`);
-    return el instanceof HTMLInputElement ? el.value.trim() : '';
-  };
-  // 🔴 電話比對**只看數字**:選起來那位存的是 `0912-345-678`,而他打的是 `0912345678`
-  //    ⇒ 逐字比會把同一支電話判成兩個人 ⇒ 又一次「擋住對的操作」。
-  const digits = (v: string): string => v.replace(/[^0-9]/g, '');
-  const typedName = read(MANUAL_CUSTOMER_NEW_NAME_FIELD);
-  const typedPhone = read(MANUAL_CUSTOMER_NEW_PHONE_FIELD);
-  if (typedName === '' && typedPhone === '') return false;
-  // 🔴🔴 **內容相符【只在「那位就是我們剛建出來的」時】才算免責**(codex R4 must-fix,2026-08-28)。
-  //
-  //   R2 讓我從「有沒有字」改成「一不一樣」,而 R4 打破了那一版:
-  //     甲與乙**同名、同市話**(一家人)⇒ 他選了甲、打了乙、忘記按「建立這位客人」
-  //     ⇒ **內容相符 ⇒ 判無衝突 ⇒ 送出鈕亮 ⇒ 單掛給甲。**
-  //   📌 **「資料相同」不是「同一個人」** —— 而這句話 `manual-customer.ts` 的 `C-F1`
-  //      早就寫過(建立那一側的預檢),**我在另一個守門上又犯了一次同一個錯**。
-  //   ⇒ 內容比對留著,但它只回答一個更窄的問題:
-  //     **「這兩格是不是就是我們剛剛建出來的那位留下的?」**
-  //     不是 ⇒ 一律擋(fail-closed);是 ⇒ 放行(那是 R2-② 那條死路要避的)。
-  //   ⚠️ 而 `data-just-created` 由 picker 在**它自己剛建出來的那一顆 radio** 上標,
-  //      每一次新的搜尋都會清掉(`justCreatedId` ⇒ null)⇒ 它不會過期地生效。
-  if (picked.dataset.justCreated !== '1') return true;
-  const sameAsCreated =
-    (typedName === '' || typedName === (picked.dataset.customerName ?? '')) &&
-    (typedPhone === '' || digits(typedPhone) === digits(picked.dataset.customerPhone ?? ''));
-  return !sameAsCreated;
-}
+// ⛔ 2026-10-01 拿掉 `hasConflict`(「選了一位客人, 而建立區又打了另一個人」):
+//    建立新客人那兩格已經拿掉(Sean Q24 甲, 新客人改用收件人姓名電話、按「確認」時建立)⇒ 那個衝突不再存在。
+//    codex R1/R2/R4 的全文在 git log。
 
 /**
  * 有沒有哪一列標成**含稅**而換算回未稅**除不盡**(⟦b4-PURCHTAX1⟧ 2026-09-06)。
@@ -165,13 +117,7 @@ export function ManualOrderSubmit({
   //     ⚠️ 兩句話的差別不是禮貌,是**它叫他做的下一件事不一樣**:等 vs 去挑。
   const [picked, setPicked] = useState<boolean | null>(null);
   /**
-   * **選了一位客人, 而「建立新客人」那兩格又有字**(codex R1 must-fix,2026-08-28)。
-   * 🔴 這一格不是 `picked` 的細分, 是一個**獨立的世界**:兩個訊號都在說「可以送了」,
-   *    而它們指的是不同的人。⇒ 它自己有訊息、自己有測試。
-   */
-  const [conflict, setConflict] = useState(false);
-  /**
-   * 稅基除不盡那一句(⟦b4-PURCHTAX1⟧)。**與 `conflict` 是兩個獨立的世界** ——
+   * 稅基除不盡那一句(⟦b4-PURCHTAX1⟧)。**與「有沒有客人」是兩個獨立的世界** ——
    * 兩件事可以同時成立, 而它們叫他做的下一件事不一樣。
    */
   const [taxProblem, setTaxProblem] = useState<string | null>(null);
@@ -185,6 +131,8 @@ export function ManualOrderSubmit({
    *    MutationObserver ⇒ 掛在 sync 會把它剛出現就擦掉。
    */
   const [formProblem, setFormProblem] = useState<string | null>(null);
+  /** 畫面上有客人可選、只是還沒選(好幾位同電話、或手動找到了人)⇒ 提示要叫他選, 不是叫他填電話。 */
+  const [hasCandidates, setHasCandidates] = useState(false);
 
   useEffect(() => {
     const form = buttonRef.current?.form;
@@ -193,7 +141,7 @@ export function ManualOrderSubmit({
       const hit = form.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]:checked`) !== null;
       // 新客人(收件電話找不到人)也算有客人:按「確認」時才建(Sean 2026-10-01 Q24 甲)
       setPicked(hit || form.querySelector(NEW_CUSTOMER_PENDING) !== null);
-      setConflict(hasConflict(form));
+      setHasCandidates(form.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]`) !== null);
       setTaxProblem(findTaxBasisProblem(form));
     };
     sync();
@@ -246,7 +194,7 @@ export function ManualOrderSubmit({
     // 🔴🔴 **送出的那一刻【再問一次 DOM】**(codex R2 must-fix)。
     //   病:瀏覽器 autofill / 密碼管理員 / 擴充套件 / 任何程式化的 `.value = …`
     //   **不會發 `input` 或 `change`** ⇒ 上面那些監聽器一個都不會跑
-    //   ⇒ `conflict` 還是 `false`、按鈕亮著 ⇒ 按下去 ⇒ 訂單掛給錯的人。
+    //   ⇒ state 還是舊的、按鈕亮著 ⇒ 按下去 ⇒ 訂單用的是舊判定。
     //   📌 **形狀:一道靠【事件】維持的 state, 在「值變了而沒有事件」的世界裡是過期的**
     //      —— 而它過期的樣子,與它正確的樣子,在畫面上一模一樣。
     //   ⇒ 所以判定不是只住在 state 裡:送出那一刻**重新讀一次 DOM**,不一致就攔下來。
@@ -258,11 +206,6 @@ export function ManualOrderSubmit({
       if (tax !== null) {
         e.preventDefault();
         setTaxProblem(tax);
-        return;
-      }
-      if (hasConflict(form)) {
-        e.preventDefault();
-        setConflict(true);
         return;
       }
       // 🆕 新客人:先用代替的客人編號檢查其他欄位 ⇒ 都對了才建客人, 建好由 picker 接著再送一次(Sean 2026-10-01 Q24 甲)。
@@ -322,7 +265,7 @@ export function ManualOrderSubmit({
         <button
           ref={buttonRef}
           type='submit'
-          disabled={picked !== true || conflict || taxProblem !== null}
+          disabled={picked !== true || taxProblem !== null}
           data-testid='manual-order-submit'
           className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50'
         >
@@ -330,15 +273,9 @@ export function ManualOrderSubmit({
         </button>
       </div>
       {taxProblem !== null && (
-        // 🔴 排在 `conflict` 前面:它講的是**錢**, 而錢的錯比選錯人更難事後發現。
+        // 🔴 排在最前面:它講的是**錢**, 而錢的錯比選錯人更難事後發現。
         <p className='text-sm text-destructive' data-testid='manual-order-submit-tax-basis'>
           {taxProblem}
-        </p>
-      )}
-      {conflict && (
-        <p className='text-sm text-destructive' data-testid='manual-order-submit-conflict'>
-          你已選擇既有客戶，同時也填寫了新客戶資料。請確認訂單要使用哪位客戶：
-          若使用新客戶，請按「<strong>建立這位客人</strong>」；若使用已選擇的客戶，請清空「建立新客人」的姓名與電話。
         </p>
       )}
       {formProblem !== null && (
@@ -346,12 +283,14 @@ export function ManualOrderSubmit({
           {formProblem}
         </p>
       )}
-      {picked !== true && !conflict && taxProblem === null && (
+      {picked !== true && taxProblem === null && (
         // 🔴 說**現在缺什麼**,不說「請填寫必填欄位」—— 後者會讓他去檢查地址那幾格。
         //    而 `null`(還沒 hydrate)與 `false`(問過而沒選)**下一步不一樣** ⇒ 兩句話。
         <p className='text-muted-foreground text-xs' data-testid='manual-order-submit-hint'>
           {picked === null
             ? '畫面還在載入,載完才能送出。一直是這樣的話請重新整理。'
+            : hasCandidates
+              ? '請在收件電話下面選一位客人。'
             : // 🔴 ~~原句「先在上面挑一位客人(找不到就在那裡建一位),這顆按鈕才會亮。」~~
               //    2026-08-28 換掉。**改法是「點名那顆按鈕」**:
               //    舊句說「建一位」,而員工打完姓名電話就會以為**打完字就是建了**
@@ -360,7 +299,7 @@ export function ManualOrderSubmit({
               //    📌 這一格是 Sean 2026-08-28 回報的直接落點:
               //       「直接輸入收件人資訊,但是還是無法建立訂單」。
               // 2026-09-14 精簡:⛔ ~~這張單還沒有客人。上面挑一位,或是打好姓名電話後按「建立這位客人」——按了才算數。~~
-              '請先填寫收件電話，系統會自動找客人；找不到時，按「確認」會建立新客人。也可以用「找客人」選一位。'}
+              '請先填寫收件電話，系統會自動找客人；找不到時，按「確認」會建立新客人。也可以按「換一位客人」另外找。'}
         </p>
       )}
     </div>

@@ -84,7 +84,8 @@ describe('🔴 這兩支 action 必須有呼叫端', () => {
     //    ⇒ 有人把 type 拿掉(HTML 預設就是 submit)⇒ 按「找客人」會送出整張建單表單。
     expect(picker).not.toMatch(/<button(?![^>]*type='button')/);
     // 負對照:它真的有 button(不是因為一顆都沒有才過)
-    expect(picker.match(/<button/g)?.length).toBe(2);
+    // 2026-10-01:找客人 / 都不是, 建立新客人 / 換一位客人 / 改用收件電話找客人(「建立這位客人」隨建立區拿掉, Sean Q24 甲)
+    expect(picker.match(/<button/g)?.length).toBe(4);
   });
 
   it('🔴 負對照:同一把尺去找一個不存在的 action ⇒ 不命中', () => {

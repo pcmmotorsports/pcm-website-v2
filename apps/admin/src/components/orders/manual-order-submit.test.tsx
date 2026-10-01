@@ -62,172 +62,13 @@ function RestOfValidOrder({ omit = [] }: { omit?: string[] }) {
   );
 }
 
-/**
- * 選了一位客人的畫面 + 「建立新客人」那兩格。
- * 🔴 radio 帶 `data-customer-*` —— 那是 picker 真的會畫的形狀,而 conflict 判定**靠它比內容**。
- *    少了它,`hasConflict` 讀到的是 `''` ⇒ 任何非空輸入都會被判成「不一樣」⇒ 測試會量到一個
- *    比實際嚴格的世界(而那正是 codex R2 打爆的那一版)。
- */
-function renderWithBoth(name = '王小明', phone = '0912345678', justCreated = false) {
-  return render(
-    <form data-testid='f'>
-      <input
-        type='radio'
-        name='customer_user_id'
-        value={USER_A}
-        aria-label='甲'
-        data-customer-name={name}
-        data-customer-phone={phone}
-        {...(justCreated ? { 'data-just-created': '1' } : {})}
-      />
-      <input name='new_customer_name' aria-label='新客人姓名' />
-      <input name='new_customer_phone' aria-label='新客人電話' />
-      <RestOfValidOrder />
-      <ManualOrderSubmit />
-    </form>,
-  );
-}
-
 // ── 🔴🔴 codex R1 must-fix:選了甲, 又打了乙的資料 ⇒ 擋(2026-08-28)────────────────
 //  📌 codex 直接擊破了 plan §1 那句「打了字沒按建立 ⇒ 沒有 radio ⇒ 鈕是灰的」——
 //     **那句只在「他沒選過任何人」的世界裡成立。**
 //     搜到甲 ⇒ 點起來 ⇒ 再到下面打乙 ⇒ 忘記按建立 ⇒ 甲的 radio 還勾著 ⇒ **鈕亮著**
 //     ⇒ 按下去 ⇒ 這張單掛在甲頭上,而畫面上他看到的是乙的名字。
 //  🔴 走乙之前這個反例**不存在**(搜到人時建立那塊不渲染)⇒ 又一條附贈的保護跟著閘一起消失。
-describe('🔴🔴 codex R1:選了一位客人, 而下面又打了另一位 ⇒ 送出鈕【擋住】並說出兩條出路', () => {
-  it('只打了【不同的】姓名就擋', () => {
-    renderWithBoth();
-    fireEvent.click(screen.getByLabelText('甲'));
-    expect(btn().disabled).toBe(false);
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
-    expect(btn().disabled).toBe(true);
-    const msg = screen.getByTestId('manual-order-submit-conflict').textContent ?? '';
-    expect(msg).toContain('請確認訂單要使用哪位客戶');
-    expect(msg).toContain('建立這位客人');
-    expect(msg).toContain('清空');
-  });
-
-  it('只打了【不同的】電話也擋(兩格是 or 不是 and)', () => {
-    renderWithBoth();
-    fireEvent.click(screen.getByLabelText('甲'));
-    fireEvent.change(screen.getByLabelText('新客人電話'), { target: { value: '0955000111' } });
-    expect(btn().disabled).toBe(true);
-  });
-
-  // ── 🔴🔴 codex R2 must-fix:那道閘 R1 版擋住的全是【對的操作】────────────────────────
-  //  📌 我拿「欄位有沒有字」當「他想建另一個人」的代理,而那兩件事**在成功路徑上就會分家**。
-  // ⛔ ~~原本這一格模擬「搜尋把電話預填進建立區 ⇒ 再選那位客人」~~
-  // 🔴 **2026-08-28 Fable R3-MF1 之後那個前提沒了**:搜尋【命中】時預填會被清掉
-  //    ⇒ 主線走到「選了人」時,建立區那兩格是**空的**。
-  //    ⇒ 本格改成量真正的主線;而「他自己打了字」那條改由下一格量(**它現在要擋**)。
-  it('🔴🔴 R2-①(改寫):建單主線 —— 選了人而建立區【空著】⇒ 不得鎖死', () => {
-    renderWithBoth('王小明', '0912345678');
-    fireEvent.click(screen.getByLabelText('甲'));
-    expect(btn().disabled).toBe(false);
-    expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-  });
-
-  it('🔴🔴 R4-MF2:他【自己打了】一組與甲一模一樣的資料 ⇒ 仍然要擋(同名同電話 ≠ 同一人)', () => {
-    // 甲與乙同名、共用一支市話(一家人)—— 他選了甲、打了乙、忘記按「建立這位客人」。
-    // 舊版只比內容 ⇒ 相符 ⇒ 放行 ⇒ **單掛給甲**。
-    // 📌 「資料相同」不是「同一個人」。
-    renderWithBoth('王小明', '0912345678');
-    fireEvent.click(screen.getByLabelText('甲'));
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '王小明' } });
-    fireEvent.change(screen.getByLabelText('新客人電話'), { target: { value: '0912345678' } });
-    expect(btn().disabled).toBe(true);
-    expect(screen.getByTestId('manual-order-submit-conflict')).toBeTruthy();
-  });
-
-  it('🔴🔴 R2-②:建立成功之後(兩格還有字 + 自動選起來)⇒ 【不得】變成死路', () => {
-    // 🔴 那一顆 radio 帶 `data-just-created`(picker 會標)—— 那是「這位就是我們剛建的」的憑據。
-    renderWithBoth('新客人乙', '0955000111', true);
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '新客人乙' } });
-    fireEvent.change(screen.getByLabelText('新客人電話'), { target: { value: '0955000111' } });
-    fireEvent.click(screen.getByLabelText('甲'));
-    expect(btn().disabled).toBe(false);
-    expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-  });
-
-  it('🔴 對照組:同一份資料而【沒有】 data-just-created ⇒ 要擋(不然上面那格等於沒有判準)', () => {
-    renderWithBoth('新客人乙', '0955000111', false);
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '新客人乙' } });
-    fireEvent.change(screen.getByLabelText('新客人電話'), { target: { value: '0955000111' } });
-    fireEvent.click(screen.getByLabelText('甲'));
-    expect(btn().disabled).toBe(true);
-  });
-
-  it('🔴 電話比對只看數字(`0912-345-678` 與 `0912345678` 是同一支, 不得判成兩個人)', () => {
-    renderWithBoth('王小明', '0912-345-678', true);
-    fireEvent.click(screen.getByLabelText('甲'));
-    fireEvent.change(screen.getByLabelText('新客人電話'), { target: { value: '0912345678' } });
-    expect(btn().disabled).toBe(false);
-  });
-
-  it('🔴🔴 R2-③:值被程式改掉而【沒發事件】(autofill)⇒ 送出那一刻仍然攔得住', () => {
-    renderWithBoth();
-    fireEvent.click(screen.getByLabelText('甲'));
-    expect(btn().disabled).toBe(false);
-    // 🔴 直接寫 `.value`,不發 `input` / `change` —— 這正是 autofill / 密碼管理員做的事
-    (screen.getByLabelText('新客人姓名') as HTMLInputElement).value = '乙';
-    expect(btn().disabled).toBe(false); // state 還沒更新 ⇒ 鈕仍亮(這是預期的中間態)
-    const form = screen.getByTestId('f') as HTMLFormElement;
-    const ev = new Event('submit', { bubbles: true, cancelable: true });
-    fireEvent(form, ev);
-    expect(ev.defaultPrevented).toBe(true);
-    expect(screen.getByTestId('manual-order-submit-conflict')).toBeTruthy();
-  });
-
-  it('🔴 對照組:沒有被動手腳時 submit【不得】被攔(不然上面那格是恆真的)', () => {
-    renderWithBoth();
-    fireEvent.click(screen.getByLabelText('甲'));
-    const form = screen.getByTestId('f') as HTMLFormElement;
-    const ev = new Event('submit', { bubbles: true, cancelable: true });
-    fireEvent(form, ev);
-    expect(ev.defaultPrevented).toBe(false);
-  });
-
-  it('🔴 清空之後解鎖(不然他照著畫面上那句做也出不去)', () => {
-    renderWithBoth();
-    fireEvent.click(screen.getByLabelText('甲'));
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
-    expect(btn().disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '' } });
-    expect(btn().disabled).toBe(false);
-    expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-  });
-
-  it('🔴 對照組:【沒有選人】而下面打了字 ⇒ 不是衝突, 而是「請先選擇客戶」那句(兩種灰不得說同一句話)', () => {
-    renderWithBoth();
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
-    expect(btn().disabled).toBe(true);
-    expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-    expect(screen.getByTestId('manual-order-submit-hint').textContent).toContain('請先填寫收件電話');
-  });
-
-  it('🔴 對照組:選了人而下面【空著】⇒ 亮的, 兩句話都不出(不然上面全是恆真)', () => {
-    renderWithBoth();
-    fireEvent.click(screen.getByLabelText('甲'));
-    expect(btn().disabled).toBe(false);
-    expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-    expect(screen.queryByTestId('manual-order-submit-hint')).toBeNull();
-  });
-
-  it('🔴 只有空白字元不算打了字(空白在畫面上與空的長一樣)', () => {
-    renderWithBoth();
-    fireEvent.click(screen.getByLabelText('甲'));
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '   ' } });
-    expect(btn().disabled).toBe(false);
-  });
-
-  it('🔴 選起來那位【沒有】姓名資料時, 打了字就算不一樣(fail-closed)', () => {
-    renderWithBoth('', '');
-    fireEvent.click(screen.getByLabelText('甲'));
-    fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
-    expect(btn().disabled).toBe(true);
-  });
-});
-
+// ⛔ 2026-10-01 拿掉 `hasConflict` 那一族:建立新客人那兩格已經拿掉, 「選了甲又打了乙」不再可能(Sean Q24 甲)。
 // ── 🔴🔴 R4-MF2:沒有選客人,那顆「建立訂單」不得按得下去 ────────────────────────────
 //  病:按得下去 ⇒ 解析器擋(對的)⇒ 而它擋的方式是 **`redirect()`**
 //     ⇒ 運費、地址、發票、每一列品項**全部消失**,只剩一個 `mrid`。
@@ -710,6 +551,15 @@ describe('新客人:按「確認」時先建客人', () => {
     fireEvent.click(btn());
     expect(seen).toEqual([]);
     expect(screen.getByTestId('manual-order-submit-form-problem').textContent).not.toBe('');
+  });
+
+  it('🔴 收件人姓名或電話空著 ⇒ 【不建客人】(建帳號要用這兩格)', () => {
+    for (const omit of ['ship_to_name', 'ship_to_phone']) {
+      const { seen, unmount } = renderPending({ omit: [omit] });
+      fireEvent.click(btn());
+      expect(seen).toEqual([]);
+      unmount();
+    }
   });
 
   it('🔴 沒有人接手建客人 ⇒ 照實說沒建、沒送', () => {
