@@ -74,6 +74,8 @@ ALTER TABLE public.payment_fee_rates ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.payment_fee_rates FROM PUBLIC;
 REVOKE ALL ON TABLE public.payment_fee_rates FROM anon, authenticated;
 GRANT SELECT ON TABLE public.payment_fee_rates TO service_role;
+-- IDENTITY 另外生了序列物件 ⇒ 表上的 REVOKE 管不到它, 要明寫(⟦b4-SEQACL1⟧;寫入只走 migration, 不給任何角色取號)。
+REVOKE ALL ON SEQUENCE public.payment_fee_rates_id_seq FROM PUBLIC, anon, authenticated, service_role;
 -- 後台(service_role)讀費率:不靠 BYPASSRLS 這個平台屬性, 明寫政策。
 CREATE POLICY payment_fee_rates_select_service_role ON public.payment_fee_rates
   FOR SELECT TO service_role USING (true);

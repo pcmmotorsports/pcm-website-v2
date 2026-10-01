@@ -183,6 +183,7 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   rail: '收款管道',
   // 報價單Q1 2026-10-01(貼板 262):登記收款 / 手動退款 RPC 寫進稽核的兩欄。
   payment_instrument: '付款方式標記',
+  payment_channel_requested: '建單時送來的收款管道(蝦皮單會改記成現金)',
   shopee_payout: '蝦皮進帳金額',
   received_at: '收到款項的時間',
   rec_trade_id: 'TapPay 交易編號',
