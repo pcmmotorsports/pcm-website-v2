@@ -216,7 +216,7 @@ describe('enqueueOrderCreatedEmails — 掃描 → 排信', () => {
  * 也不驗「信真的沒寄出去」(那要真跑)。
  */
 describe('片 C:手動建單留白 = 不寄', () => {
-  const MANUALS = ['manual_phone', 'manual_line', 'manual_other'] as const;
+  const MANUALS = ['manual_phone', 'manual_line', 'manual_other', 'manual_shopee'] as const;
 
   for (const src of MANUALS) {
     it(`① ${src} + 留白 ⇒ 不寄、計 noRecipient(不得退回 customers.email)`, async () => {

@@ -45,6 +45,9 @@ export const MANUAL_ORDER_SOURCES_FOR_EMAIL = [
   'manual_phone',
   'manual_line',
   'manual_other',
+  // 2026-10-01 貼板 260:蝦皮單(Sean Q16 甲:完全不寄)。它的通知信箱由 DB 約束擋成永遠是空的,
+  //   併進這一邊 ⇒ 不改寄會員信箱 ⇒ 每一種信都找不到收件人。
+  'manual_shopee',
 ] as const;
 
 /**

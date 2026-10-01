@@ -7,12 +7,13 @@ import {
 } from './notification-fallback';
 
 describe('手動建單留白 = 不寄 —— 判準的兩邊都要有格', () => {
-  it('🔴 三種 manual_* 都要擋掉 fallback(只測一種的話,寫死 === manual_phone 會全綠)', () => {
+  it('🔴 每一種 manual_* 都要擋掉 fallback(只測一種的話,寫死 === manual_phone 會全綠)', () => {
     for (const s of MANUAL_ORDER_SOURCES_FOR_EMAIL) {
       expect(suppressCustomerEmailFallback(s), s).toBe(true);
     }
-    // 🔵 而「三種」本身也是一個宣稱 —— 少一種時上面那個迴圈會安靜地少跑一圈。
-    expect(MANUAL_ORDER_SOURCES_FOR_EMAIL).toHaveLength(3);
+    // 🔵 而「幾種」本身也是一個宣稱 —— 少一種時上面那個迴圈會安靜地少跑一圈。
+    //    2026-10-01 貼板 260 加 manual_shopee ⇒ 四種。
+    expect(MANUAL_ORDER_SOURCES_FOR_EMAIL).toHaveLength(4);
   });
 
   it('🟢 正對照:顧客站(web)不得被擋 —— 否則真客人的信會靜靜不寄', () => {
@@ -50,10 +51,12 @@ describe('手動建單留白 = 不寄 —— 判準的兩邊都要有格', () =>
       'manual_phone',
       'manual_line',
       'manual_other',
+      // 2026-10-01 貼板 260:蝦皮單併進手動那一邊(Sean Q16 甲:完全不寄;它的通知信箱由 DB 約束擋成永遠是空的)。
+      'manual_shopee',
     ];
     const suppressed = allSources.filter((s) => suppressCustomerEmailFallback(s));
     const kept = allSources.filter((s) => !suppressCustomerEmailFallback(s));
-    expect(suppressed).toEqual(['manual_phone', 'manual_line', 'manual_other']);
+    expect(suppressed).toEqual(['manual_phone', 'manual_line', 'manual_other', 'manual_shopee']);
     expect(kept).toEqual(['web']);
     // 🔵 兩堆加起來要等於全部 —— 少了這一句,一個「兩邊都沒進」的值不會有人發現。
     expect(suppressed.length + kept.length).toBe(allSources.length);

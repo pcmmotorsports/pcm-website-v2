@@ -270,10 +270,11 @@ export type OrderListLine = {
  * 對齊 orders.order_source CHECK(migration 20260712203000):
  * - `web` 前台 create_order 建單(既有列預設回填)
  * - `manual_phone` / `manual_line` / `manual_other` 後台手動建單(散客單、來源電話/LINE/其他;手動建單片才寫入)
+ * - `manual_shopee` 後台手動建的蝦皮單(貼板 260, 2026-10-01;蝦皮單完全不寄我們的信, DB 約束擋住它的通知信箱)
  *
  * 本片(訂單線第一片)純顯示既有 web 單、不做手動建單;此 enum 供列表「來源」次要篩選 + 顯示標籤用。
  */
-export type OrderSource = 'web' | 'manual_phone' | 'manual_line' | 'manual_other';
+export type OrderSource = 'web' | 'manual_phone' | 'manual_line' | 'manual_other' | 'manual_shopee';
 
 /**
  * PaymentChannel: 金流管道(M-4a、orders.payment_channel;錢實際走哪條)。

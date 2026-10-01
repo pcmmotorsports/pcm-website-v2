@@ -84,6 +84,9 @@ const MIGRATIONS_DIR = process.env.NULL_SHORTCIRCUIT_GUARD_MIGRATIONS_DIR
  *    每一列都對應一發 weak 表 INSERT 成功的實測,不是看 schema 推的。
  */
 const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
+  // 2026-10-01 網站B 貼板 260:`orders_shopee_no_notification_email` 的 NULL 短路面靠 order_source 的 NOT NULL 撐
+  //   (order_source 為 NULL 時整條求值成 NULL ⇒ 放行;實測見 PROBED_OR_CHECKS 那條)。
+  ['orders', 'order_source'],
   // 🔴 2026-09-02 `-15`:`pfes_provenance_valid` 的 NULL 短路面是【開的】,
   //    關著它的是這三個欄位的 NOT NULL(實測見 PROBED_OR_CHECKS 裡那條的註解)。
   //    ⇒ 少了這三列, 未來有人 DROP NOT NULL 時本檔不會紅(codex 抓, 我原本只寫在註解裡)。
@@ -169,6 +172,12 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 2026-10-01 網站B 貼板 260(`20261001150000_m4b_order_source_manual_shopee.sql`;作者就是我)。
+  //   形狀:order_source <> 'manual_shopee' OR notification_email IS NULL(蝦皮單不得有通知信箱, Sean Q16 甲)。
+  //   🔬 拋棄式 PG(admin-probe 起的那台, 套完全部 migration)壞形狀:蝦皮 + 有信箱 ⇒ 紅在本 CHECK(23514);
+  //     order_source = NULL + 有信箱 ⇒ 紅在 not-null;蝦皮 + 信箱 NULL、網站 + 有信箱 ⇒ 進得去。
+  //   🔴 NULL 面:order_source 為 NULL 時整條求值成 NULL(實測 IS NULL = t)⇒ 靠 NOT NULL 撐, 已列進 LOAD_BEARING_NOT_NULL。
+  'orders.orders_shopee_no_notification_email',
   // 2026-09-27 進度86(`20260927040000_m4b_products_staff_overrides.sql`;作者就是我)。
   //   形狀:jsonb_typeof(x)='object' AND (x - 三個鍵)='{}' AND (NOT x?'title' OR typeof(x->'title')='string') AND …(subtitle / highlights 同形)
   //   🔬 壞形狀跑過兩處:

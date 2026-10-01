@@ -70,7 +70,7 @@ describe('跨檔接線:手動建單留白 = 不寄(兩半合起來才成立)', (
   it('🔴 兩半對接的那個值:E 送 null ⇒ 我這半判「不寄」', () => {
     // E 送進資料庫的是 null;view 撈出來給我的就是 null。
     // 而我的判準要的是【兩個條件】—— 來源是 manual_*, 而且信箱為空。
-    for (const src of ['manual_phone', 'manual_line', 'manual_other']) {
+    for (const src of ['manual_phone', 'manual_line', 'manual_other', 'manual_shopee']) {
       expect(suppressCustomerEmailFallback(src), src).toBe(true);
     }
     // 🟢 而顧客站那條路不得被影響 —— E 那半根本不碰它。

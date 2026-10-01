@@ -214,6 +214,7 @@ export function ManualOrderFormBody({
                   <option value='manual_phone'>電話</option>
                   <option value='manual_line'>LINE</option>
                   <option value='manual_other'>其他</option>
+                  <option value='manual_shopee'>蝦皮</option>
                 </select>
               </label>
               {/* 🆕 T2(2026-09-14):會員等級, 預設客人現在的、沒選客人 disabled(island 讀客人 radio 的 data-customer-tier)。 */}
