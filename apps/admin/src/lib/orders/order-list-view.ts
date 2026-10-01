@@ -180,6 +180,7 @@ export const ORDER_SOURCE_VALUES: readonly OrderSource[] = [
   'manual_phone',
   'manual_line',
   'manual_other',
+  'manual_shopee',
 ];
 export const PAYMENT_CHANNEL_VALUES: readonly PaymentChannel[] = [
   'tappay',
@@ -284,6 +285,7 @@ export const ORDER_SOURCE_LABEL: Record<OrderSource, string> = {
   manual_phone: '電話',
   manual_line: 'LINE',
   manual_other: '其他',
+  manual_shopee: '蝦皮',
 };
 
 export const PAYMENT_CHANNEL_LABEL: Record<PaymentChannel, string> = {

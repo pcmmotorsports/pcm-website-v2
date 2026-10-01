@@ -444,7 +444,7 @@ const LINE_BASES = [
 
 // ── 封閉值集(權威在 DB,這裡是它的 TS 複本;DB 改了要同步改這裡)──────────────
 /** `20260824020000:266`。 */
-export const MANUAL_ORDER_SOURCES = ['manual_phone', 'manual_line', 'manual_other'] as const;
+export const MANUAL_ORDER_SOURCES = ['manual_phone', 'manual_line', 'manual_other', 'manual_shopee'] as const;
 export type ManualOrderSource = (typeof MANUAL_ORDER_SOURCES)[number];
 /** 🆕 T2:`public.member_tier` enum(`20260523034911:8`)三值;RPC `admin_create_manual_order` 12 參版 `p_tier` 白名單同這三個。 */
 export const MANUAL_ORDER_TIERS = ['general', 'store', 'premiumStore'] as const;
@@ -1111,6 +1111,14 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       };
     }
     notificationEmail = parsedEmail.data;
+  }
+  // 貼板 260(Sean 2026-10-01 Q16 甲):蝦皮單完全不寄我們的信 ⇒ 通知 email 必須留白。
+  //   DB 約束 orders_shopee_no_notification_email 也會擋, 這裡先擋是為了給員工看得懂的話。
+  if (orderSource === 'manual_shopee' && notificationEmail !== null) {
+    return {
+      ok: false,
+      error: '蝦皮訂單不寄通知信。請把「通知 email」清空後再送出。',
+    };
   }
   const optionalInvoice = [
     [MANUAL_ORDER_INVOICE_CARRIER_FIELD, 'carrier', '載具'],

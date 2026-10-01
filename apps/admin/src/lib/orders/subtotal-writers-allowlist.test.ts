@@ -726,6 +726,12 @@ const ALLOWLIST = [
   //        (那正是我加的那一欄)⇒ 尺在「有差異」時會說有 ⇒ 段 2 的 0 是一個真的 0。
   //      📌 **⇒ 我差一點把一句沒跑過的話寫成證據, 而它讀起來比真的那句更嚴謹。**
   '20260905130000_m4b_mailfallback_manual_order_notification_email.sql',
+  // ── 2026-10-01 網站B agent/B-shopee-source(貼板 260 訂單來源加蝦皮 manual_shopee)──
+  // 🔴 **命中原因**:它 `CREATE OR REPLACE` 了 13 參 `admin_create_manual_order`(正式庫現行本體逐字重發, prosrc md5 cac71377…),
+  //    本體有 INSERT orders / order_items。
+  // ✅ **它改了什麼**:只有來源白名單多 'manual_shopee' 一個值;單價、小計累加、INSERT 的欄位清單一行沒動。
+  // 🔬 由拋棄式 PG 行為測試背書(可重跑 supabase/tests/database/manual_shopee_behavior.sql)。
+  '20261001150000_m4b_order_source_manual_shopee.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {

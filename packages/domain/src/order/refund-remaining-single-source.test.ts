@@ -59,6 +59,16 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-10-01 · 網站B 貼板 260(訂單來源加蝦皮 manual_shopee)──────────
+  //    登記, 不是放寬:那 2 處各在 `pcm_partially_cancelled_email_pending` 與 `pcm_cancelled_email_pending` 的本體裡
+  //    (手動退款加總), 兩支本體都是【正式庫現行定義逐字重發】(pg_get_viewdef, md5 a8b6b2c5… / 688a6fa5…),
+  //    本片只把手動來源清單多列 manual_shopee。
+  '20261001150000_m4b_order_source_manual_shopee.sql': {
+    count: 2,
+    why:
+      '正式庫 pcm_partially_cancelled_email_pending(md5 a8b6b2c5…)與 pcm_cancelled_email_pending(md5 688a6fa5…)本體逐字重發, 前置閘驗;' +
+      '唯一改動是手動來源清單多 manual_shopee, 沒有新增或改寫任何已退／可退算式。',
+  },
   // ── 2026-09-27 · 報價單窗 58 補(M-4b-01 補強, 四支碰錢 RPC 補操作人檢查;作者就是我)──────────
   //    🔴 **登記, 不是放寬** —— 判準一個字沒動, count 照這道閘自己印的「(9 處)」。
   //    ✅ 先答那一題:「這支裡的 refund_amount 是讀唯一來源, 還是自己又算了一次?」

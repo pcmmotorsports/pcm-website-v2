@@ -1195,3 +1195,27 @@ describe('⟦b4-INVOICE5PCT⟧ manualOrderPreview', () => {
     expect(out.kind === 'ok' && out.tax).toBe(1);
   });
 });
+
+describe('parseManualOrderForm:來源「蝦皮」(貼板 260, 2026-10-01 Sean Q15 甲、Q16 甲)', () => {
+  const shopee = (email: string) =>
+    base(
+      [
+        [FIELDS.source, 'manual_shopee'],
+        [FIELDS.notificationEmail, email],
+      ],
+      [FIELDS.source, FIELDS.notificationEmail],
+    );
+
+  it('蝦皮、通知 email 留白 ⇒ 收', () => {
+    const r = ok(parseManualOrderForm(shopee('')));
+    expect(r.orderSource).toBe('manual_shopee');
+    expect(r.notificationEmail).toBeNull();
+  });
+
+  it('🔴 蝦皮而通知 email 有填 ⇒ 拒, 訊息講清楚要清空(DB 約束也會擋, 但那個訊息員工看不懂)', () => {
+    const r = parseManualOrderForm(shopee('a@b.co'));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('蝦皮');
+    expect(r.ok === false && r.error).toContain('清空');
+  });
+});
