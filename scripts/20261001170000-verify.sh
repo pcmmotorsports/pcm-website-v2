@@ -62,6 +62,13 @@ cell "pcm_noncard_settle_recompute 本體" "$(Q "select md5(prosrc) from pg_proc
 
 P -f "$MIG" >/dev/null || { echo "🔴 migration 套不上"; exit 1; }
 
+echo "── 回滾來回(空資料):回滾後 6 支函式與正式庫 2026-10-01 逐字相同, 再套一次 ──"
+MD5Q="select string_agg(proname || '=' || md5(prosrc), ',' order by proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname, proname) in (('public','admin_record_manual_payment'),('public','admin_record_manual_refund'),('public','admin_today_payment_total'),('public','pcm_d3d_manual_refund_immutable'),('public','pcm_op2b_immutable_columns'),('pcm_cron','expire_unpaid_orders'))"
+P -f "$DOWN" >/dev/null 2>&1 || { echo "🔴 空資料時回滾失敗"; FAIL=1; }
+cell "回滾後函式本體 = 正式庫" "$(Q "$MD5Q")" "admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b"
+cell "回滾後新欄與新表都不在" "$(Q "select count(*) from information_schema.columns where table_schema='public' and column_name in ('payment_instrument','fee_rate','fee_amount')")|$(Q "select count(*) from pg_tables where tablename='payment_fee_rates'")" "0|0"
+P -f "$MIG" >/dev/null || { echo "🔴 回滾後再套失敗"; exit 1; }
+
 cat > "$D/tools.sql" <<'SQL'
 INSERT INTO public.staff (id, label, is_active) VALUES ('probe_q1', '測試員', true);
 CREATE TABLE public.zz_r (tag text PRIMARY KEY, res jsonb NOT NULL);
@@ -151,7 +158,9 @@ cell "蝦皮進帳大於金額 ⇒ 拒" "$(pay s3 "$O6" "$(uuid)" cash 7900 "'sh
 cell "一般單登記蝦皮進帳 ⇒ 拒" "$(pay s4 "$O3" "$(uuid)" cash 100 "'shopee'" 90)" "P0001"
 cell "非蝦皮帶進帳金額 ⇒ 拒" "$(pay s5 "$O3" "$(uuid)" cash 100 "'card_terminal'" 90)" "P0001"
 cell "刷卡配匯款 ⇒ 拒" "$(pay s6 "$O3" "$(uuid)" bank_transfer 100 "'card_terminal'" NULL)" "P0001"
-cell "訂單:蝦皮來源沒有蝦皮標記 ⇒ CHECK 擋" "$(Q "do \$x\$ begin update public.orders set payment_instrument = null where id = '$O6'; exception when check_violation then raise notice 'x'; end \$x\$; select payment_instrument from public.orders where id = '$O6'")" "shopee"
+cell "訂單:蝦皮標記配非蝦皮來源 ⇒ CHECK 擋" "$(Q "do \$x\$ begin update public.orders set payment_instrument = 'shopee' where id = '$O3'; exception when check_violation then raise notice 'x'; end \$x\$; select coalesce(payment_instrument, 'NULL') from public.orders where id = '$O3'")" "NULL"
+# Fable R1 #1:現行建單 RPC 建出來的蝦皮單沒有標記 ⇒ 這一段不可以擋(反向約束等建單 RPC 那段才收緊)
+cell "現行建單 RPC 建蝦皮來源的單照樣建得起來" "$(Q "select (public.admin_create_manual_order(public.zz_cust(), gen_random_uuid(), 'probe_q1', 'manual_shopee', 'bank_transfer', 'home', '{\"name\":\"王小明\",\"phone\":\"0912000111\",\"line\":\"台北市測試路1號\"}'::jsonb, '{\"type\":\"personal\",\"requested\":false}'::jsonb, 100, '[{\"sku\":\"Q1\",\"title\":\"測試品\",\"qty\":1,\"unit_price\":100,\"spec\":{}}]'::jsonb) ->> 'order_id') is not null")" "t"
 
 echo "── 冪等 ──"
 K="$(uuid)"; O7="$(Q "select public.zz_order(3000, 100, 'card_terminal')")"; AT="$(Q "select now()::text")"
@@ -183,12 +192,25 @@ cell "營業額函式 = 全庫收款 − 手續費 − 退款(自洽)" "$(Q "sel
 cell "營業額函式的手續費合計 = 收款表加總" "$(Q "select (r.fees = (select sum(fee_amount) from public.order_payments))::text from public.admin_revenue_between(now() - interval '1 day', now() + interval '1 day') r")" "true"
 cell "營業額函式的退款含 TapPay 已確認" "$(Q "alter table public.order_refunds disable trigger user; insert into public.order_refunds (order_id, refund_amount, status, reason, actor, request_id, confirmed_at, rec_trade_id, kind, record_refunded_before, tappay_refund_id, bank_refund_id) values ('$O4', 500, 'confirmed', '測', 'probe_q1', 'q1-r1', now(), 'TRADE-Q1-1', 'partial', 0, 'TR-Q1-1', 'BR-Q1-1'); alter table public.order_refunds enable trigger user; select (r.refunds = 1500)::text from public.admin_revenue_between(now() - interval '1 day', now() + interval '1 day') r" 2>&1 | tail -1)" "true"
 
+cell "營業額函式的退款含 TapPay 失敗但人工更正為錢已退" "$(Q "alter table public.order_refunds disable trigger user; insert into public.order_refunds (id, order_id, refund_amount, status, reason, actor, request_id, rec_trade_id, kind, record_refunded_before, bank_refund_id, failed_reason) values ('11111111-1111-1111-1111-111111111111', '$O4', 300, 'failed', '測', 'probe_q1', 'q1-r2', 'TRADE-Q1-1', 'partial', 0, 'BR-Q1-2', 'manual_failed'); alter table public.order_refunds enable trigger user; alter table public.order_refund_manual_corrections disable trigger user; insert into public.order_refund_manual_corrections (refund_id, seq, corrected_to, reason, actor, request_id) values ('11111111-1111-1111-1111-111111111111', 1, 'money_moved', '查到已退', 'probe_q1', 'q1-c1'); alter table public.order_refund_manual_corrections enable trigger user; select (r.refunds = 1800)::text from public.admin_revenue_between(now() - interval '1 day', now() + interval '1 day') r" 2>&1 | tail -1)" "true"
+cell "更正成「沒有退」⇒ 不算" "$(Q "alter table public.order_refund_manual_corrections disable trigger user; insert into public.order_refund_manual_corrections (refund_id, seq, corrected_to, reason, actor, request_id) values ('11111111-1111-1111-1111-111111111111', 2, 'no_money_moved', '其實沒退', 'probe_q1', 'q1-c2'); alter table public.order_refund_manual_corrections enable trigger user; select (r.refunds = 1500)::text from public.admin_revenue_between(now() - interval '1 day', now() + interval '1 day') r" 2>&1 | tail -1)" "true"
+
 echo "── 取不到費率:寫入成功、手續費 NULL ──"
 Q "delete from public.payment_fee_rates where fee_kind = 'tappay'" >/dev/null
 O10="$(Q "select public.zz_order(3000, 100, NULL)")"
 Q "insert into public.order_payments (order_id, rail, amount, received_at, rec_trade_id, actor) values ('$O10', 'card', 3100, now() - interval '1 minute', 'TRADE-Q1-2', 'probe_q1')" >/dev/null
 cell "沒有費率 ⇒ 寫入成功、手續費 NULL" "$(fee_of "$O10")" "NULL"
 cell "營業額函式標出 1 筆沒有費率" "$(Q "select missing_fee_count from public.admin_revenue_between(now() - interval '1 day', now() + interval '1 day')")" "1"
+P10="$(Q "select id from public.order_payments where order_id = '$O10'")"
+Q "insert into public.order_payments (order_id, rail, amount, received_at, reverses_payment_id, reversal_reason, actor) select order_id, rail, -amount, received_at, id, '測沖銷', 'probe_q1' from public.order_payments where id = '$P10'" >/dev/null
+cell "沒有費率的收款被沖銷 ⇒ 仍只算 1 筆(沖銷列不重複數)" "$(Q "select missing_fee_count from public.admin_revenue_between(now() - interval '1 day', now() + interval '1 day')")" "1"
+
+echo "── 蝦皮單不參加未收款自動取消(Sean Q42 甲)──"
+OX1="$(Q "select public.zz_order(1000, 100, 'shopee')")"; OX2="$(Q "select public.zz_order(1000, 100, NULL)")"
+Q "update public.orders set created_at = now() - interval '8 days' where id in ('$OX1', '$OX2')" >/dev/null
+Q "select pcm_cron.expire_unpaid_orders(500)" >/dev/null
+cell "蝦皮單過了 5 天仍未取消" "$(Q "select coalesce(cancelled_reason, 'not_cancelled') from public.orders where id = '$OX1'")" "not_cancelled"
+cell "對照:一般現金單過了 5 天被取消" "$(Q "select coalesce(cancelled_reason, 'not_cancelled') from public.orders where id = '$OX2'")" "payment_expired"
 
 echo "── 今日實收扣手續費 ──"
 cell "今日實收 = Σ(金額 − 手續費)" "$(Q "select (t.total = (select sum(amount - coalesce(fee_amount,0)) from public.order_payments))::text from public.admin_today_payment_total(now() - interval '1 day', now() + interval '1 day') t")" "true"

@@ -88,13 +88,16 @@ COMMENT ON COLUMN public.order_payments.fee_rate IS
 COMMENT ON COLUMN public.order_payments.fee_amount IS
   '這筆的手續費(整數元);營業額 = 金額 − 手續費。不收手續費的方式 = 0;應收而取不到費率 = NULL;蝦皮 = 訂單總額 − 蝦皮進帳(RPC 帶入)。沖銷列 = 原列的反號。';
 
--- 訂單:付款標記。付款管道都是 cash;蝦皮來源的訂單一定是蝦皮標記(Sean:選蝦皮來源, 付款方式自動變蝦皮)。
---   正式庫 2026-10-01 唯讀:manual_shopee 訂單 0 張 ⇒ 這條 CHECK 對既有資料不會失敗。
+-- 訂單:付款標記。付款管道都是 cash;有蝦皮標記就一定是蝦皮來源。
+--   🔴 這裡只收單向(標記 ⇒ 來源), 不收反向(蝦皮來源 ⇒ 一定有標記):現行 admin_create_manual_order
+--      建得出蝦皮來源的單(20261001150000)而不會寫這一欄 ⇒ 反向那條會讓建蝦皮單整張失敗(Fable R1 #1)。
+--      反向由建單 RPC 那一段(本支第二段, 等 261 貼完)改成「蝦皮來源自動帶蝦皮標記」時一起收緊。
 ALTER TABLE public.orders ADD COLUMN payment_instrument text;
 ALTER TABLE public.orders
   ADD CONSTRAINT orders_payment_instrument_check
-  CHECK ((payment_instrument IS NULL OR (payment_instrument IN ('card_terminal', 'shopee') AND payment_channel = 'cash'))
-         AND ((order_source = 'manual_shopee') = (payment_instrument IS NOT DISTINCT FROM 'shopee')));
+  CHECK (payment_instrument IS NULL
+         OR (payment_instrument = 'card_terminal' AND payment_channel = 'cash')
+         OR (payment_instrument = 'shopee' AND payment_channel = 'cash' AND order_source = 'manual_shopee'));
 COMMENT ON COLUMN public.orders.payment_instrument IS
   '付款標記:card_terminal = 刷卡(店內刷卡機);shopee = 蝦皮(只限蝦皮來源);NULL = 照 payment_channel。畫面顯示以這欄優先。';
 
@@ -1131,6 +1134,8 @@ $function$;
 -- ═══ ⑧ 營業額(Sean Q33 乙 + Q41 甲:按收款日;收到的錢 − 手續費 − 退款, 運費和稅都算在內)═══
 -- 區間 [p_from, p_to)。退款依「錢真的退出去」的時點:
 --   · TapPay 退款(order_refunds):status = 'confirmed' 且沒有作廢;時點 = 回填的發生時點, 沒有就用確認時點。
+--   · TapPay 退款失敗、但人工更正成「錢已經退出去」(failed_reason = 'manual_failed' 且最新一筆更正 corrected_to = 'money_moved'):
+--     照 pcm_order_refundable_remaining 的同一個判準算進來(Fable R1 #2);時點 = 那筆更正的時間(該列 confirmed_at 必為 NULL)。
 --   · 手動退款(order_manual_refunds):沒有作廢;時點 = occurred_at。
 --   · 待退款(order_pending_refunds)是「還沒退」, 不算。
 -- 手續費不退(Q36 甲):退款只扣退款金額, 原收款那筆的手續費照扣。
@@ -1145,7 +1150,8 @@ AS $$
   WITH pay AS (
     SELECT COALESCE(SUM(p.amount), 0)::bigint                    AS received,
            COALESCE(SUM(COALESCE(p.fee_amount, 0)), 0)::bigint   AS fees,
-           pg_catalog.count(*) FILTER (WHERE p.fee_amount IS NULL)::bigint AS missing_fee_count
+           -- 只數原列:沒有費率的收款被沖銷時, 沖銷列也是 NULL, 不要數兩次(Fable R1 nit)
+           pg_catalog.count(*) FILTER (WHERE p.fee_amount IS NULL AND p.reverses_payment_id IS NULL)::bigint AS missing_fee_count
       FROM public.order_payments p
      WHERE p.received_at >= p_from AND p.received_at < p_to
   ), ref AS (
@@ -1154,6 +1160,13 @@ AS $$
                       WHERE r.status = 'confirmed' AND r.voided_at IS NULL
                         AND COALESCE(r.backfill_occurred_at, r.confirmed_at) >= p_from
                         AND COALESCE(r.backfill_occurred_at, r.confirmed_at) <  p_to), 0)
+         + COALESCE((SELECT SUM(r.refund_amount)
+                       FROM public.order_refunds r
+                       JOIN public.order_refund_effective_verdict v ON v.refund_id = r.id
+                      WHERE r.status = 'failed'
+                        AND r.failed_reason = 'manual_failed'
+                        AND v.corrected_to = 'money_moved'
+                        AND v.created_at >= p_from AND v.created_at < p_to), 0)
          + COALESCE((SELECT SUM(m.refund_amount)
                        FROM public.order_manual_refunds m
                       WHERE m.voided_at IS NULL
@@ -1168,7 +1181,197 @@ REVOKE ALL ON FUNCTION public.admin_revenue_between(timestamptz, timestamptz) FR
 REVOKE ALL ON FUNCTION public.admin_revenue_between(timestamptz, timestamptz) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_revenue_between(timestamptz, timestamptz) TO service_role;
 COMMENT ON FUNCTION public.admin_revenue_between(timestamptz, timestamptz) IS
-  '營業額(報價單Q1 2026-10-01;Sean Q33 乙、Q41 甲):區間內收到的錢 − 手續費 − 已退出去的錢(TapPay 已確認未作廢 + 手動退款未作廢)。運費與稅都算在內;手續費不退。missing_fee_count = 應收手續費而沒有費率的收款筆數。';
+  '營業額(報價單Q1 2026-10-01;Sean Q33 乙、Q41 甲):區間內收到的錢 − 手續費 − 已退出去的錢(TapPay 已確認未作廢 + TapPay 失敗但人工更正為錢已退 + 手動退款未作廢)。運費與稅都算在內;手續費不退。missing_fee_count = 應收手續費而沒有費率的收款筆數。';
+
+-- ═══ ⑨ 蝦皮單不參加「未收款自動取消」(Sean Q42 甲;Fable R1 #3)═══
+-- 本體 = 正式庫 2026-10-01 唯讀 pg_get_functiondef 原文(prosrc md5 7e1e6764def6738440a1012cbea44f05), 只多一個條件。
+-- 回傳型別與參數不變 ⇒ CREATE OR REPLACE 保留 ACL。
+CREATE OR REPLACE FUNCTION pcm_cron.expire_unpaid_orders(p_limit integer DEFAULT 500)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_count integer;
+BEGIN
+  -- 🔴 誠實邊界(codex 關卡2):本函式**完全信任 `orders.created_at`**,而那一欄沒有不可變守門 ——
+  --    owner / migration 把它回填成舊日期,新單會提早被取消;改成未來,則永遠掃不到。
+  --    不加守門的理由:owner 本來就能繞過任何 DB 層防線,為此加欄位級 trigger 的代價大於收益。
+  -- p_limit fail-safe:NULL / <=0 一律退回 1(不接受「無上限」;0-worker 會靜默不處理)。
+  -- ⚠️ 誠實邊界(codex 關卡2 nit):`LIMIT` 限的是**改幾列**,不是**掃幾列** —— 歷史 paid/failed 單一多,
+  --    找候選的掃描成本仍會長,且本函式沒有 statement_timeout。現況存量 0、每小時一次 ⇒ 可接受;
+  --    真的長起來時的修法 = 對 (payment_status, cancelled_at, created_at) 加部分索引 + 設 statement_timeout。
+  IF p_limit IS NULL OR p_limit <= 0 THEN
+    p_limit := 1;
+  END IF;
+
+  WITH target AS (
+    SELECT o.id
+      FROM public.orders o
+     WHERE o.payment_status = 'unpaid'::public.payment_status
+       AND o.cancelled_at IS NULL                                    -- 已取消/已失效 → 不重複寫(冪等)
+       -- 🔴🔴 **2026-09-03 依 payment_channel 分流**(Sean 本人逐字回「乙 5天」)。
+       --    ⛔ ~~原本是無條件 `interval '1 day'`~~ —— 而那一行**沒有濾 payment_channel**
+       --      ⇒ 員工手動建的匯款單(`admin_create_manual_order` 只收 bank_transfer/cash)
+       --        1 天後就被殺掉, 而**匯款常要 1-3 天**。
+       --    📌 **而這不是有人忘了改** —— `20260809160000:66-69` 那一節標題逐字
+       --      「重估觸發(Sean 拍板時逐字要求寫死在規格裡)」, 內容逐字
+       --      「開放匯款付款時『1 天』**必須重看** … **1 天會把正常等匯款的單殺掉**」
+       --      ⇒ 🎯 **那是一個【自己寫下失效條件】的數字, 而今天正是那個條件。**
+       -- 🛑 **白名單, 不是黑名單** —— 只有【明列的三種】會被自動失效。
+       --    ⇒ `none` 與**任何未來新增的 channel** 一律【不失效】。
+       -- 🔴🔴 ⛔ ~~原本這兩行寫「只有這兩種」「`cash` / `none` 一律不失效」~~ **作廢** ——
+       --    那是 Sean 補拍 cash 之前的殘留, 而我改了碼沒改它(code-reviewer C1 抓)。
+       --    ⇒ 📌 **它會被寫進正式庫的 `prosrc`** ⇒ 下一個 `\df+` 開這支函式的人讀到的是假的。
+       --    🎯 而那正是本檔自己在講的病:**一句話在兩個世界是同一個字串。**
+       --    🔴 理由是不對稱的:**不失效是可逆的**(人可以手動取消),
+       --      **失效是不可逆的**(那張單就沒了, 而客人今天連取消信都收不到)。
+       --    🔴 `cash` = **5 天**(Sean 2026-09-03 逐字「甲 跟匯款一樣 5 天」)——
+       --      ⚠️ 我原本刻意留白不敢比照, 而他自己答了。**現在它是拍板不是推論。**
+       --    🛑🛑 **`none` 【明列排除】, 而它不是漏掉的** —— 那個值在 CHECK 裡合法
+       --      (`20260712203000:51`)、而**今天沒有任何寫入端會寫它**, 也沒有人談過它該怎樣。
+       --      ⇒ 🔴 **若寫成「其餘 ⇒ 5 天」, `none` 會靜靜地拿到一個沒有人決定過的行為。**
+       --      ⇒ ✅ 所以這裡是**白名單明列三種**;`none` 與任何未來新 channel ⇒ **不失效**
+       --        (不失效可逆 · 失效不可逆 ⇒ 不對稱)。`none` 要怎樣**待拍板**。
+       --    🔴 **而「有人開始寫它的那天要回來看」不是一句提醒, 它有一個可機械跑的訊號**:
+       --      `SELECT count(*) FROM public.orders WHERE payment_channel = 'none'` **> 0**
+       --      ⇒ 📌 今天它是 0(零寫入端)⇒ **那個 0 就是「這條規則還沒承重」的意思**;
+       --        它變成非 0 的那一天, 這一格的「不失效」才第一次真的擋到東西。
+       --    🔵 `payment_channel` 是 `NOT NULL DEFAULT 'tappay'` ⇒ 沒有 NULL 那一格要處理。
+       AND o.payment_channel IN ('tappay', 'bank_transfer', 'cash')
+       -- 報價單Q1 2026-10-01(Sean Q42 甲「新增『蝦皮』。不會因為逾期被自動取消」):蝦皮撥款常晚於 5 天,
+       --   而取消之後現金單補登會被拒(P2B54)⇒ 蝦皮進帳會永遠登不進去。蝦皮單一律不參加這支掃描。
+       AND o.order_source IS DISTINCT FROM 'manual_shopee'
+       -- 🔴🔴 **2026-09-06 日界(Sean 逐字「乙」:「第 5 天整天都算, 隔天 00:00 才取消」)**
+       --    ⛔ ~~原本是 `AND o.created_at < pg_catalog.now() - CASE o.payment_channel …`~~ **作廢** ——
+       --      那是**時戳比較** ⇒ 9/5 12:00 下單的匯款單, 9/10 12:00 之後任一整點就可能被取消,
+       --      而客人畫面上寫的是「9 月 10 日(**含**)之前」
+       --      (`packages/domain/src/order/remittance-info.ts:127` 逐字 `請於 ${label}(含)之前完成匯款,逾期訂單將自動取消。`)
+       --      ⇒ 📌 **文案與述詞在【第 5 天當天下午】那一段是矛盾的, 而兩邊各自都讀得通。**
+       --    ✅ 現在的判準:**下單那一天(台北日曆日)+ N 天 + 1 天的 00:00(台北)**。
+       --      驗算 N=5:9/5 任何時刻下單 ⇒ 日曆日 9/5 ⇒ +5 天 = 9/10 ⇒ +1 天 = **9/11 00:00 取消**
+       --      ⇒ 9/10 整天有效 ⇒ 與畫面上那一句逐格對齊。
+       -- 🛑 **`tappay` 不在下面那個 CASE 裡, 而那是刻意的**(主視窗 `-f8` 2026-09-06 裁【甲】):
+       --    ① Sean 那題的主詞是**匯款**, 刷卡沒有「(含)之前」那句話可以對齊
+       --    ② 刷卡棄單多活 24h 會多佔住「同車只能有一張活單」那道守門(⟦b4-BANKCARDRACE⟧ / 20260906500000)
+       --    ③「不改」= 現況 = 不需要任何人拍板;「改」才是新行為。
+       --    ⇒ 🔵 `tappay` 走 THEN 那一支, 維持原本的時戳比較。
+       -- 🔵 **新界不早於舊界 —— 而這句話有【射程】, 不是全稱**(codex R1 #12/#13 打回第一版)
+       --    量到的:2026-09-06 對正式庫跑純運算式 SELECT(唯讀零寫入, `scripts/readonly-prod-sql.sh`),
+       --    六個 2026 年的下單時刻 ⇒ `新界 − 舊界` 全為正:
+       --    00:00 ⇒ `1 day` · 00:01 ⇒ `23:59:00` · 12:00 ⇒ `12:00:00` · 23:59 ⇒ `00:01:00`
+       --    · 2026-03-01 07:30 ⇒ `16:30:00` · 2026-12-31 22:15 ⇒ `01:45:00`
+       --    ⛔ ~~原本寫「**沒有任何一張單**會提早被取消」「最多多活 24 小時」~~ **作廢** ——
+       --      🔴 那是**全稱句**, 而它在【下單當天到期日之間有日光節約轉換】時不成立:
+       --        台灣 1945-1961 年實施過夏令時間 ⇒ 那種輸入下新界可比舊界**早 30 分鐘**
+       --        (codex R1 構造出 `1946-05-10` 那一發)。
+       --    ✅ 正確字面:**`新界 − 舊界 = 1 天 − 下單當天的時刻`, 前提是那段區間內台北沒有 UTC 偏移變動。**
+       --      🔵 台灣**自 1980 年起沒有再實施夏令時間** ⇒ 對 `orders.created_at` 的實際取值域
+       --        (2026 年)這個前提成立;而**它是前提不是定理**, 未來若恢復 DST 要回來看這一格。
+       --    🟢 同一發的正對照:六列邊界表兩欄都同時出現 t 與 f;🔵 負對照:channel 餵 NULL ⇒ 兩欄皆非 t。
+       -- ⚠️ 代價明寫:`created_at` 被包進函式 ⇒ 比舊版更難用索引。現況存量小(正式庫 orders 2 列)、
+       --    每小時一次(`20260809170000:77` 逐字 `'0 * * * *'`)⇒ 可接受。真的長起來時的修法 =
+       --    加前置粗篩 `AND o.created_at < pg_catalog.now() - interval '1 day'`(對所有可取消的列恆真 ⇒ 不改語意)。
+       --    **本片不加** —— 為一個量不到的問題付複雜度。
+       -- 🛑 內層 CASE **沒有 ELSE** ⇒ 白名單以外的 channel 會得到 NULL ⇒ `now() >= NULL` 是 NULL
+       --    ⇒ **不取消**。方向與上面那條白名單一致:不失效可逆, 失效不可逆。
+       AND CASE o.payment_channel
+             WHEN 'tappay' THEN o.created_at < pg_catalog.now() - interval '1 day'  -- 🔵 逐字不動(Sean 2026-08-09「1天」)
+             ELSE pg_catalog.now() >= pg_catalog.timezone(
+                    'Asia/Taipei',
+                    pg_catalog.date_trunc('day', pg_catalog.timezone('Asia/Taipei', o.created_at))
+                      + CASE o.payment_channel
+                          WHEN 'bank_transfer' THEN interval '5 days'   -- 🔴 Sean 2026-09-03 逐字「乙 5天」
+                          WHEN 'cash'          THEN interval '5 days'   -- 🔴 Sean 2026-09-03 逐字「甲 跟匯款一樣 5 天」
+                        END
+                      + interval '1 day'                                -- 🔴 Sean 2026-09-06 逐字「隔天 00:00 才取消」
+                  )
+           END
+       --    ⚠️ 那份 memory 內部編號 Q2 指的是天數,與本 plan §6 的 Q2「失效單不復活」是**不同的兩題**,別混)。
+       --    重估觸發見檔頭。
+       -- 🔴 安全核心:有任何非終態 attempt = 錢可能在途 ⇒ 一律不碰(留給對帳/人工)。
+       --    條件與 admin_cancel_order 步7 逐字相同 ⇒ 兩個寫入端維持同一條不變量。
+       --    ⚠️ 代價(code-reviewer N7):`released` 也被這條擋住 ⇒ **帶 released attempt 的單永遠不會被失效**。
+       --    這是保守的正確選擇(released = 鎖已釋、仍在低頻對帳到 terminal),但它意味著那類單
+       --    **在本片之後仍然沒有終點** —— 那正是 Q7/L5 要處理的「放棄型」殭屍,不在件① 範圍。
+       AND NOT EXISTS (
+             SELECT 1 FROM public.payment_charge_attempts a
+              WHERE a.order_id = o.id
+                AND a.status <> 'failed'
+           )
+       -- 🔴🔴 ⟦b4-NONCARDPAID1⟧ 新增的那一句(本片對 20260903080000 的【唯一】行為差異)。
+       --    已收淨額 > 0 的單不取消 —— 客人錢已經進來了, 而狀態沒翻上去。
+       -- 🔵 為什麼 `SUM(amount)` 就是淨額, 不必外接「哪些被沖掉了」:
+       --    `order_payments` 是 append-only, 沖銷 = 插一列**反號**
+       --    (`20260810100000_m4b_e10_op1_order_payments_m.sql:199` 逐字
+       --     `amount integer NOT NULL CHECK (amount <> 0)`, 檔內 A10 拍板段
+       --     逐字「P(+500)+R1(-500)+R2(+500) = 500」)⇒ 沖銷回 0 的單**恢復可取消**。
+       -- 🛑 而它與上面那道 trigger 是**兩層不同的保護, 不是重複**:
+       --    trigger 讓收到錢的單自己離開 `unpaid` 集合 ⇒ 涵蓋 verdict = settled / underpaid;
+       --    這一句涵蓋 trigger **刻意不翻**的那兩種(overpaid / needs_human)——
+       --    那兩種的錢一樣進來了, 而它們仍然是 `unpaid`。
+       --    ⇒ 📌 少了這一句, 「不翻是安全的」這句話**不成立**。
+       AND (
+             SELECT coalesce(pg_catalog.sum(p.amount), 0)
+               FROM public.order_payments p
+              WHERE p.order_id = o.id
+           ) <= 0
+     ORDER BY o.created_at                                            -- 最舊的先處理(可預期、便於分批)
+     LIMIT p_limit
+     -- 🔴 字面精確(codex 關卡2 nit):SKIP LOCKED 只保證**本函式**跳過已被別人鎖住的列;
+     --    若本函式先拿到鎖,後來的 admin 仍會等。稱「互不阻塞」不實,實際是「本函式不等別人」。
+     FOR UPDATE OF o SKIP LOCKED
+  )
+  UPDATE public.orders o
+     SET cancelled_at     = pg_catalog.now(),
+         cancelled_reason = 'payment_expired',
+         updated_at       = pg_catalog.now()
+    FROM target t
+   WHERE o.id = t.id;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  -- 🔴 觀測點(plan §4-6 驗收條件):每次執行都留一行,零 PII(只有筆數與上限)。
+  --    沒有它的話,「掃到 0 筆」與「這支根本沒被呼叫」在 DB 側分不出來 ——
+  --    而 cron.job_run_details 的 return_message 對 SELECT 只會記 command tag、不記筆數。
+  RAISE LOG '[expire_unpaid_orders] expired=% limit=%', v_count, p_limit;
+
+  -- ══ ⟦b4-CRON6⟧ 片2 新增:成功心跳 ═════════════════════════════════════════
+  -- 🔴🔴 **那個 EXCEPTION 子區塊是本片的重點,不是防禦性裝飾。**
+  --    沒有它:心跳表出任何問題(被鎖住 / 被 TRUNCATE / 欄位被改名)⇒ 整個函式拋錯
+  --    ⇒ **那一小時的訂單不會被取消** ⇒ 監控把被監控的弄死。
+  --    📌 而那正是本檔檔頭那段話要防的事 —— 它差一點由這片自己實現。
+  -- ⚠️ 代價明寫:心跳寫失敗時**只留一行 WARNING**,而心跳會開始變舊 ⇒ 後台那一列會亮。
+  --    那是**假陽性,而方向是對的**(叫比不叫好),**不得**被讀成「這裡不會出錯」。
+  -- 🔴🔴 **而「心跳寫不出去不影響本輪取消」有一個【真的例外】**(codex R1 must-fix ②):
+  --    這一列**被別人鎖住**時不會立刻拋錯,它會**等** —— 而此時 orders 那半已經改完。
+  --    若這一等撞上 statement_timeout 或人工 cancel(SQLSTATE 57014),
+  --    🔴 `EXCEPTION WHEN OTHERS` 依 PostgreSQL 定義**不接** query cancel
+  --    ⇒ 例外冒出去 ⇒ **整輪取消一起 rollback**。
+  --    ⇒ 正確字面:**心跳自己【出錯】不影響本輪;心跳【被卡住】+ 被取消,會拖垮本輪。**
+  --    ⚠️ 本片**沒有修掉這條路**(要動 upsert 的鎖策略,那是另一片)。它是已知殘留風險。
+  -- 🔴 只寫成功那三欄;**失敗那一欄一個字都不碰**(理由見檔頭:寫不出去,不是懶得寫)。
+  --    ⚠️ 這句刻意不寫出那個欄名 —— 見檔頭「3d 這把尺分不出碼與註解」那段。
+  -- 🔴 用 `clock_timestamp()` 不用 `now()`(codex R1 must-fix ③):
+
+  --    `now()` 是**交易起始時間** ⇒ 一個 10:00 開始而跑很久的交易,會用 10:00 蓋掉
+  --    另一個 10:05 已經寫好的心跳 ⇒ **`last_success_at` 會倒退**,而畫面上只是「比較舊」。
+  --    心跳要的是**觀測時刻**,不是交易時刻。
+  -- 🔴 而光換函式不夠,`GREATEST` 那半才是真正擋倒退的(晚到的舊值不得覆蓋新值)。
+  BEGIN
+    INSERT INTO public.sweeper_heartbeat (job_name, last_success_at, consecutive_failures, updated_at)
+    VALUES ('pcm-expire-unpaid-orders', pg_catalog.clock_timestamp(), 0, pg_catalog.clock_timestamp())
+    ON CONFLICT (job_name) DO UPDATE
+      SET last_success_at      = GREATEST(public.sweeper_heartbeat.last_success_at, excluded.last_success_at),
+          consecutive_failures = 0,
+          updated_at           = GREATEST(public.sweeper_heartbeat.updated_at, excluded.updated_at);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[expire_unpaid_orders] 心跳寫入失敗(本輪取消不受影響):%', SQLERRM;
+  END;
+
+  RETURN v_count;
+END;
+$function$;
 
 -- ═══ 收權斷言:新建的 6 個可授權物件(1 張表 + 5 支函式)═══
 DO $acl$
