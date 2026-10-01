@@ -28,8 +28,14 @@ import type { AddressChoice } from '@/lib/customers/manual-order-address';
 //    兩顆鈕的理由與四輪審查全文在 git log(本檔 2026-08-28、09-06 那幾片)。
 
 export function ManualOrderShipTo({
+  source,
+  beforePhone,
   customer,
 }: {
+  /** 收件資料最上面:訂單來源下拉(2026-10-01 建單簡化 S4)。由表單本體塞進來, 欄位定義留在那裡。 */
+  source?: ReactNode;
+  /** 收件電話正上方的位置:網站B 的「蝦皮帳號」之後放這裡(只在來源是蝦皮時出現;計畫第 7 節)。目前沒有人傳。 */
+  beforePhone?: ReactNode;
   /** 收件電話下面那一小塊:自動找到的客人、換一位客人(`manual-customer-picker.tsx`)。由表單本體塞進來。 */
   customer?: ReactNode;
 } = {}) {
@@ -174,6 +180,7 @@ export function ManualOrderShipTo({
   return (
     <fieldset ref={rootRef} className={MANUAL_SECTION}>
       <legend className={MANUAL_SECTION_LEGEND}>收件資料</legend>
+      {source}
 
       {notice && (
         <p role='status' data-testid='manual-order-ship-to-notice' className='text-xs text-amber-700'>
@@ -232,6 +239,7 @@ export function ManualOrderShipTo({
         required
         className={MANUAL_FIELD_INPUT}
       />
+      {beforePhone}
       <input
         name={MANUAL_ORDER_SHIP_TO_PHONE_FIELD}
         autoComplete='off'

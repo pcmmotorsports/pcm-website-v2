@@ -1,20 +1,8 @@
-import { InvoiceTitleLookupButton } from './invoice-title-lookup-button';
+import { ManualOrderInvoiceFields } from './manual-order-invoice-fields';
 import {
   MANUAL_ORDER_IN_PANEL_FIELD,
   MANUAL_ORDER_IN_DIALOG_VALUE,
-  MANUAL_ORDER_INVOICE_CARRIER_FIELD,
-  MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD,
-  MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
-  MANUAL_ORDER_INVOICE_TITLE_FIELD,
-  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
-  MANUAL_ORDER_INVOICE_TYPE_FIELD,
-  MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
-  MANUAL_ORDER_SHIPPING_FEE_FIELD,
-  MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD,
-  MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
-  MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
-  MANUAL_ORDER_SHIPPING_METHOD_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import { ManualCustomerPicker } from './manual-customer-picker';
@@ -25,20 +13,14 @@ import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import type { ManualOrderContainer } from '@/lib/orders/manual-order-action-state';
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
-import { ManualOrderTierSelect } from './manual-order-tier-select';
+import { ManualOrderPaymentFields } from './manual-order-payment-fields';
 import { ManualOrderNotificationEmail } from './manual-order-notification-email';
 import { ManualOrderVehicleField } from './manual-order-vehicle-field';
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
 import { ManualOrderShipTo } from './manual-order-ship-to';
-import {
-  MANUAL_FIELD_GRID,
-  MANUAL_FIELD_INPUT,
-  MANUAL_FIELD_LABEL,
-  MANUAL_SECTION,
-  MANUAL_SECTION_LEGEND,
-} from './manual-order-field-classes';
+import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL } from './manual-order-field-classes';
 
 // manual-order-form-body.tsx — M12-A3-b:手動建單表單本體(客人 / 經手人 / 收件 / 發票 / 運費)。
 // ⛔ ~~🔴 **品項那一列不在本片**(A3-c)。本片先讓「一張沒有品項的單」在畫面上成立…~~
@@ -175,7 +157,25 @@ export function ManualOrderFormBody({
                    ⇒ `parseManualOrderForm()` 與 RPC 那一側**零改動**。 */}
             {/* 2026-10-01(Sean Q24 甲):客人那一塊搬進收件資料、放在收件電話下面 ——
                 仍在這個 `disabled` fieldset 裡面(沒有員工 ⇒ 連找客人 / 建客人都停用, 上面那段的契約不變)。 */}
-            <ManualOrderShipTo customer={<ManualCustomerPicker customerRequestId={customerRequestId} />} />
+            {/* 2026-10-01 建單簡化(Sean Q1 甲, S4):「訂單來源」搬到收件資料最上面 ——
+                選「蝦皮」時, 收件電話上方之後會多一格蝦皮帳號(網站B 的計畫, `beforePhone` 那個位置), 兩者在同一個視線範圍。
+                🔴 name 與 option 一個字不動;蝦皮鎖通知 email 那支用欄位名找這個下拉, 搬位置不影響。 */}
+            <ManualOrderShipTo
+              source={
+                <label className={MANUAL_FIELD_LABEL}>
+                  訂單來源
+                  <select
+                    autoComplete='off'
+                    name={MANUAL_ORDER_SOURCE_FIELD} className={MANUAL_FIELD_INPUT}>
+                    <option value='manual_phone'>電話</option>
+                    <option value='manual_line'>LINE</option>
+                    <option value='manual_other'>其他</option>
+                    <option value='manual_shopee'>蝦皮</option>
+                  </select>
+                </label>
+              }
+              customer={<ManualCustomerPicker customerRequestId={customerRequestId} />}
+            />
               {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
                   🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,
                      這一格講「寄到哪」—— 兩件事, 不要哪天一起收合起來。
@@ -186,9 +186,6 @@ export function ManualOrderFormBody({
                      ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
               {/* 2026-10-01:搬成一支小 client 元件 —— 選「蝦皮」時清空並鎖住(貼板 260, Sean Q16 甲)。 */}
               <ManualOrderNotificationEmail />
-              {/* 🆕 #956 乙(Sean 2026-09-14 拍;圖 956-B-一格.png):車輛一格, 左欄最底(圖上在通知 email 下面)。
-                  留白 = 沒填(合法, RPC 第 13 參 DEFAULT NULL)。 */}
-              <ManualOrderVehicleField />
             </div>
             <div className='space-y-4'>
 
@@ -198,149 +195,27 @@ export function ManualOrderFormBody({
                 畫面說 Alice、帳上寫 Bob** ⇒ 一個會說謊的欄位比沒有欄位糟。
                 ⇒ 要顯示經手人的話,值必須來自 `getSessionActor()` 那一個來源;那是另一片。 */}
 
-            <div className={MANUAL_FIELD_GRID}>
-              <label className={MANUAL_FIELD_LABEL}>
-                訂單來源
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SOURCE_FIELD} className={MANUAL_FIELD_INPUT}>
-                  <option value='manual_phone'>電話</option>
-                  <option value='manual_line'>LINE</option>
-                  <option value='manual_other'>其他</option>
-                  <option value='manual_shopee'>蝦皮</option>
-                </select>
-              </label>
-              {/* 🆕 T2(2026-09-14):會員等級, 預設客人現在的、沒選客人 disabled(island 讀客人 radio 的 data-customer-tier)。 */}
-              <ManualOrderTierSelect />
-              <label className={MANUAL_FIELD_LABEL}>
-                付款方式
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}
-                  className={MANUAL_FIELD_INPUT}
-                >
-                  <option value='bank_transfer'>匯款</option>
-                  <option value='cash'>現金</option>
-                </select>
-              </label>
-              <label className={MANUAL_FIELD_LABEL}>
-                取貨方式
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SHIPPING_METHOD_FIELD}
-                  className={MANUAL_FIELD_INPUT}
-                >
-                  <option value='home'>宅配</option>
-                  <option value='store'>門市自取</option>
-                </select>
-              </label>
-              <label className={MANUAL_FIELD_LABEL}>
-                運費
-                <input
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SHIPPING_FEE_FIELD}
-                  inputMode='numeric'
-                  defaultValue='0'
-                  className={MANUAL_FIELD_INPUT}
-                />
-              </label>
-              {/* ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費也要說是未稅還是含稅。
-                  🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時沒有人宣告過稅基,
-                     而 RPC 一律當未稅再加 5% ⇒ 員工填一個含稅的 105, 稅就多算 5 元,
-                     **而每一筆都長得很正常**。
-                  🔵 形狀**照抄** `manual-order-lines.tsx:264-277` 那一格(`select` 兩個 option,
-                     預設 `untaxed`)—— 不自己發明第二種寫法。
-                  🔴 `autoComplete='off'` 不可省:`select` 也會被瀏覽器 autofill, 而
-                     `manual-order-form-body.test.tsx` 有一道**分母守門**在數同表單的控制項。
-                  🛑 **換算不在這裡做** —— 這一格只是宣告, 換算在 `parseManualOrderForm()` 裡
-                     (同品項那一格的理由:兩邊各算一次, 員工看到的與進 DB 的就有兩個來源)。 */}
-              <label className={MANUAL_FIELD_LABEL}>
-                運費是未稅還是含稅
-                <select
-                  autoComplete='off'
-                  name={MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD}
-                  defaultValue={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}
-                  className={MANUAL_FIELD_INPUT}
-                >
-                  <option value={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}>未稅</option>
-                  <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
-                </select>
-              </label>
-            </div>
 
-            <fieldset className={MANUAL_SECTION}>
-              <legend className={MANUAL_SECTION_LEGEND}>發票</legend>
-              {/* 🔴🔴 **這顆勾選與下面那五格是【兩件事】**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;
-                  Sean 第十八題拍甲):下面五格講「**開的話抬頭寫誰**」, 這一顆講「**開不開**」。
+            {/* 2026-10-01 建單簡化(Sean Q1 甲, S3):會員等級 / 付款 / 取貨 / 運費 / 運費稅別搬成一支元件、重排。
+                欄位名與 defaultValue 一個字不動;報價單Q1 之後要在這一組加「刷卡」與蝦皮進帳, 改那一支就好。 */}
+            <ManualOrderPaymentFields />
 
-                  🔴 **前面那個 hidden 不是多餘的** —— HTML 的 checkbox **沒勾時整個欄位不會出現**
-                  ⇒ 解析端讀到的空白, 與「**這個表單版本根本沒有這一格**」是同一個東西。
-                  ⇒ 📌 而那兩個世界的正確結果**相反**(一個是「他決定不開」, 一個是「我不知道」)。
-                  ⇒ ✅ 同名 hidden 讓那個欄位**永遠存在** ⇒ 三個世界真的分得開。
-                  ⚠️ **順序不可調**:hidden 要在 checkbox **前面** —— 解析端取的是**最後一個值**。
-
-                  🟢🟢 **[2026-09-05 Sean 拍了 —— 這一整段的前提換掉了]**
-                  ⛔ ~~`defaultChecked`(預設打勾)這件事【沒有被 Sean 拍過】~~ ⇒ **他拍了。**
-                  逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md` §E 第 23 題):
-                  **「預設不勾選,也就是預設不開發票」** ⇒ ✅ 所以 `defaultChecked` 拿掉。
-
-                  🔴 **而【拿掉它會改變既有行為】, 這一格要說清楚**:
-                  `orders.invoice_requested` 的 DB DEFAULT 是 `true`, 而本表單**顯式送值**
-                  ⇒ 送 `off` ⇒ 存 `false`。**不是走 DEFAULT。**
-                  ⇒ 📌 **今天之後建的手動單預設不開發票, 而它與舊單不同。**
-                  ⚠️ 舊單一律 `true`, 本片**不回頭改任何一列**。
-
-                  🛑 **而原本那段的擔憂【反過來了】, 一併記下來**:
-                  原文寫「員工沒注意到這一格 ⇒ 會多開一張發票」;
-                  改成預設不勾之後, 沒注意到的後果變成 **⇒ 該開的沒開**。
-                  ⇒ **兩種都是錢, 而 Sean 選了後者 —— 那是他的生意判斷, 不是我們的。**
-                  📎 舊字面(含那段「本片不代他決定」)已被本段取代;歷史在 git。 */}
-              <label className='flex items-center gap-2 text-sm'>
-                <input type='hidden' name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD} value='off' />
-                <input
-                  type='checkbox'
-                  autoComplete='off'
-                  name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD}
-                />
-                <span>這張單要開發票</span>
-              </label>
-              <select
-                autoComplete='off'
-                name={MANUAL_ORDER_INVOICE_TYPE_FIELD}
-                className={MANUAL_FIELD_INPUT}
-              >
-                <option value='personal'>個人</option>
-                <option value='company'>公司</option>
-                <option value='donate'>捐贈</option>
-              </select>
-              <input
-              autoComplete='off'
-              name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className={MANUAL_FIELD_INPUT} />
-              <input
-              autoComplete='off'
-              name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className={MANUAL_FIELD_INPUT} />
-              <input
-              autoComplete='off'
-              name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className={MANUAL_FIELD_INPUT} />
-              {/* 🔵 ⟦b4-INVOICE5PCT⟧三:Sean 2026-09-10 拍乙 —— 真的自動帶入。
-                  而它為什麼不與品項列那條不變式衝突, 寫在該元件檔頭(受詞不同:文字 vs 錢)。 */}
-              <InvoiceTitleLookupButton />
-              <input
-            autoComplete='off'
-            name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className={MANUAL_FIELD_INPUT} />
-            </fieldset>
+            {/* 發票那一組 2026-10-01 搬成 client 元件:勾了才展開, 依發票類型只出對應的格子(Sean 建單簡化 Q3 甲)。
+                收起只是看不到, 每一格都還在、照樣送出;`invoice_requested` 那一對的理由搬到該檔檔頭。 */}
+            <ManualOrderInvoiceFields />
+            {/* 🆕 #956 乙(Sean 2026-09-14 拍):車輛一格, 留白 = 沒填(合法, RPC 第 13 參 DEFAULT NULL)。
+                2026-10-01 建單簡化(S2/S3):預設收起, 搬到右欄發票下面(草稿乙)。 */}
+            <ManualOrderVehicleField />
             </div>
           </div>
 
           {/* 🔴 品項在收件與發票**之後** —— 員工的動線是「先確認是誰、寄到哪」再逐項打單。
               ⚠️ 這一格沒有稿可以對(OD 那份是訂單【明細】不是【建單】)⇒ 這是我的判斷,不是照稿。 */}
           {/* 🔴 查商品排在品項列【上面】 —— 員工的動線是「先查到資料, 再往下填」。
-              🛑 而它**不會幫他填** —— 那是 Sean 2026-08-31 拍的丙:
-                 查到的顯示在旁邊, 他自己抄。理由(那道用一次誤送整單取消換來的不變式)
-                 寫在 `manual-order-catalog-lookup.tsx` 檔頭, 不在這裡重複。 */}
-          <ManualOrderCatalogLookup />
-
-          <ManualOrderLines />
+              2026-10-01 建單簡化(Sean Q2 甲, S5):搬進「品項」卡片最上面。
+              🛑 而它**不會幫他填既有的列** —— Sean 2026-08-31 拍的丙;點查到的那一列是「加成一列」(09-06)。
+                 理由寫在 `manual-order-catalog-lookup.tsx` 檔頭, 不在這裡重複。 */}
+          <ManualOrderLines lookup={<ManualOrderCatalogLookup />} />
 
           {/* 🔵 ⟦b4-INVOICE5PCT⟧ ①+④(Sean 2026-09-10 拍 §4-c 丙)——
               **勾發票的當下,數字當場變**(1100 ⇒ 1155),而不必建完單進訂單頁才看得到。

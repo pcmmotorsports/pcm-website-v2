@@ -1375,3 +1375,24 @@ describe('換一位客人 ⇒ 找不到 ⇒ 改用收件電話找客人(Fable 4b
     );
   });
 });
+
+describe('版面:剛好一位已連結時排成一行(建單簡化 S4)', () => {
+  it('名字旁邊寫「已連結」, 狀態句仍給輔助科技讀', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+    await act(async () => {
+      fireEvent.input(screen.getByLabelText('收件人電話'), { target: { value: '0912345678' } });
+      fireEvent.focusOut(screen.getByLabelText('收件人電話'));
+    });
+    expect(screen.getByTestId('manual-customer-candidates').dataset.compact).toBe('1');
+    expect(screen.getByRole('radio', { name: /王小明.*已連結/ })).toBeTruthy();
+    expect(screen.getByTestId('manual-customer-auto').className).toContain('sr-only');
+  });
+});
