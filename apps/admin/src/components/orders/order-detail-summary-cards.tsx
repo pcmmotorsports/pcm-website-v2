@@ -36,7 +36,7 @@ import {
   PAYMENT_STATUS_LABEL,
   GOODS_AXIS_LABEL,
   ORDER_SOURCE_LABEL,
-  PAYMENT_CHANNEL_LABEL,
+  paymentMethodDisplayLabel,
   formatOrderAmount,
   INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
 } from '../../lib/orders/order-list-view';
@@ -306,7 +306,7 @@ export function OrderInfoCards({ detail }: { detail: AdminOrderDetail }) {
           <Field label='出貨狀態' value={<GoodsAxisValue detail={detail} />} />
           <Field
             label='來源 · 管道'
-            value={`${ORDER_SOURCE_LABEL[detail.orderSource]} · ${PAYMENT_CHANNEL_LABEL[detail.paymentChannel]}`}
+            value={`${ORDER_SOURCE_LABEL[detail.orderSource]} · ${paymentMethodDisplayLabel(detail.paymentChannel, detail.paymentInstrument)}`}
           />
           {/* 貼板 261(Sean 2026-10-01 蝦皮帳號 Q2、Q4 甲):蝦皮單才出這兩格;沒填印「—」(Field 的 null)。
               帳號是建單當下的快照, 客人之後換帳號這裡不變。 */}
