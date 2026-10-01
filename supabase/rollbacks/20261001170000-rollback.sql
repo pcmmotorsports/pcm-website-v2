@@ -2236,6 +2236,26 @@ ALTER TABLE public.order_payments DROP COLUMN fee_rate;
 ALTER TABLE public.order_payments DROP COLUMN payment_instrument;
 DROP TABLE public.payment_fee_rates;
 
+-- 正對照:還原後 8 支函式 = 正式庫 2026-10-01 貼前版本(與遷移前置閘鎖的值相同);不同就整筆停。
+DO $post$
+DECLARE v_got text;
+BEGIN
+  SELECT pg_catalog.string_agg(p.proname || '=' || pg_catalog.md5(p.prosrc), ',' ORDER BY p.proname) INTO v_got
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE (n.nspname, p.proname) IN (('public','admin_create_manual_order'), ('public','admin_list_order_payments'),
+                                    ('public','admin_record_manual_payment'), ('public','admin_record_manual_refund'),
+                                    ('public','admin_today_payment_total'), ('pcm_cron','expire_unpaid_orders'),
+                                    ('public','pcm_d3d_manual_refund_immutable'), ('public','pcm_op2b_immutable_columns'));
+  IF v_got IS DISTINCT FROM
+     'admin_create_manual_order=8e1005fa67086c1e0ecca8216312e9f3,admin_list_order_payments=38fcf5f1e5021cf8e98c4a3b643894ad,'
+     'admin_record_manual_payment=be85108ca0b8296531f25246083491c8,admin_record_manual_refund=71ac9c1313a3d41fcb0c92eeaf1cbcb1,'
+     'admin_today_payment_total=0eb2a625cbfd2162807be57153043c32,expire_unpaid_orders=7e1e6764def6738440a1012cbea44f05,'
+     'pcm_d3d_manual_refund_immutable=942a79bbd5026d87d01614d2f02aa677,pcm_op2b_immutable_columns=942be0ed1c8d87c2a4e43e66f679314b' THEN
+    RAISE EXCEPTION '回滾 262 正對照:還原後的函式與貼前版本不同 ⇒ 整筆停。實得 %', v_got;
+  END IF;
+END
+$post$;
+
 NOTIFY pgrst, 'reload schema';
 
 COMMIT;
