@@ -14,7 +14,7 @@ import {
   MANUAL_REFUND_REQUEST_TOKEN_FIELD,
   type ManualRefundActionState,
 } from '../../lib/payment/manual-refund-action-state';
-import { MANUAL_REFUND_RAILS, type ManualRefundRail } from '../../lib/payment/manual-refund-form';
+import { MANUAL_REFUND_METHODS, type ManualRefundMethod } from '../../lib/payment/manual-refund-form';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
@@ -29,9 +29,10 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 // 🔴 失敗回來的值要真的進畫面(同 refund-section.tsx 的理由):useState 初值只在掛載時
 // 求值,在 render 當下套 state.input(2026-09-27 起, 原本用 effect, 理由見元件內);denied 例外(input 是空殼,見 action state 檔頭)。
 
-const RAIL_LABEL: Record<ManualRefundRail, string> = {
+const RAIL_LABEL: Record<ManualRefundMethod, string> = {
   bank_transfer: '匯款',
   cash: '現金',
+  card_terminal: '刷卡',
 };
 
 /** datetime-local 預設值:當下時刻(本機時區,精確到分)。 */
@@ -75,7 +76,7 @@ export function ManualRefundEntrySection({
     recordManualRefundAction,
     { status: 'idle', requestToken: serverToken },
   );
-  const [rail, setRail] = useState<ManualRefundRail>('bank_transfer');
+  const [rail, setRail] = useState<ManualRefundMethod>('bank_transfer');
   const [amount, setAmount] = useState(prefill?.amount ?? '');
   const [reason, setReason] = useState(prefill?.reason ?? '');
   const [occurredAt, setOccurredAt] = useState(nowLocalInput);
@@ -103,8 +104,8 @@ export function ManualRefundEntrySection({
         // 🔵 rail 回填成「送出當下畫面上勾的那個」(`state.input.rail` 來自 FormData):重掛之後正常路徑是同值、不換管道;
         //    而「送出時 DOM ≠ state」(hydration 前先點現金、瀏覽器還原表單)時,它讓畫面對齊員工實際看到並送出的那一個
         //    —— 不回填的話重掛會把畫面打回 state 的舊值(adversarial-reviewer R1 C2)。
-        if (state.input.rail === 'bank_transfer' || state.input.rail === 'cash') {
-          setRail(state.input.rail);
+        if ((MANUAL_REFUND_METHODS as readonly string[]).includes(state.input.rail)) {
+          setRail(state.input.rail as ManualRefundMethod);
         }
         setAmount(state.input.amount);
         setReason(state.input.reason);
@@ -161,7 +162,7 @@ export function ManualRefundEntrySection({
 
           {/* 🔴 key 重掛(走查 E):form action 完成後 React 19 會 reset 表單,把 radio 打回初次渲染的勾選 */}
           <div key={`rail-${resultSeq}`} className='flex flex-wrap gap-4'>
-            {MANUAL_REFUND_RAILS.map((r) => (
+            {MANUAL_REFUND_METHODS.map((r) => (
               <label key={r} className='flex items-center gap-1.5 text-sm'>
                 <input
                   type='radio'

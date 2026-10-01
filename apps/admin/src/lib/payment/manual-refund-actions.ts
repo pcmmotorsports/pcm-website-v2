@@ -111,6 +111,7 @@ export async function recordManualRefundAction(
     actor: authorization.actorId,
     order_id: parsed.orderId,
     rail: parsed.rail,
+    instrument: parsed.instrument,
     amount: parsed.amount,
     reason_length: [...parsed.reason].length,
     // 🔵 記進 log —— 事後對帳時「他到底勾了沒」要查得到, 而那是一個【會被問】的問題。
@@ -120,6 +121,7 @@ export async function recordManualRefundAction(
   const outcome = await recordManualRefund({
     orderId: parsed.orderId,
     rail: parsed.rail,
+    instrument: parsed.instrument,
     refundAmount: parsed.amount,
     reason: parsed.reason,
     occurredAt: parsed.occurredAt,
