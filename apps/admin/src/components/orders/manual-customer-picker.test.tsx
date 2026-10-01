@@ -1287,3 +1287,136 @@ describe('🔴🔴 ⟦b4-收件即建客⟧:新入口不得繞過既有的三道
     expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0911000222');
   });
 });
+
+// ── 用收件電話自動找客人(Sean 2026-10-01 Q24 甲;計畫 ~/pcm-mailbox/計畫-建單收件資料合併-20261001.md 第 2 節)──
+describe('收件電話自動找客人', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+  const shipPhone = () => screen.getByLabelText('收件人電話') as HTMLInputElement;
+  const shipName = () => screen.getByLabelText('收件人') as HTMLInputElement;
+  /** 打字(發 input), 再離開欄位(發 focusout ⇒ 不等 0.5 秒) */
+  async function typeShipPhone(v: string, blur = true) {
+    await act(async () => {
+      fireEvent.input(shipPhone(), { target: { value: v } });
+      if (blur) fireEvent.focusOut(shipPhone());
+    });
+  }
+  const checked = () => document.querySelector('input[name="customer_user_id"]:checked') as HTMLInputElement | null;
+  const status = () => screen.getByTestId('manual-customer-auto').textContent;
+
+  it('剛好一位電話相同 ⇒ 自動選起來, 說「老客人, 已連結」', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    await typeShipPhone('0912-345-678');
+    expect(mocks.search).toHaveBeenCalledWith('0912345678');
+    expect(checked()?.value).toBe(USER_A);
+    expect(checked()?.dataset.autoLinked).toBe('1');
+    expect(status()).toBe('收件電話是老客人「王小明」，已連結。');
+  });
+
+  it('只有「包含」相符、數字不完全相同 ⇒ 不連結, 說找不到', async () => {
+    mocks.search.mockResolvedValue(found({ ...hit(USER_A, '王小明'), phone: '0912345678' }));
+    renderWholeForm();
+    await typeShipPhone('12345678');
+    expect(checked()).toBeNull();
+    expect(screen.queryByTestId('manual-customer-candidates')).toBeNull();
+    expect(status()).toBe('收件電話 12345678 找不到客人。');
+  });
+
+  it('同一支電話好幾位 ⇒ 列出來、【不自動選】', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '林大同'), hit(USER_B, '林小美')));
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    expect(document.querySelectorAll('input[name="customer_user_id"]')).toHaveLength(2);
+    expect(checked()).toBeNull();
+    expect(status()).toBe('收件電話 0912345678 有 2 位客人，請選一位。');
+  });
+
+  it('打字途中少於 9 碼不找;離開欄位時 8 碼就找', async () => {
+    renderWholeForm();
+    await typeShipPhone('09123456', false);
+    expect(mocks.search).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.focusOut(shipPhone());
+    });
+    expect(mocks.search).toHaveBeenCalledWith('09123456');
+  });
+
+  it('打字停下 0.5 秒才找, 不是每打一個字找一次', async () => {
+    vi.useFakeTimers();
+    try {
+      renderWholeForm();
+      fireEvent.input(shipPhone(), { target: { value: '091234567' } });
+      fireEvent.input(shipPhone(), { target: { value: '0912345678' } });
+      expect(mocks.search).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(mocks.search).toHaveBeenCalledTimes(1);
+      expect(mocks.search).toHaveBeenCalledWith('0912345678');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('自動連結後電話改短 ⇒ 放掉那位(不能留著上一支電話的人)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    expect(checked()?.value).toBe(USER_A);
+    await typeShipPhone('0912');
+    expect(checked()).toBeNull();
+    expect(screen.queryByTestId('manual-customer-auto')).toBeNull();
+  });
+
+  it('🔴 員工自己找、選好的客人 ⇒ 收件電話再改也【不換人】(朋友代訂、寄公司)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    await search('王小明');
+    fireEvent.click(screen.getByRole('radio'));
+    mocks.search.mockClear();
+    await typeShipPhone('0223456789');
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(checked()?.value).toBe(USER_A);
+  });
+
+  it('收件人和連結的客人不同名 ⇒ 提醒(不擋)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    fireEvent.change(shipName(), { target: { value: '王大明' } });
+    await typeShipPhone('0912345678');
+    expect(screen.getByTestId('manual-customer-auto-name-differs').textContent).toBe(
+      '收件人「王大明」和這位客人的名字不同。如果訂購的不是「王小明」，請改選其他客人。',
+    );
+  });
+
+  it('🔴 自動找也走同一套 fail-closed:查詢壞掉 ⇒ 不能建立客人', async () => {
+    mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    expect(screen.getByTestId('manual-order-new-customer-blocked')).toBeTruthy();
+    expect(checked()).toBeNull();
+  });
+
+  it('🔴 兩發自動查詢:慢的舊那發晚回來 ⇒ 不能蓋掉新結果', async () => {
+    let releaseOld: (v: unknown) => void = () => {};
+    mocks.search
+      .mockImplementationOnce(() => new Promise((r) => (releaseOld = r)))
+      .mockResolvedValueOnce(found(hit(USER_B, '新電話的人')));
+    renderWholeForm();
+    await typeShipPhone('0911111111');
+    await typeShipPhone('0912345678');
+    await act(async () => {
+      releaseOld(found(hit(USER_A, '舊電話的人')));
+    });
+    expect(checked()?.value).toBe(USER_B);
+  });
+});

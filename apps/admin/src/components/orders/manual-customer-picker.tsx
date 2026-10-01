@@ -16,6 +16,8 @@ import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
+  MANUAL_ORDER_SHIP_TO_NAME_FIELD,
+  MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import {
   createManualCustomerInlineAction,
@@ -59,6 +61,17 @@ export type ManualCustomerPickerProps = {
 
 type Notice = { tone: 'warn' | 'error' | 'ok'; text: string } | null;
 
+// ── 用收件電話自動找客人(Sean 2026-10-01 Q24 甲;計畫 ~/pcm-mailbox/計畫-建單收件資料合併-20261001.md 第 2 節)──
+/** 打字停下多久才找(毫秒)。離開電話欄時不等。 */
+const AUTO_SEARCH_DELAY_MS = 500;
+/** 打字途中要幾個數字才找:手機 10 碼、市話 9–10 碼 ⇒ 9 以下多半還沒打完, 找了只會閃一下「找不到」。 */
+const AUTO_SEARCH_MIN_DIGITS_TYPING = 9;
+/** 離開電話欄時的下限 = 建立客人的下限(`manual-customer.ts` 的 `MIN_PHONE_DIGITS`)。 */
+const AUTO_SEARCH_MIN_DIGITS_BLUR = 8;
+const digitsOf = (v: string): string => v.replace(/[^0-9]/g, '');
+/** 自動找到的結果:一位 = 自動連結;好幾位 = 要員工選;沒有 = 新客人。 */
+type AutoResult = { phone: string; kind: 'one' | 'many' | 'none' } | null;
+
 export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPickerProps) {
   const phoneInputId = useId();
   const newNameId = useId();
@@ -82,6 +95,21 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
    */
   const [listSeq, setListSeq] = useState(0);
   const [searchedPhone, setSearchedPhone] = useState('');
+  /**
+   * 用收件電話自動找到的那一位(只有【剛好一位】電話數字完全相同時才有)。
+   * 🔴 與 `justCreatedId` 一樣只在「這一份清單」有效:任何一次新的搜尋或建立都會重設它。
+   */
+  const [autoLinkId, setAutoLinkId] = useState<string | null>(null);
+  const [autoResult, setAutoResult] = useState<AutoResult>(null);
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 上一次自動找的電話(數字)。同一支不重找, 免得離開欄位時又閃一次。 */
+  const lastAutoPhone = useRef('');
+  /**
+   * 畫面上這份清單是怎麼來的。
+   * 🔴 'manual'(員工自己找、或剛建好的)⇒ 收件電話再怎麼改都不自動換人:
+   *    訂購人和收件人不同時(朋友代訂、寄公司), 員工選好的人不能被收件電話蓋掉。
+   */
+  const listSource = useRef<'auto' | 'manual' | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   /**
    * 上一次搜尋是**壞掉**(不是查無)。🔴 **這一格是 2026-08-28 走乙時補上的,而它是承重的。**
@@ -176,8 +204,13 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     run();
   };
 
-  function runSearch() {
-    const raw = readValue(phoneInputId);
+  /**
+   * @param auto 給了 ⇒ 這一發是「用收件電話自動找」:只認電話數字完全相同的客人,
+   *   剛好一位就自動選起來;不預填建立區(那是手動找客人才有的省打字)。
+   *   🔴 序號、stale 檢查、三種失敗的處理與手動找【共用同一套】, 不分岔。
+   */
+  function runSearch(auto?: { phone: string }) {
+    const raw = auto ? auto.phone : readValue(phoneInputId);
     const seq = ++searchSeq.current;
     /** 這一發已經不是最新的那一發了 ⇒ 它的結果一個字都不准寫進畫面。 */
     const stale = () => seq !== searchSeq.current;
@@ -245,6 +278,21 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       //   ⚠️ 清掉不是取捨,是修 bug:建立要 `MIN_PHONE_DIGITS = 8`
       //     (`manual-customer.ts:238`),而搜尋只要 3 ⇒ **部分號碼預填給「建立」用本來就是死的。**
       //   🔴 他自己打過字了(`createPhoneDirty`)⇒ **一個字都不碰**(codex R1 must-fix)。
+      if (auto) {
+        // 只認電話數字完全相同的:搜尋是「包含」比對, 部分相符的別人不能被自動連結
+        const exact = res.candidates.filter((c) => digitsOf(c.phone ?? '') === auto.phone);
+        listSource.current = 'auto';
+        setJustCreatedId(null);
+        setAutoLinkId(exact.length === 1 ? exact[0]!.userId : null);
+        setAutoResult({ phone: auto.phone, kind: exact.length === 0 ? 'none' : exact.length === 1 ? 'one' : 'many' });
+        setListSeq((n) => n + 1);
+        setCandidates(exact);
+        setNotice(res.truncated ? { tone: 'warn', text: '符合條件的帳號較多，目前僅顯示部分結果。請改用「找客人」輸入更完整的資料。' } : null);
+        return;
+      }
+      setAutoLinkId(null);
+      setAutoResult(null);
+      listSource.current = 'manual';
       if (!createPhoneDirty.current) setSearchedPhone(res.candidates.length > 0 ? '' : raw);
       // 🔴🔴 **MF2(Fable R3 must-fix)**:`justCreatedId` 建立之後**永不清空** ⇒
       //   之後任何一發搜尋只要結果含那位,radio 重新掛載時 `defaultChecked` 又把他**無聲**勾回來。
@@ -311,6 +359,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     //    ⚠️ 代價明寫:建立失敗時**搜尋結果會不見**, 他要再搜一次。
     //      那是刻意的 —— 失敗那句話本來就叫他「改用同一支電話再找一次」。
     setJustCreatedId(null);
+    setAutoLinkId(null);
+    setAutoResult(null);
+    listSource.current = 'manual';
     setCandidates(null);
     // 🔴🔴 **建立也要動同一顆序號**(codex R6 must-fix)——
     //    一發慢搜尋 + 一次建立並行時,慢搜尋回來會把「剛建好而且已經選起來的那位」蓋掉。
@@ -407,6 +458,63 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
     return () => form.removeEventListener(MANUAL_CUSTOMER_CREATE_REQUEST_EVENT, onRequest);
   }, []);
 
+  // ── 收件電話一改就找客人 ──────────────────────────────────────────────────────────
+  // 🔴 只聽表單上的事件、只讀 DOM(本檔不變式):收件那一塊不用知道有人在聽它。
+  // 🔴 打字時等停下 0.5 秒且至少 9 個數字;離開欄位時至少 8 個就找。電話改到太短 ⇒ 放掉自動選的那位。
+  const runSearchRef = useRef(runSearch);
+  useEffect(() => {
+    runSearchRef.current = runSearch;
+  });
+  useEffect(() => {
+    const form = rootRef.current?.form;
+    if (!form) return;
+    const onPhone = (e: Event, blur: boolean) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || el.name !== MANUAL_ORDER_SHIP_TO_PHONE_FIELD) return;
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+      const phone = digitsOf(el.value);
+      // 員工自己找的、或剛建好的那一份:收件電話怎麼改都不動它(也不作廢手動找還在飛的那一發)
+      if (listSource.current === 'manual') return;
+      if (phone.length < AUTO_SEARCH_MIN_DIGITS_BLUR) {
+        if (lastAutoPhone.current !== '') {
+          // 電話被改短或清空:上一支電話自動選的那位不再成立 ⇒ 放掉, 作廢還在飛的那一發
+          lastAutoPhone.current = '';
+          ++searchSeq.current;
+          setAutoResult(null);
+          setAutoLinkId(null);
+          if (listSource.current === 'auto') {
+            listSource.current = null;
+            setCandidates(null);
+            setListSeq((n) => n + 1);
+          }
+        }
+        return;
+      }
+      if (phone === lastAutoPhone.current) return;
+      const go = () => {
+        lastAutoPhone.current = phone;
+        runSearchRef.current({ phone });
+      };
+      if (blur) go();
+      else if (phone.length >= AUTO_SEARCH_MIN_DIGITS_TYPING) autoTimer.current = setTimeout(go, AUTO_SEARCH_DELAY_MS);
+    };
+    const onInput = (e: Event) => onPhone(e, false);
+    const onBlur = (e: Event) => onPhone(e, true);
+    form.addEventListener('input', onInput);
+    form.addEventListener('focusout', onBlur);
+    return () => {
+      form.removeEventListener('input', onInput);
+      form.removeEventListener('focusout', onBlur);
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+    };
+  }, []);
+
+  /** 收件人姓名與自動連結那位不同 ⇒ 提醒(一家人共用電話時, 不同名多半是不同人)。 */
+  const autoLinked = autoLinkId !== null ? candidates?.find((c) => c.userId === autoLinkId) ?? null : null;
+  const shipName = autoLinked
+    ? ((rootRef.current?.form?.querySelector(`[name="${MANUAL_ORDER_SHIP_TO_NAME_FIELD}"]`) as HTMLInputElement | null)?.value ?? '').trim()
+    : '';
+
   // ⛔ ~~`const searchedAndEmpty = candidates !== null && candidates.length === 0;`~~
   //    2026-08-28 刪除(Sean `Q-建單1 ⇒ 乙`)。它是「建立客人」那一塊的渲染閘,
   //    而理由寫在下面那塊的註解裡 —— **一個「查無才長出來」的區塊,對不知道要先搜的人等於不存在。**
@@ -439,7 +547,7 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
         </label>
         <button
           type='button'
-          onClick={runSearch}
+          onClick={() => runSearch()}
           disabled={pending}
           className={MANUAL_SMALL_BUTTON}
         >
@@ -460,6 +568,21 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
           }
         >
           {notice.text}
+        </p>
+      )}
+
+      {autoResult !== null && (
+        <p role='status' data-testid='manual-customer-auto' className='text-sm'>
+          {autoResult.kind === 'one' && autoLinked
+            ? `收件電話是老客人「${autoLinked.name}」，已連結。`
+            : autoResult.kind === 'many'
+              ? `收件電話 ${autoResult.phone} 有 ${candidates?.length ?? 0} 位客人，請選一位。`
+              : `收件電話 ${autoResult.phone} 找不到客人。`}
+        </p>
+      )}
+      {autoLinked && shipName !== '' && shipName !== autoLinked.name && (
+        <p role='status' data-testid='manual-customer-auto-name-differs' className='text-sm text-amber-700'>
+          收件人「{shipName}」和這位客人的名字不同。如果訂購的不是「{autoLinked.name}」，請改選其他客人。
         </p>
       )}
 
@@ -498,7 +621,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                   //   ⇒ 改成:內容相符**只在「那位就是我們剛建的」時**才算免責。
                   //     其餘情況 ⇒ 非空就擋(fail-closed)。
                   {...(c.userId === justCreatedId ? { 'data-just-created': '1' } : {})}
-                  defaultChecked={c.userId === justCreatedId}
+                  {...(c.userId === autoLinkId ? { 'data-auto-linked': '1' } : {})}
+                  // 自動選起來的只有兩種:剛建好的那位、收件電話剛好對到的那一位(Sean 2026-10-01 Q24 甲)
+                  defaultChecked={c.userId === justCreatedId || c.userId === autoLinkId}
                 />
                 <span>
                   {/* 🔴 `||` 不是 `??`:`customers.phone` 可能是空字串(schema 沒有 `<> ''` 約束,
