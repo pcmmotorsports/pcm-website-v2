@@ -1328,7 +1328,7 @@ describe('收件電話自動找客人', () => {
     await typeShipPhone('12345678');
     expect(checked()).toBeNull();
     expect(screen.queryByTestId('manual-customer-candidates')).toBeNull();
-    expect(status()).toBe('收件電話 12345678 找不到客人。');
+    expect(status()).toBe('新客人：收件電話 12345678 找不到客人。按「確認」送出訂單時，會用收件人姓名和這支電話建立客人帳號。');
   });
 
   it('同一支電話好幾位 ⇒ 列出來、【不自動選】', async () => {
@@ -1418,5 +1418,209 @@ describe('收件電話自動找客人', () => {
       releaseOld(found(hit(USER_A, '舊電話的人')));
     });
     expect(checked()?.value).toBe(USER_B);
+  });
+});
+
+// 🆕 Sean 2026-10-01 Q24 甲:收件電話找不到客人 ⇒ 按「確認」時建客人, 建好接著送出
+describe('新客人:送出時建立', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+  async function typeShipPhone(v: string) {
+    await act(async () => {
+      fireEvent.input(screen.getByLabelText('收件人電話'), { target: { value: v } });
+      fireEvent.focusOut(screen.getByLabelText('收件人電話'));
+    });
+  }
+  const form = () => document.querySelector('form') as HTMLFormElement;
+  async function requestCreateThenSubmit(name = '陳大華', phone = '0423456789') {
+    const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+    let accepted = false;
+    await act(async () => {
+      accepted = requestManualCustomerCreate(form(), { name, phone, thenSubmit: true });
+    });
+    return accepted;
+  }
+
+  it('找不到客人 ⇒ 畫出「新客人」記號(沒有 name, 不會被送出)', async () => {
+    renderWholeForm();
+    await typeShipPhone('0423456789');
+    const marker = screen.getByTestId('manual-customer-new-pending');
+    expect(marker.getAttribute('name')).toBeNull();
+  });
+
+  it('🔴 查詢壞掉 ⇒ 不畫記號(送出鈕要維持灰的, 免得替已有帳號的人再開一個)', async () => {
+    mocks.search.mockResolvedValue({ ok: false, reason: 'error' });
+    renderWholeForm();
+    await typeShipPhone('0423456789');
+    expect(screen.queryByTestId('manual-customer-new-pending')).toBeNull();
+  });
+
+  it('同電話好幾位 ⇒ 按「都不是, 建立新客人」⇒ 清單收掉、改成新客人', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '林大同'), hit(USER_B, '林小美')));
+    renderWholeForm();
+    await typeShipPhone('0912345678');
+    fireEvent.click(screen.getByTestId('manual-customer-auto-none-of-these'));
+    expect(document.querySelectorAll('input[name="customer_user_id"]')).toHaveLength(0);
+    expect(screen.getByTestId('manual-customer-new-pending')).toBeTruthy();
+  });
+
+  it('建好(新建的)⇒ 選起來, 接著送出訂單', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '陳大華') });
+      renderWholeForm();
+      expect(await requestCreateThenSubmit()).toBe(true);
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+      expect((document.querySelector('input[name="customer_user_id"]:checked') as HTMLInputElement).value).toBe(USER_A);
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('🔴 撞到很像的既有帳號 ⇒ 【不送出】, 說訂單還沒送', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'existing', candidate: hit(USER_A, '陳大華') });
+      renderWholeForm();
+      await requestCreateThenSubmit();
+      await waitFor(() => expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('訂單還沒有送出'));
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('🔴 建立失敗 ⇒ 不送出, 說訂單沒有送出', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: false, reason: 'invalid_phone', message: '電話格式不對。' });
+      renderWholeForm();
+      await requestCreateThenSubmit();
+      await waitFor(() => expect(screen.getByTestId('manual-customer-picker-notice').textContent).toBe('電話格式不對。 訂單沒有送出。'));
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('🔴 連線中斷 ⇒ 不送出, 提醒帳號可能已建立', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockRejectedValue(new Error('network'));
+      renderWholeForm();
+      await requestCreateThenSubmit();
+      await waitFor(() => expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('訂單沒有送出'));
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('沒有要求接著送出(舊的建立入口)⇒ 建好也【不】自動送出', async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    try {
+      mocks.create.mockResolvedValue({ ok: true, idempotent: false, outcome: 'created', candidate: hit(USER_A, '陳大華') });
+      renderWholeForm();
+      const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+      await act(async () => {
+        requestManualCustomerCreate(form(), { name: '陳大華', phone: '0423456789' });
+      });
+      await waitFor(() => expect(document.querySelector('input[name="customer_user_id"]:checked')).toBeTruthy());
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      submit.mockRestore();
+    }
+  });
+});
+
+describe('新客人:建立還在跑的時候', () => {
+  it('🔴 記號留著並標 data-creating ⇒ 確認鈕灰的(不能連按兩次), 會員等級那格仍可用', async () => {
+    let release: (v: unknown) => void = () => {};
+    mocks.create.mockImplementation(() => new Promise((r) => (release = r)));
+    render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+    const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+    await act(async () => {
+      requestManualCustomerCreate(document.querySelector('form'), { name: '陳大華', phone: '0423456789', thenSubmit: true });
+    });
+    expect(screen.getByTestId('manual-customer-new-pending').dataset.creating).toBe('1');
+    await waitFor(() => expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true));
+    expect((screen.getByTestId('manual-order-tier') as HTMLSelectElement).disabled).toBe(false);
+    await act(async () => {
+      release({ ok: false, reason: 'error', message: '建立失敗。' });
+    });
+  });
+});
+
+describe('🔴 Fable R1 必修 1:收件電話一改, 上一支電話的判定立刻作廢', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+  const phoneEl = () => screen.getByLabelText('收件人電話');
+
+  it('A 找不到(新客人)⇒ 改成 B、新查詢還沒回來 ⇒ 「新客人」記號馬上消失, 確認鈕灰', async () => {
+    renderWholeForm();
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0423456789' } });
+      fireEvent.focusOut(phoneEl());
+    });
+    expect(screen.getByTestId('manual-customer-new-pending')).toBeTruthy();
+    mocks.search.mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0423456780' } });
+    });
+    expect(screen.queryByTestId('manual-customer-new-pending')).toBeNull();
+    expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('A 自動連結甲 ⇒ 改成 B ⇒ 甲馬上被放掉(不能把 B 的單掛給甲)', async () => {
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0912345678' } });
+      fireEvent.focusOut(phoneEl());
+    });
+    expect(document.querySelector('input[name="customer_user_id"]:checked')).toBeTruthy();
+    mocks.search.mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0912345679' } });
+    });
+    expect(document.querySelector('input[name="customer_user_id"]:checked')).toBeNull();
+  });
+
+  it('按「確認」建立失敗之後, 改收件電話仍會自動找客人(Fable R1 建議 1)', async () => {
+    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: '建立失敗。' });
+    renderWholeForm();
+    const { requestManualCustomerCreate } = await import('@/lib/orders/manual-customer-create-request');
+    await act(async () => {
+      requestManualCustomerCreate(document.querySelector('form'), { name: '陳大華', phone: '0423456789', thenSubmit: true });
+    });
+    mocks.search.mockClear();
+    await act(async () => {
+      fireEvent.input(phoneEl(), { target: { value: '0423456780' } });
+      fireEvent.focusOut(phoneEl());
+    });
+    expect(mocks.search).toHaveBeenCalledWith('0423456780');
   });
 });

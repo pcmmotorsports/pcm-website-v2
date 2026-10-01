@@ -202,7 +202,7 @@ describe('🔴🔴 codex R1:選了一位客人, 而下面又打了另一位 ⇒ 
     fireEvent.change(screen.getByLabelText('新客人姓名'), { target: { value: '乙' } });
     expect(btn().disabled).toBe(true);
     expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
-    expect(screen.getByTestId('manual-order-submit-hint').textContent).toContain('請先選擇客戶');
+    expect(screen.getByTestId('manual-order-submit-hint').textContent).toContain('請先填寫收件電話');
   });
 
   it('🔴 對照組:選了人而下面【空著】⇒ 亮的, 兩句話都不出(不然上面全是恆真)', () => {
@@ -237,7 +237,7 @@ describe('🔴🔴 R4-MF2:送出鈕由【DOM 有沒有一顆被選起來的 radi
     renderForm(false);
     expect(btn().disabled).toBe(true);
     const hint = screen.getByTestId('manual-order-submit-hint').textContent ?? '';
-    expect(hint).toContain('請先選擇客戶');
+    expect(hint).toContain('請先填寫收件電話');
     // 🔴🔴 **這一格是本次改文案的整個理由,不是順手加的斷言。**
     //    2026-08-28 Sean 逐字回報「直接輸入收件人資訊,但是還是無法建立訂單」——
     //    ⛔ ~~舊句「先在上面挑一位客人(找不到就在那裡建一位)」~~ 的病:
@@ -245,8 +245,8 @@ describe('🔴🔴 R4-MF2:送出鈕由【DOM 有沒有一顆被選起來的 radi
     //    而那兩格**不進 `parseManualOrderForm()`** ⇒ 沒按那顆鈕就沒有客人 ⇒ 這顆鈕維持灰的
     //    ⇒ **而他不知道為什麼。**
     //    📌 **改法是「點名那顆按鈕」** —— 一句話要叫得出下一步按哪裡,不是描述現在缺什麼。
-    expect(hint).toContain('建立這位客人');
-    expect(hint).toContain('完成後才能送出訂單');
+    // 2026-10-01 Sean Q24 甲:不用先按別的鈕, 按「確認」就會建客人並送出 ⇒ 點名的按鈕換成「確認」
+    expect(hint).toContain('按「確認」會建立新客人');
     // 反面:舊句不得殘留(它會被讀成「打完字就建好了」)
     expect(hint).not.toContain('找不到就在那裡建一位');
   });
@@ -371,14 +371,16 @@ describe('🔴🔴 R6:SSR(還沒 hydrate)⇒ 停用,而且說的是「載入中�
     // 🔴 2026-08-28 換文案後補:新句一樣不得出現在 SSR 那個世界
     //    ——「完成後才能送出訂單」在**還沒 hydrate**時是假的(那顆建立鈕也按不動)。
     expect(html).not.toContain('建立這位客人');
+    expect(html).not.toContain('請先填寫收件電話');
   });
 
   it('🔴 對照組:hydrate 之後(沒有 radio)⇒ 一樣灰,而那句話換成【去挑 / 去建】', () => {
     renderForm(false);
     expect(btn().matches(':disabled')).toBe(true);
     const hint = screen.getByTestId('manual-order-submit-hint').textContent ?? '';
-    expect(hint).toContain('請先選擇客戶');
-    expect(hint).toContain('建立這位客人');
+    // 2026-10-01 Sean Q24 甲:新客人改成按「確認」時自動建立 ⇒ 下一步是「填收件電話」與「按確認」
+    expect(hint).toContain('請先填寫收件電話');
+    expect(hint).toContain('按「確認」會建立新客人');
     expect(hint).not.toContain('載入中');
   });
 });
@@ -667,5 +669,54 @@ describe('⟦走查 F1⟧ 送出前跑同一支解析器', () => {
     expect(screen.getByTestId('manual-order-submit-form-problem')).toBeTruthy();
     fireEvent.input(screen.getByLabelText('第 1 列料號'), { target: { value: 'W' } });
     expect(screen.queryByTestId('manual-order-submit-form-problem')).toBeNull();
+  });
+});
+
+// 🆕 Sean 2026-10-01 Q24 甲:收件電話找不到客人 ⇒ 按「確認」時先建客人, 建好再送出
+describe('新客人:按「確認」時先建客人', () => {
+  function renderPending({ omit = [] as string[], listen = true } = {}) {
+    const seen: Array<{ name: string; phone: string; thenSubmit?: boolean }> = [];
+    const submitted: boolean[] = [];
+    const utils = render(
+      <form data-testid='f' onSubmit={(e) => submitted.push(e.defaultPrevented)}>
+        <input type='hidden' data-new-customer-pending='1' />
+        <RestOfValidOrder omit={omit} />
+        <ManualOrderSubmit />
+      </form>,
+    );
+    if (listen) {
+      screen.getByTestId('f').addEventListener('pcm:manual-customer-create', (e) => {
+        e.preventDefault();
+        seen.push((e as CustomEvent).detail);
+      });
+    }
+    return { ...utils, seen, submitted };
+  }
+
+  it('有「新客人」記號 ⇒ 確認鈕是亮的', () => {
+    renderPending();
+    expect(btn().disabled).toBe(false);
+  });
+
+  it('其他欄位都對 ⇒ 用收件人姓名電話要求建客人(建好再送), 這一次【不送出】', () => {
+    const { seen, submitted } = renderPending();
+    fireEvent.click(btn());
+    expect(seen).toEqual([{ name: '王小明', phone: '0912345678', thenSubmit: true }]);
+    expect(submitted).toEqual([true]);
+  });
+
+  it('🔴 訂單其他欄位有錯(缺料號)⇒ 【不建客人】, 說哪裡錯', () => {
+    const { seen } = renderPending({ omit: ['line_sku_0'] });
+    fireEvent.click(btn());
+    expect(seen).toEqual([]);
+    expect(screen.getByTestId('manual-order-submit-form-problem').textContent).not.toBe('');
+  });
+
+  it('🔴 沒有人接手建客人 ⇒ 照實說沒建、沒送', () => {
+    renderPending({ listen: false });
+    fireEvent.click(btn());
+    expect(screen.getByTestId('manual-order-submit-form-problem').textContent).toBe(
+      '客人區塊還沒有載入完成，沒有建立客人，訂單也沒有送出。請重新整理後再試。',
+    );
   });
 });

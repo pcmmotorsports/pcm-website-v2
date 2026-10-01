@@ -5,12 +5,15 @@ import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
+  MANUAL_ORDER_SHIP_TO_NAME_FIELD,
+  MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
   // ⛔ ~~MANUAL_ORDER_LINE_SKU_BASE / manualOrderLineField~~ 2026-09-16 不再需要:
   //    跳哪一格由解析器的 `focusField` 決定,這一支不自己組欄位名了(見下方 guardSubmit)。
   parseManualOrderForm,
   taxBasisProblemMessage,
   readInvoiceRequestedFromForm,
 } from '@/lib/orders/manual-order-form';
+import { requestManualCustomerCreate } from '@/lib/orders/manual-customer-create-request';
 
 // manual-order-submit.tsx — 建單表單那顆「建立訂單」(2026-08-28,codex R4 must-fix)。
 //
@@ -43,6 +46,17 @@ import {
 //    `HTMLInputElement.type` 對沒寫 `type` 的欄位回的是 `'text'`,不是空字串。
 //    📌 一個**不可達**的白名單項目,讀起來像多守了一種情況。
 const TEXT_LIKE_INPUT_TYPES = new Set(['text', 'tel', 'email', 'number', 'search', 'url', 'password']);
+
+/**
+ * 「新客人, 送出時建立」的記號(`manual-customer-picker.tsx` 畫的, 沒有 name)。
+ * 🔴 帶 `data-creating` 的那個 = 建立已經在跑 ⇒ 不算可以送(免得連按兩次)。
+ */
+const NEW_CUSTOMER_PENDING = '[data-new-customer-pending="1"]:not([data-creating])';
+/**
+ * 新客人還沒建之前, 先拿它代替客人編號跑一次解析器 ⇒ 訂單其他欄位有錯時【不建客人】(計畫第 3 節)。
+ * 🔴 只用在瀏覽器這一側的預先檢查, 從來不會被送出去。
+ */
+const PLACEHOLDER_CUSTOMER_ID = '00000000-0000-4000-8000-000000000000';
 
 /**
  * **選了一位客人, 而建立區描述的是【另一個人】** ⇒ 這張單要擋下來。
@@ -177,7 +191,8 @@ export function ManualOrderSubmit({
     if (!form) return;
     const sync = () => {
       const hit = form.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]:checked`) !== null;
-      setPicked(hit);
+      // 新客人(收件電話找不到人)也算有客人:按「確認」時才建(Sean 2026-10-01 Q24 甲)
+      setPicked(hit || form.querySelector(NEW_CUSTOMER_PENDING) !== null);
       setConflict(hasConflict(form));
       setTaxProblem(findTaxBasisProblem(form));
     };
@@ -250,7 +265,27 @@ export function ManualOrderSubmit({
         setConflict(true);
         return;
       }
-      const parsed = parseManualOrderForm(new FormData(form));
+      // 🆕 新客人:先用代替的客人編號檢查其他欄位 ⇒ 都對了才建客人, 建好由 picker 接著再送一次(Sean 2026-10-01 Q24 甲)。
+      //    ⚠️ 這一次一律 `preventDefault()`:客人還沒建, 這一發送出去一定會被伺服器擋下。
+      const hasPicked = form.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]:checked`) !== null;
+      const fd = new FormData(form);
+      const creating = !hasPicked && form.querySelector(NEW_CUSTOMER_PENDING) !== null;
+      if (creating) fd.set(MANUAL_ORDER_CUSTOMER_FIELD, PLACEHOLDER_CUSTOMER_ID);
+      const parsed = parseManualOrderForm(fd);
+      if (parsed.ok && creating) {
+        e.preventDefault();
+        const read = (name: string) => {
+          const el = form.querySelector(`[name="${name}"]`);
+          return el instanceof HTMLInputElement ? el.value.trim() : '';
+        };
+        const accepted = requestManualCustomerCreate(form, {
+          name: read(MANUAL_ORDER_SHIP_TO_NAME_FIELD),
+          phone: read(MANUAL_ORDER_SHIP_TO_PHONE_FIELD),
+          thenSubmit: true,
+        });
+        if (!accepted) setFormProblem('客人區塊還沒有載入完成，沒有建立客人，訂單也沒有送出。請重新整理後再試。');
+        return;
+      }
       if (parsed.ok) return;
       e.preventDefault();
       setFormProblem(parsed.error);
@@ -325,7 +360,7 @@ export function ManualOrderSubmit({
               //    📌 這一格是 Sean 2026-08-28 回報的直接落點:
               //       「直接輸入收件人資訊,但是還是無法建立訂單」。
               // 2026-09-14 精簡:⛔ ~~這張單還沒有客人。上面挑一位,或是打好姓名電話後按「建立這位客人」——按了才算數。~~
-              '請先選擇客戶；若為新客戶，請填寫姓名與電話，再按「建立這位客人」，完成後才能送出訂單。'}
+              '請先填寫收件電話，系統會自動找客人；找不到時，按「確認」會建立新客人。也可以用「找客人」選一位。'}
         </p>
       )}
     </div>

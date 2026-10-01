@@ -36,7 +36,15 @@ export const MANUAL_CUSTOMER_CREATE_REQUEST_EVENT = 'pcm:manual-customer-create'
  * `manual-customer-actions.ts:275-281`(`normalizeManualPhone` + `MIN_PHONE_DIGITS`),
  * 在這裡再做一次就是**第二套規則**, 而兩套規則遲早會不一樣。
  */
-export type ManualCustomerCreateRequest = { name: string; phone: string };
+export type ManualCustomerCreateRequest = {
+  name: string;
+  phone: string;
+  /**
+   * 建好(而且是新建的那位)之後, 接著送出這張訂單(Sean 2026-10-01 Q24 甲:按「確認」時自動建立新客人)。
+   * 🔴 只有【新建】才接著送;撞到一位很像的既有帳號(`existing`)、失敗、連線中斷 ⇒ 一律停下, 不送出。
+   */
+  thenSubmit?: boolean;
+};
 
 /**
  * 往這張表單丟一次「請用這兩格建客人」。

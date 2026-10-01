@@ -87,3 +87,55 @@ describe('ManualOrderTierSelect', () => {
     expect(select(container).value).toBe('general');
   });
 });
+
+// 🆕 Sean 2026-10-01 Q24 甲:新客人按「確認」時才建 ⇒ 建之前就要能選等級, 建好那一刻不能被重設
+describe('新客人(送出時才建)', () => {
+  function NewCustomerHarness({ created }: { created: boolean }) {
+    return (
+      <form>
+        {created ? (
+          // key 不同:同一個 <input> 節點從 hidden 改成 radio 時 React 會重用它, defaultChecked 就不會生效(picker 裡兩者本來就是不同節點)
+          <input key='radio' type='radio' name={MANUAL_ORDER_CUSTOMER_FIELD} value='c-new' data-customer-tier='general' data-just-created='1' defaultChecked aria-label='新' />
+        ) : (
+          <input key='marker' type='hidden' data-new-customer-pending='1' />
+        )}
+        <ManualOrderTierSelect />
+      </form>
+    );
+  }
+
+  it('還沒建(只有「新客人」記號)⇒ 可以選, 預設一般', () => {
+    const { container } = render(<NewCustomerHarness created={false} />);
+    expect(select(container).disabled).toBe(false);
+    expect(select(container).value).toBe('general');
+  });
+
+  it('🔴 建之前選了車行 ⇒ 建好(radio 換上來)那一刻【仍是車行】, 不被重設回一般', async () => {
+    const { container, rerender } = render(<NewCustomerHarness created={false} />);
+    fireEvent.change(select(container), { target: { value: 'store' } });
+    rerender(<NewCustomerHarness created />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(select(container).value).toBe('store');
+  });
+
+  it('🔴 中間有一瞬間看不到客人(這格被停用、重掛)⇒ 建好時仍是員工選的車行', async () => {
+    const Gap = ({ step }: { step: 0 | 1 | 2 }) => (
+      <form>
+        {step === 0 && <input key='marker' type='hidden' data-new-customer-pending='1' />}
+        {step === 2 && (
+          <input key='radio' type='radio' name={MANUAL_ORDER_CUSTOMER_FIELD} value='c-new' data-customer-tier='general' data-just-created='1' defaultChecked aria-label='新' />
+        )}
+        <ManualOrderTierSelect />
+      </form>
+    );
+    const { container, rerender } = render(<Gap step={0} />);
+    fireEvent.change(select(container), { target: { value: 'store' } });
+    rerender(<Gap step={1} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(select(container).disabled).toBe(true);
+    rerender(<Gap step={2} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(select(container).disabled).toBe(false);
+    expect(select(container).value).toBe('store');
+  });
+});
