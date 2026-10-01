@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { INewProductDraftStore, NewProductCandidate, NewProductDraft } from '@pcm/ports';
-import { buildNewProductDraft, draftNewProductPosts } from './draft-new-product-posts';
+import { buildNewProductDraft, draftNewProductPosts, vehicleLabelFor } from './draft-new-product-posts';
 
 const SITE = 'https://www.pcmmotorsports.com';
 
@@ -74,6 +74,27 @@ describe('buildNewProductDraft', () => {
   it('品名已經以品牌開頭 ⇒ 大圖眉標不重複寫品牌', () => {
     const r = buildNewProductDraft(cand({ brandName: 'Öhlins', title: 'Ohlins TTX GP 後避震' }), SITE);
     expect('draft' in r && r.draft.eyebrow).toBeNull();
+  });
+
+  it('第一行的車款:取副標「 · 」前面那段;通用件(只有分類)與品名已寫車款的不接', () => {
+    expect(vehicleLabelFor('前叉彈簧', 'Honda Hornet 600 · 懸吊與車架')).toBe('Honda Hornet 600');
+    expect(vehicleLabelFor('螺絲組', '精品螺絲與螺帽')).toBeNull();
+    expect(vehicleLabelFor('碳纖維後土除含上鏈條蓋 - Ducati Streetfighter/Monster V2 MY2025', 'Ducati Streetfighter V2 · 碳纖維部品')).toBeNull();
+    expect(vehicleLabelFor('前叉彈簧', null)).toBeNull();
+    // 今天正式庫那兩份的第一行(主視窗 2026-10-01 回報車款重複)
+    const r = buildNewProductDraft(cand({
+      brandName: 'CNC RACING',
+      title: '碳纖維後土除含上鏈條蓋 - Ducati Streetfighter/Monster V2 MY2025',
+      subtitle: 'Ducati Streetfighter V2 / Ducati Streetfighter V2 S · 碳纖維部品',
+    }), SITE);
+    if (!('draft' in r)) throw new Error('應該建得出草稿');
+    expect(r.draft.fbText.split('\n')[0]).toBe('CNC RACING｜碳纖維後土除含上鏈條蓋 - Ducati Streetfighter/Monster V2 MY2025');
+    expect(r.draft.igText.split('\n')[0]).toBe('CNC RACING｜碳纖維後土除含上鏈條蓋 - Ducati Streetfighter/Monster V2 MY2025');
+    const o = buildNewProductDraft(cand({ brandName: 'Ohlins', title: '前叉彈簧', subtitle: 'Honda Hornet 600 · 懸吊與車架' }), SITE);
+    if (!('draft' in o)) throw new Error('應該建得出草稿');
+    expect(o.draft.fbText.split('\n')[0]).toBe('Ohlins｜前叉彈簧｜Honda Hornet 600');
+    // 大圖副標照舊用卡片副標(那是首頁上的字, 不歸這一行管)
+    expect(o.draft.subtitle).toBe('Honda Hornet 600 · 懸吊與車架');
   });
 
   it('副標太長就不放副標, 草稿照建', () => {

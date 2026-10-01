@@ -14,6 +14,17 @@ export const NEW_PRODUCT_LOOKBACK_HOURS = 36;
 // 大批匯入(例 Arrow 首灌 1,106 件)當天, 只看前 200 張會全是同一個品牌, 其他品牌整天被擠掉(R1 建議 5)
 const CANDIDATE_LIMIT = 1000;
 const CTA_LABEL = '看商品';
+
+/**
+ * 貼文第一行的「適用車款」。卡片副標的格式是「車款 · 分類」, 通用件只有「分類」(正式庫 2026-10-01 唯讀量:
+ * 有「 · 」24,892 筆、沒有 5,529 筆, 抽樣全是分類名)⇒ 只取「 · 」前面那段, 沒有「 · 」就當沒有車款。
+ * 品名裡已經寫「 - 車款」(Evotech、CNC RACING 那類, 68 筆)⇒ 不再接車款, 免得第一行寫兩次(主視窗 2026-10-01)。
+ */
+export function vehicleLabelFor(title: string, subtitle: string | null): string | null {
+  if (title.includes(' - ') || !subtitle) return null;
+  const i = subtitle.lastIndexOf(' · ');
+  return i > 0 ? subtitle.slice(0, i).trim() || null : null;
+}
 // 資料庫 CHECK 的上限(migration 20260916150000):超過就不建, 不截字(中文品名截一半會變另一個意思)
 const MAX = { eyebrow: 40, title: 60, subtitle: 60, imageUrl: 2000, socialText: 2200 } as const;
 // 與 home_banners_image_desktop_url_check 同一條:https、不含空白與控制字元(migration 20260916150000)
@@ -66,7 +77,7 @@ export function buildNewProductDraft(
   const post = buildNewProductPost({
     brandName: c.brandName,
     title,
-    vehicleLabel: c.subtitle,
+    vehicleLabel: vehicleLabelFor(title, c.subtitle),
     highlights,
     sku: c.sku,
     priceTwd: c.priceGeneral,
