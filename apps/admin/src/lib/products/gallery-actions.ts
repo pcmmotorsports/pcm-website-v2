@@ -4,6 +4,8 @@ import { isUuid } from '../orders/note-action-state';
 import { authorizeAdminMutation } from '../session/authorize';
 import { createGalleryApi, readGalleryApiConfig, type GalleryKey, type GalleryOp } from './gallery-api';
 import { getProductForAdmin } from './product-repository';
+import { setManualProductImages } from './manual-product-repository';
+import { getRequestId } from '../audit/context';
 import {
   UPLOAD_MAX_BYTES,
   galleryErrorMessage,
@@ -18,7 +20,10 @@ import {
 //    main_sku = 網站 products.external_id(同步時就是用報價單的 COALESCE(NULLIF(group_code,''), upper(sku)) 產的)。
 
 /** curated false = 尚未整理(畫面上的是報價單目前給網站的供應商照片)。 */
-export type GalleryActionResult = { ok: true; curated: boolean; photos: GalleryPhoto[] } | { ok: false; message: string };
+/** notice:報價單那邊已完成, 但手動商品的照片沒有寫回網站(畫面要說清楚, 不說失敗)。 */
+export type GalleryActionResult =
+  | { ok: true; curated: boolean; photos: GalleryPhoto[]; notice?: string }
+  | { ok: false; message: string };
 
 /** 報價單要的照片網址形狀(G2:https、最多 2048 字)。 */
 function isPhotoUrl(v: unknown): v is string {
@@ -29,8 +34,11 @@ const DENIED = '沒有權限或登入已過期，請重新登入後再試。';
 const DISABLED = '圖庫尚未啟用。';
 const INVALID = '資料不完整，請重新整理頁面後再試。';
 const RELOAD_FAILED = '已完成，但照片清單重新載入失敗，請重新整理頁面。';
+const SITE_NOT_SYNCED = '照片已更新，但網站上的商品照片沒有跟著更新。請再操作一次照片（例如重新排序），或聯絡系統管理員。';
 
-type Ready = { ok: true; api: ReturnType<typeof createGalleryApi>; key: GalleryKey; actor: string } | { ok: false; message: string };
+type Ready =
+  | { ok: true; api: ReturnType<typeof createGalleryApi>; key: GalleryKey; actor: string; productId: string }
+  | { ok: false; message: string };
 
 async function prepare(productId: string): Promise<Ready> {
   const auth = await authorizeAdminMutation();
@@ -48,12 +56,26 @@ async function prepare(productId: string): Promise<Ready> {
     api: createGalleryApi(config),
     key: { supplierSlug: product.supplier_slug, mainSku: product.external_id },
     actor: auth.actorId,
+    productId,
   };
 }
 
 async function reload(r: Extract<Ready, { ok: true }>): Promise<GalleryActionResult> {
   const list = await r.api.list(r.key, r.actor);
-  return list.ok ? { ok: true, curated: list.curated, photos: list.photos } : { ok: false, message: RELOAD_FAILED };
+  if (!list.ok) return { ok: false, message: RELOAD_FAILED };
+  const result: GalleryActionResult = { ok: true, curated: list.curated, photos: list.photos };
+  // 手動商品(pcm)不在報價單商品表、也不在每日同步裡 ⇒ 照片要由這裡寫回網站 products.images
+  //   (計畫-手動商品照片寫回網站-20261002;其他品牌由每日同步帶回, 這裡寫了也會被同步蓋掉)
+  if (r.key.supplierSlug !== 'pcm') return result;
+  const images = [...list.photos].filter((p) => !p.hidden).sort((a, b) => a.position - b.position).map((p) => p.url);
+  try {
+    const outcome = await setManualProductImages({ productId: r.productId, images, actor: r.actor, requestId: await getRequestId() });
+    if (outcome === 'NOT_FOUND') return { ...result, notice: SITE_NOT_SYNCED };
+  } catch (error) {
+    console.error('[admin/products/gallery] 手動商品照片寫回網站失敗', error);
+    return { ...result, notice: SITE_NOT_SYNCED };
+  }
+  return result;
 }
 
 async function runOp(productId: string, action: GalleryAction, op: GalleryOp): Promise<GalleryActionResult> {

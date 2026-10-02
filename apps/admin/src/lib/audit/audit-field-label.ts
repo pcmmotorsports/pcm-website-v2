@@ -324,6 +324,8 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   // ── 主管改規格價格與特價(20260928220000 admin_set_variant_prices)──
   price_store: '經銷價',
   sale_price_general: '特價',
+  // ── 手動商品照片寫回網站(20261002210000 admin_set_manual_product_images)──
+  images: '網站商品照片',
   // ── 員工設定(`StaffRow`)/ 供應商共用 ─────────────────────
   id: '代號',
   label: '名稱',

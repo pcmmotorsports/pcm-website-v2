@@ -75,6 +75,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'product.manual.create': '新增手動商品',
   // 主管改規格價格與特價(20260928220000)
   'product.price.change': '修改商品價格',
+  // 手動商品照片寫回網站(20261002210000)
+  'product.images.sync': '更新網站商品照片',
   // 特價功能退回時清空所有特價(20260928200000-rollback.sql)
   'product.sale_price.clear_all': '清空所有特價(退回)',
   // 後台建單把收件地址存進客人地址簿(20260927120000)

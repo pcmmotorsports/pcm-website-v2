@@ -157,3 +157,39 @@ describe('商品頁乙 P7:網站新增的手動商品(pcm)', () => {
     expect(container.textContent).toContain('尚未整理，這是目前網站顯示的供應商照片');
   });
 });
+
+describe('手動商品照片沒寫回網站(計畫-手動商品照片寫回網站-20261002)', () => {
+  it('action 成功但帶 notice ⇒ 照片照常換成回傳的, 訊息列顯示那句話', async () => {
+    const NOTICE = '照片已更新，但網站上的商品照片沒有跟著更新。請再操作一次照片（例如重新排序），或聯絡系統管理員。';
+    m.reorder.mockResolvedValueOnce({
+      ok: true,
+      curated: true,
+      photos: [
+        { ...PHOTOS[1]!, position: 0 },
+        { ...PHOTOS[0]!, position: 1 },
+      ],
+      notice: NOTICE,
+    });
+    const { view, order, btn } = setup();
+    fireEvent.click(btn('往後移一張', view.container.querySelector(`[data-gallery-tile="${PHOTOS[0]!.url}"]`)!));
+    await act(async () => fireEvent.click(btn('儲存順序')));
+    expect(order()).toEqual([B, A]);
+    expect(view.container.querySelector('[role="status"]')!.textContent).toBe(NOTICE);
+  });
+});
+
+describe('多張上傳時網站沒跟著更新(Fable R1 consider 1)', () => {
+  it('第一張帶 notice ⇒ 後面那張照樣上傳, 全部跑完才顯示那句話', async () => {
+    const NOTICE = '照片已更新，但網站上的商品照片沒有跟著更新。請再操作一次照片（例如重新排序），或聯絡系統管理員。';
+    m.upload
+      .mockResolvedValueOnce({ ok: true, curated: true, photos: PHOTOS, notice: NOTICE })
+      .mockResolvedValueOnce({ ok: true, curated: true, photos: PHOTOS });
+    const { view } = setup();
+    const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const f1 = new File(['1'], '正面.png', { type: 'image/png' });
+    const f2 = new File(['2'], '側面.jpg', { type: 'image/jpeg' });
+    await act(async () => fireEvent.change(input, { target: { files: [f1, f2] } }));
+    expect(m.upload).toHaveBeenCalledTimes(2);
+    expect(view.container.querySelector('[role="status"]')!.textContent).toBe(NOTICE);
+  });
+});

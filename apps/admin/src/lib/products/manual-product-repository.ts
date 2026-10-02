@@ -96,3 +96,23 @@ export async function setVariantPrices(args: {
     return { variantId: row.variant_id, outcome: row.outcome };
   });
 }
+
+/**
+ * 計畫-手動商品照片寫回網站(2026-10-02):呼叫 20261002210000 `admin_set_manual_product_images`。
+ * images = 報價單圖庫沒隱藏的照片網址(依順序)。只收 pcm 商品;資料庫明確拒絕時丟錯。
+ */
+export async function setManualProductImages(args: {
+  productId: string;
+  images: readonly string[];
+  actor: string;
+  requestId: string;
+}): Promise<'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND'> {
+  // 新 RPC 還不在共用的 database.types.ts(那支屬 packages/adapters 共用件)⇒ 照 product-repository.ts 搜尋那支的寫法轉型
+  const { data, error } = await createSupabaseServiceClient().rpc(
+    'admin_set_manual_product_images' as never,
+    { p_product_id: args.productId, p_images: [...args.images], p_actor: args.actor, p_request_id: args.requestId } as never,
+  );
+  if (error) throw error;
+  if (data === 'UPDATED' || data === 'NO_CHANGE' || data === 'NOT_FOUND') return data;
+  throw new Error('admin_set_manual_product_images RPC 回傳非預期形狀');
+}

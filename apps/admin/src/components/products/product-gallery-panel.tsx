@@ -37,10 +37,14 @@ export function ProductGalleryPanel({
   const [photos, setPhotos] = useState<readonly GalleryPhoto[]>(initialPhotos);
   const [curated, setCurated] = useState(initialCurated);
 
-  function apply(r: GalleryActionResult) {
+  /** deferNotice:多張上傳時先收著 notice, 全部跑完再顯示(不讓第一張的提示擋掉後面的上傳)。 */
+  function apply(r: GalleryActionResult, deferNotice = false): string | undefined {
     if (!r.ok) throw new GalleryUserError(r.message);
     setPhotos(r.photos);
     setCurated(r.curated);
+    // 報價單已完成而網站沒跟著更新(手動商品寫回失敗)⇒ 照片照常換新, 這句話顯示在照片區的訊息列
+    if (r.notice && !deferNotice) throw new GalleryUserError(r.notice);
+    return r.notice;
   }
 
   return (
@@ -49,19 +53,21 @@ export function ProductGalleryPanel({
       notice={curated ? undefined : manual ? MANUAL_EMPTY_NOTICE : UNCURATED_NOTICE}
       footnote={manual ? MANUAL_FOOTNOTE : undefined}
       // 報價單的排序要「全部照片(含已隱藏)」的新順序 ⇒ 已隱藏的照原本順序接在後面
-      onSaveOrder={async (urls) =>
-        apply(await reorderGalleryAction(productId, [...urls, ...splitGallery(photos).hidden.map((p) => p.url)]))
-      }
-      onDelete={async (id) => apply(await removeGalleryPhotoAction(productId, id))}
-      onHide={async (url) => apply(await setGalleryHiddenAction(productId, url, true))}
-      onUnhide={async (url) => apply(await setGalleryHiddenAction(productId, url, false))}
+      onSaveOrder={async (urls) => {
+        apply(await reorderGalleryAction(productId, [...urls, ...splitGallery(photos).hidden.map((p) => p.url)]));
+      }}
+      onDelete={async (id) => { apply(await removeGalleryPhotoAction(productId, id)); }}
+      onHide={async (url) => { apply(await setGalleryHiddenAction(productId, url, true)); }}
+      onUnhide={async (url) => { apply(await setGalleryHiddenAction(productId, url, false)); }}
       onUpload={async (files) => {
+        let notice: string | undefined;
         for (const file of files) {
           const form = new FormData();
           form.set('product_id', productId);
           form.set('file', await shrinkForUpload(file));
-          apply(await uploadGalleryPhotoAction(form));
+          notice = apply(await uploadGalleryPhotoAction(form), true) ?? notice;
         }
+        if (notice) throw new GalleryUserError(notice);
       }}
     />
   );

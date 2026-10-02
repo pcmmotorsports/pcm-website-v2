@@ -9,10 +9,13 @@ const m = vi.hoisted(() => ({
   list: vi.fn(),
   op: vi.fn(),
   upload: vi.fn(),
+  setImages: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: m.auth }));
 vi.mock('./product-repository', () => ({ getProductForAdmin: m.product }));
+vi.mock('./manual-product-repository', () => ({ setManualProductImages: m.setImages }));
+vi.mock('../audit/context', () => ({ getRequestId: async () => 'req-1' }));
 vi.mock('./gallery-api', () => ({
   readGalleryApiConfig: m.config,
   createGalleryApi: () => ({ list: m.list, op: m.op, upload: m.upload }),
@@ -194,5 +197,68 @@ describe('G2 新介面:網址與尚未整理', () => {
     m.op.mockResolvedValueOnce({ ok: true });
     m.list.mockResolvedValueOnce({ ok: true, curated: false, photos: [] });
     expect(await setGalleryHiddenAction(PID, URL1, false)).toEqual({ ok: true, curated: false, photos: [] });
+  });
+});
+
+// 2026-10-02 計畫-手動商品照片寫回網站(Sean Q1 甲):手動商品(pcm)不在每日同步裡, 照片要由後台寫回網站 products.images。
+describe('手動商品:照片操作成功後寫回網站', () => {
+  const MANUAL = { id: PID, supplier_slug: 'pcm', external_id: 'TEST-01' };
+  const A = { id: PHOTO_ID, url: 'https://img.example.com/a.jpg', source: 'staff', position: 1, hidden: false };
+  const B = { id: '33333333-3333-4333-8333-333333333333', url: 'https://img.example.com/b.jpg', source: 'staff', position: 0, hidden: false };
+  const H = { id: '44444444-4444-4444-8444-444444444444', url: 'https://img.example.com/h.jpg', source: 'staff', position: 2, hidden: true };
+
+  beforeEach(() => {
+    m.product.mockResolvedValue(MANUAL);
+    m.list.mockResolvedValue({ ok: true, curated: true, photos: [A, B, H] });
+    m.op.mockResolvedValue({ ok: true });
+    m.upload.mockResolvedValue({ ok: true });
+    m.setImages.mockResolvedValue('UPDATED');
+  });
+
+  it('排序、刪除、隱藏、上傳成功 ⇒ 都寫回網站:只帶沒隱藏的照片, 照順序', async () => {
+    const expected = { productId: PID, images: [B.url, A.url], actor: 'staff_1', requestId: 'req-1' };
+    await reorderGalleryAction(PID, [B.url, A.url, H.url]);
+    await removeGalleryPhotoAction(PID, PHOTO_ID);
+    await setGalleryHiddenAction(PID, H.url, true);
+    const form = new FormData();
+    form.set('product_id', PID);
+    form.set('file', new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' }));
+    await uploadGalleryPhotoAction(form);
+    expect(m.setImages).toHaveBeenCalledTimes(4);
+    for (const call of m.setImages.mock.calls) expect(call[0]).toEqual(expected);
+  });
+
+  it('寫回成功 ⇒ 結果和以前一樣, 沒有多出提示', async () => {
+    expect(await reorderGalleryAction(PID, [B.url, A.url, H.url])).toEqual({ ok: true, curated: true, photos: [A, B, H] });
+  });
+
+  it('🔴 寫回失敗 ⇒ 照片區照常顯示報價單的結果, 另外說清楚網站沒跟著更新(不說失敗)', async () => {
+    m.setImages.mockRejectedValueOnce(new Error('boom'));
+    expect(await reorderGalleryAction(PID, [B.url, A.url, H.url])).toEqual({
+      ok: true,
+      curated: true,
+      photos: [A, B, H],
+      notice: '照片已更新，但網站上的商品照片沒有跟著更新。請再操作一次照片（例如重新排序），或聯絡系統管理員。',
+    });
+  });
+
+  it('寫回時商品不見了(NOT_FOUND)⇒ 也當成沒跟著更新', async () => {
+    m.setImages.mockResolvedValueOnce('NOT_FOUND');
+    const r = await reorderGalleryAction(PID, [B.url, A.url, H.url]);
+    expect(r.ok && r.notice).toBe('照片已更新，但網站上的商品照片沒有跟著更新。請再操作一次照片（例如重新排序），或聯絡系統管理員。');
+  });
+
+  it('報價單操作失敗或重讀清單失敗 ⇒ 不寫回(不知道現在的照片是哪些)', async () => {
+    m.op.mockResolvedValueOnce({ ok: false, status: 500, code: 'X' });
+    await reorderGalleryAction(PID, [B.url, A.url, H.url]);
+    m.list.mockResolvedValueOnce({ ok: false, status: 500, code: 'X' });
+    await reorderGalleryAction(PID, [B.url, A.url, H.url]);
+    expect(m.setImages).not.toHaveBeenCalled();
+  });
+
+  it('同步商品(不是 pcm)⇒ 不寫回(照片由每日同步帶回網站)', async () => {
+    m.product.mockResolvedValue({ id: PID, supplier_slug: 'rpm', external_id: 'BR-LV-0003' });
+    await reorderGalleryAction(PID, [B.url, A.url, H.url]);
+    expect(m.setImages).not.toHaveBeenCalled();
   });
 });
