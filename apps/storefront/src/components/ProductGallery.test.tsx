@@ -183,7 +183,8 @@ describe('ProductGallery', () => {
   // Fix(Sean 2026-06-03 :3001 手機驗:大圖無法放大):手機 tap(touchend)開大圖 lightbox。
   // ⚠️ jsdom 不合成 touch 後的 ghost click,本測只驗 tap-open 路徑;ghost-click-close 根因(已加 preventDefault)需真機驗。
   it('opens lightbox on a mobile tap (touchstart + touchend at same point)', () => {
-    render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+    // 2026-10-03:沒有照片的商品改顯示品牌標誌、不能放大 ⇒ 本格要驗的是「點一下會放大」, 改餵真的有照片的樣本
+    render(<ProductGallery product={三張圖商品()} />);
     const hero = document.querySelector('.pd-hero-img') as HTMLElement;
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.touchStart(hero, { touches: [{ clientX: 100, clientY: 100 }] });
@@ -263,7 +264,8 @@ describe('ProductGallery', () => {
       // 🔵 現況:mapper 那層已先濾一次 ⇒ 正常路徑到不了這裡 ⇒ **本格守的是這個元件自己的行為契約**
       //    (有人改壞 mapper 時這裡會紅)。少了 `hasNoRealImage`, 這張卡會當 hero 全尺寸顯示、進縮圖列、還能放大。
       //    少了 hasNoRealImage, 這張卡會當 hero 全尺寸顯示、進縮圖列、還能點開放大。
-      const p = { ...MOCK_PRODUCTS[0]!, images: [url], variants: [] };
+      // 2026-10-03 起有品牌標誌的品牌改顯示標誌(下面那組);這一格守的是「沒有標誌」那條退路 ⇒ 用 PCM
+      const p = { ...MOCK_PRODUCTS[0]!, brand: 'PCM', brandSlug: 'pcm', images: [url], variants: [] };
       const { container } = render(<ProductGallery product={p} />);
       const hero = container.querySelector('.pd-hero-slide img') as HTMLImageElement;
       expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
@@ -290,7 +292,8 @@ describe('ProductGallery', () => {
   });
 
   describe('一張圖都沒有 ⇒ 用站內佔位圖, 不向外部圖庫要圖', () => {
-    const 沒有圖的商品 = () => ({ ...MOCK_PRODUCTS[0]!, images: [], variants: [] });
+    // 2026-10-03 起有品牌標誌的品牌改顯示標誌;這一組守「沒有標誌」那條退路 ⇒ 用 PCM(全站唯一沒有標誌的品牌)
+    const 沒有圖的商品 = () => ({ ...MOCK_PRODUCTS[0]!, brand: 'PCM', brandSlug: 'pcm', images: [], variants: [] });
 
     it('🔴 無真圖 ⇒ 顯示 /placeholder-product.png(改回 Unsplash 這格會紅)', () => {
       const { container } = render(<ProductGallery product={沒有圖的商品()} />);
@@ -380,5 +383,51 @@ describe('ProductGallery', () => {
       fireEvent.error(hero);                          // 佔位圖也壞
       expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
     });
+  });
+});
+
+// 2026-10-03 Sean Q4 甲:沒有照片的商品, 商品頁要跟卡片一樣顯示品牌標誌 + 「商品圖片準備中」, 不再用 PCM 標誌那張圖。
+describe('沒有照片 ⇒ 商品頁顯示品牌標誌(跟卡片一樣)', () => {
+  const 沒照片 = (extra: Record<string, unknown> = {}) => ({ ...MOCK_PRODUCTS[0]!, images: [], variants: [], ...extra });
+
+  it('🔴 有標誌的品牌(LIGHTECH)⇒ 顯示該品牌標誌與「商品圖片準備中」, 不用 PCM 那張圖', () => {
+    const { container } = render(<ProductGallery product={沒照片()} />);
+    const srcs = [...container.querySelectorAll('img')].map((el) => el.getAttribute('src'));
+    expect(srcs).toContain('/brands/lightech/logo.png');
+    expect(srcs).not.toContain('/placeholder-product.png');
+    expect(screen.getByText('商品圖片準備中')).toBeDefined();
+  });
+
+  it('🔴 只有供應商的佔位圖也算沒照片 ⇒ 一樣顯示品牌標誌', () => {
+    const { container } = render(<ProductGallery product={沒照片({ images: ['https://quote.pcmmotorsports.com/no-photo.png'] })} />);
+    const srcs = [...container.querySelectorAll('img')].map((el) => el.getAttribute('src'));
+    expect(srcs).toContain('/brands/lightech/logo.png');
+    expect(srcs).not.toContain('https://quote.pcmmotorsports.com/no-photo.png');
+  });
+
+  it('品牌代號優先用 brandSlug(同卡片):GB RACING 的 brandSlug 是 gb-racing', () => {
+    const { container } = render(<ProductGallery product={沒照片({ brand: 'GB RACING', brandSlug: 'gb-racing' })} />);
+    expect([...container.querySelectorAll('img')].map((el) => el.getAttribute('src'))).toContain('/brands/gb-racing/logo.webp');
+  });
+
+  it('沒有照片時不顯示縮圖列、張數與放大(只有一個標誌, 沒有東西可以翻或放大)', () => {
+    const { container } = render(<ProductGallery product={沒照片()} />);
+    expect(container.querySelector('.pd-thumbs')).toBeNull();
+    expect(container.querySelector('.pd-hero-counter')).toBeNull();
+    fireEvent.click(container.querySelector('.pd-hero-img')!);
+    expect(container.ownerDocument.querySelector('.pd-lightbox')).toBeNull();
+  });
+
+  it('🔴 標誌載不到 ⇒ 退回 PCM 那張站內圖(不留空白)', () => {
+    const { container } = render(<ProductGallery product={沒照片()} />);
+    fireEvent.error(container.querySelector('img[src="/brands/lightech/logo.png"]')!);
+    const hero = container.querySelector('.pd-hero-slide img') as HTMLImageElement;
+    expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
+  });
+
+  it('🟢 有真照片時照舊顯示照片, 不出現標誌', () => {
+    const { container } = render(<ProductGallery product={三張圖商品()} />);
+    expect([...container.querySelectorAll('img')].map((el) => el.getAttribute('src'))).not.toContain('/brands/lightech/logo.png');
+    expect(screen.queryByText('商品圖片準備中')).toBeNull();
   });
 });
