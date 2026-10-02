@@ -32,6 +32,7 @@ import type { ShopeeAccount } from '../../lib/customers/shopee-accounts';
 // ⟦b4-AUTHMAIL1⟧ 後續片:改客人信箱(Sean 2026-09-08 最終拍 A = 最簡單版)。
 import { EmailChangeForm } from './email-change-form';
 import { PasswordResetButton } from './password-reset-button';
+import { AuthMailLookupButton } from './auth-mail-lookup-button';
 import { emailChangeEligibility } from '../../lib/customers/email-change-state';
 import { lineStatusLabel, type LineStatus } from '../../lib/customers/line-status-view';
 
@@ -325,6 +326,8 @@ export function CustomerDetail({
           )}
           {/* 片 D4b:只給「Email + 密碼」登入的帳號(與改信箱同一個判準);server 送出時會再查一次 */}
           {!readOnly && eligibility.allowed && <PasswordResetButton customerId={customer.id} email={customer.email} />}
+          {/* 2026-10-02:查驗證信、重設密碼信有沒有寄到(同一個判準:只有 Email + 密碼登入的帳號會收到這兩種信) */}
+          {!readOnly && eligibility.allowed && <AuthMailLookupButton customerId={customer.id} />}
           <p className='pcm-note2'>修改的是客戶的登入 Email。訂單通知會優先寄到該筆訂單設定的通知信箱，修改登入 Email 不會同步變更訂單的通知信箱。</p>
         </section>
       </div>
