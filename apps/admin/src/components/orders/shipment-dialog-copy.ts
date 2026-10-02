@@ -37,7 +37,7 @@ export function blockedText(reason: ShipmentCandidateItem['blockedReason']): str
     case 'not_arrived':
       return '未到貨';
     default:
-      return '數量資料尚未就緒';
+      return '到貨數量無法計算';
   }
 }
 

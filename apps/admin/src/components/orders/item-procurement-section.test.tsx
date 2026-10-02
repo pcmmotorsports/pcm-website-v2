@@ -1059,11 +1059,30 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件尚未�
         suppliersFailed={false}
       />,
     );
-    expect(getByText(/數量資料尚未就緒/)).toBeTruthy();
+    expect(getByText(/到貨數量無法計算/)).toBeTruthy();
     // 🔴 不變式是「**不得宣稱一個件數**」,不是「不得出現『尚未登記來源』這幾個字」——
     //    誠實的 fallback 本來就寫著「算不出『還有幾件尚未登記來源』」,那句合法。
     //    (第一版我把斷言寫成後者,當場被自己這格打回:**測的東西比要守的不變式更寬**。)
     //    ⇒ 改釘那顆 `role="status"` 的橘色提示不存在 —— 它才是「我知道是 N 件」的那個宣稱。
+    expect(queryByRole('status')).toBeNull();
+  });
+
+  // 🔴 2026-10-02(TFJ2B5):品項還沒下訂、也沒取消過 ⇒ 摘要列本來就不存在(A4a 惰性建立)⇒ 這不是「讀不到」。
+  //    改用明細表同一支 summaryOrUntouched 當 0 算 ⇒ 不得出現「無法計算」。
+  //    沒有採購列時那一塊收合著, 只印「還沒跟任何供應商訂」那一句;「還有 N 件」的提示刻意不重複(見元件內 `#701` 那段)。
+  it('🔴 沒動過的品項(沒採購、沒取消)→ 當 0 算, 只說「還沒跟任何供應商訂」, 不說無法計算', () => {
+    const d = detail();
+    const untouched = {
+      ...d,
+      cancellations: [],
+      cancellationsTruncated: false,
+      items: [{ ...d.items[0]!, quantitySummary: null, procurements: [], procurementTruncated: false }],
+    } as never;
+    const { container, queryByRole } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={untouched} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(container.textContent).toContain('還沒跟任何供應商訂');
+    expect(container.textContent).not.toContain('無法計算');
     expect(queryByRole('status')).toBeNull();
   });
 
@@ -1079,7 +1098,7 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件尚未�
         suppliersFailed={false}
       />,
     );
-    expect(getByText(/數量資料尚未就緒/)).toBeTruthy();
+    expect(getByText(/到貨數量無法計算/)).toBeTruthy();
   });
 });
 

@@ -466,7 +466,7 @@ export function orderDetailGoodsAxis(detail: { items: readonly GoodsAxisLine[] }
 export function goodsAxisProgressNote(lines: readonly GoodsAxisLine[]): string | null {
   if (lines.length === 0) return null;
   // 🔴 null 檢查必須在最前面:它是「不知道」,不能被下面任何 `?? 0` 吃掉。
-  if (lines.some((l) => l.quantitySummary === null)) return '部分品項數量資料尚未就緒';
+  if (lines.some((l) => l.quantitySummary === null)) return '部分品項到貨數量無法計算';
 
   const axis = goodsAxisOfLines(lines);
   if (axis === 'shipped') return null;

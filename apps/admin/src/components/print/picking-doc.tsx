@@ -3,6 +3,7 @@ import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
 import { subtotalLabelOf } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import { summaryOrUntouched } from '../../lib/orders/order-status-axes';
 import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
 import { QR_DATA_URI } from './print-assets';
@@ -98,7 +99,8 @@ function Alert({ children, slot }: { children: React.ReactNode; slot?: string })
     <div
       role='alert'
       data-slot={slot}
-      className='rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm font-medium text-amber-800'
+      // 2026-10-02:這張紙會放進包裹給客人 ⇒ 給員工的提示只在畫面上, 列印時隱藏(print:hidden)。
+      className='rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm font-medium text-amber-800 print:hidden'
     >
       {children}
     </div>
@@ -126,13 +128,18 @@ export function PickingDoc({
   //    網址可以被貼、被書籤、或在分頁開著的時候訂單才被取消,那些路徑都繞過鈕。
   const cancelledAt = detail.cancelledAt;
 
+  // 🔴 2026-10-02(TFJ2B5):摘要列由 A4a 惰性建立 ⇒ 還沒下訂、也沒取消過的品項本來就沒有那一列。
+  //    那不是「讀不到」, 是「都還是 0」⇒ 用明細表同一支 summaryOrUntouched 補成 0(它對讀不完整的紀錄仍回 null)。
+  //    本檔下面所有讀 quantitySummary 的地方都改讀這一份, 不各自判一次。
+  const items = detail.items.map((item) => ({ ...item, quantitySummary: summaryOrUntouched(item, detail) }));
+
   // 🔴 **合計走與那一列【同一支函式】,不另外數一次。**
   //    這正是今天 `#522` 那個病的形狀:同一個概念在兩個地方各算一次,然後其中一邊被改掉。
   //    ⇒ 「這一列有沒有勾選框」與「合計要不要算它」必須是**同一個判斷**,
   //      否則會出現「有 9 個框、合計說 8 項」這種紙,而它印得出來、沒有任何東西會紅。
   //    ⚠️ 所以判斷收成 `needsPicking` 一支、算一次存成 `pickables` 一份,
   //      勾選框與合計【都讀它】—— 不是「兩邊寫得一樣」,是**兩邊沒有各自的版本可以漂走**。
-  const pickables = detail.items.map((item) => pickableQuantity(item));
+  const pickables = items.map((item) => pickableQuantity(item));
   // 🔴 A3-3'(2026-08-29):~~const pickableCount = pickables.filter(needsPicking).length;~~
   //    **拿掉** —— reviewer R1 MF9:它零讀取(唯一消費端是已被拿掉的「本次應揀合計」),
   //    而 `eslint` 對它 rc=0 零輸出 ⇒ **死碼而 lint 看不見**。
@@ -141,7 +148,7 @@ export function PickingDoc({
   //    M = 有多少【品項列】還沒到齊(客人買的 > 已到貨)。
   //    ⚠️ `quantitySummary` 為 null ⇒ **不知道**, 而不知道【不算進未到貨】——
   //       算進去會把「我們不知道」印成「我們知道它沒到」。那一格由頁首 Alert 承擔。
-  const waitingCount = detail.items.filter(
+  const waitingCount = items.filter(
     (it) => it.quantitySummary !== null && it.quantitySummary.quantity > it.quantitySummary.instockQuantity,
   ).length;
 
@@ -277,19 +284,15 @@ export function PickingDoc({
             </Alert>
           )}
 
-          {/* 🔴 有「數量資料尚未就緒」的列 ⇒ 揀完該揀的**也不算處理完這張單**。
+          {/* 🔴 有「到貨數量無法計算」的列 ⇒ 揀完該揀的**也不算處理完這張單**。
               放在頁首而不是合計旁邊的理由見下面合計那段(跨頁會把它切掉)。 */}
           {unknownCount > 0 && (
             <Alert>
-              有 {unknownCount} 項的數量資料尚未就緒
+              有 {unknownCount} 項商品的到貨數量無法計算
               {/* 🔴 截斷時這個數也只是【已載入子集】裡的數量(codex R2)——
                   與「品項:N 項」同一個病,不能只修被指名的那一處。 */}
-              {detail.itemsTruncated && '(而且清單沒載完,未載入的列裡可能還有)'}。
-              <br />
-              {/* 🔴 **這句原本中間是一個 `⇒`** —— 那是我們寫註解用的**邏輯符號(蘊含)**,
-                  2026-08-18 紙上文字審查掃出來的第二則(掃渲染產物的邏輯/裝飾符號 ⇒ 只命中它,2 處)。
-                  ⚠️ **揀貨的人不讀邏輯符號。** 換成「所以」——**句意一個字都沒改,只是用人話接。** */}
-              那幾項的數量【還不知道】。所以這張單仍然不算處理完,請回報。
+              {detail.itemsTruncated && '(而且清單沒載完,未載入的列裡可能還有)'}
+              （下表狀態欄標示「到貨數量無法計算」的品項）。系統讀不到這些商品的採購或到貨紀錄，無法確認是否到齊，所以這張單揀完也不能視為完成。請聯絡系統管理員檢查這張訂單的採購紀錄。
             </Alert>
           )}
 
@@ -449,7 +452,7 @@ export function PickingDoc({
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.items.map((item) => {
+                  {items.map((item) => {
                     const q = item.quantitySummary;
                     // 🔴 狀態欄照稿:稿的實例逐字是「未到貨 1」⇒ 未到貨數 = 客人買的 − 已到貨。
                     //    `quantitySummary` 為 null ⇒ **不知道**, 而【不知道不等於 0】。
@@ -474,7 +477,7 @@ export function PickingDoc({
                           )}
                         </td>
                         <td className='pd-state'>
-                          {waiting === null ? '數量資料尚未就緒' : waiting > 0 ? `未到貨 ${waiting}` : ''}
+                          {waiting === null ? '到貨數量無法計算' : waiting > 0 ? `未到貨 ${waiting}` : ''}
                         </td>
                         <td className='pd-num'>{item.quantity}</td>
                         <td className='pd-num'>{formatOrderAmount(item.unitPrice.amount)}</td>

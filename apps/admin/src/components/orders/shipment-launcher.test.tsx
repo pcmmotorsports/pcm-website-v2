@@ -61,7 +61,7 @@ import { UnrecognizedActionError } from 'next/dist/client/components/unrecognize
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
 // 🔴 **標型別**(2026-08-10 R2 抓到):不標的話漏一個欄位 `vi.fn()` 不會有任何抱怨,
-//    而 `blockedReason` 缺席會讓彈窗把一個 `remaining=2` 的可出品項畫成「數量資料尚未就緒」,
+//    而 `blockedReason` 缺席會讓彈窗把一個 `remaining=2` 的可出品項畫成「到貨數量無法計算」,
 //    測試卻因為只斷言料號而全綠 —— fixture 缺欄是假綠的常見入口。
 const CANDIDATE: ShipmentCandidateItem = {
   orderId: 'ord-uuid-1',
@@ -188,7 +188,7 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
   //    ③ **混合那一格是 `d4b46f0c` 獨有**, 對方沒有 ⇒ 保留。
   //
   // 🔴 走查逐字(`-account` 09-03)+ `-db` 09-04 在 admin-probe 上**真的按了那顆鈕**:
-  //    「這些訂單目前沒有任何一件出得了(2件的數量資料尚未就緒)。」—— 就這一句, 沒有下一步。
+  //    「這些訂單目前沒有任何一件出得了(2件的到貨數量無法計算)。」—— 就這一句, 沒有下一步。
   //    而答案就在 `picking-doc.tsx:78`「出貨必先到貨、無直送」—— 那是拍板, 而畫面沒說出來。
   //
   // 🔴 **這一組刻意【不用】 `not_arrived` 當 fixture** —— 呼叫端的閘是

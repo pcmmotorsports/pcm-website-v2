@@ -128,10 +128,10 @@ function noneShippableMessage(items: ShipmentCandidates['items'], boxesShownBelo
     ['refunded', '件已全額退款,不能再出', ''],
     [
       'unknown',
-      '件的數量資料尚未就緒',
-      '部分品項的數量資料尚未就緒，可能尚未登記採購。' +
+      '件的到貨數量無法計算',
+      '部分品項的到貨數量無法計算，系統讀不到它們的採購或到貨紀錄。' +
         '請開啟訂單並展開對應品項，在「採購(向供應商訂貨)」確認採購紀錄；' +
-        '完成採購及到貨登記後，這裡才會顯示可出貨數量。',
+        '仍無法顯示時，請聯絡系統管理員檢查這張訂單的採購紀錄。',
     ],
   ] as const;
   const hit = buckets

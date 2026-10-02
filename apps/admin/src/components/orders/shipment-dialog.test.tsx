@@ -586,7 +586,7 @@ describe('#351② 出不了的品項:留在清單裡 + 標出原因 + 不可選'
 
     open({ candidates: blocked('unknown') });
     expect(
-      screen.queryByText('數量資料尚未就緒'),
+      screen.queryByText('到貨數量無法計算'),
       '數量讀不到/資料損壞時顯示成一個正常的數字或「未到貨」= 把「不知道」偽裝成事實。',
     ).not.toBeNull();
   });

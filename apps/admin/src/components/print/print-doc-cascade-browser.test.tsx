@@ -415,18 +415,18 @@ describe.skipIf(!buildStamp.ok)('🔴 出貨明細單 · 串接量測(真 chromi
     const qtyCells = rows.map(({ sect, r }) => ({ sect, c: r.qty[0]! }));
     const numeric = qtyCells.filter(({ c }) => /^\d+$/.test(c.text));
     const nonNumeric = qtyCells.filter(({ c }) => !/^\d+$/.test(c.text));
-    // 🔴 **R3 MF6:非數字那一支【也要在分母裡】** —— 它是「數量資料尚未就緒」那一列。
+    // 🔴 **R3 MF6:非數字那一支【也要在分母裡】** —— 它是「到貨數量無法計算」那一列。
     //    改前 fixture 長不出它 ⇒ 量具把它自己剛修的碼排除在外。
     expect(numeric.length, '一個數字型數量格都沒有 ⇒ 下面恆真').toBeGreaterThan(0);
-    expect(nonNumeric.length, '「尚未就緒」那一支沒出現 ⇒ fixture 沒涵蓋它').toBeGreaterThan(0);
+    expect(nonNumeric.length, '「無法計算」那一支沒出現 ⇒ fixture 沒涵蓋它').toBeGreaterThan(0);
     // 非數字那一格要帶稿的狀態語彙,而且它那一列要是 `pd-wait`。
     for (const { sect, c } of nonNumeric) {
-      expect(c.hasState, `${sect} 的「尚未就緒」格沒有 .pd-state`).toBe(true);
+      expect(c.hasState, `${sect} 的「無法計算」格沒有 .pd-state`).toBe(true);
     }
     expect(
       rows.filter(({ r }) => r.qty[0] !== undefined && !/^\d+$/.test(r.qty[0].text))
         .every(({ r }) => r.rowCls.includes('pd-wait')),
-      '「尚未就緒」的列沒有掛 pd-wait',
+      '「無法計算」的列沒有掛 pd-wait',
     ).toBe(true);
     const fonts = numeric.map(({ c }) => c.font);
     expect(

@@ -428,7 +428,7 @@ describe('#10 片1 🔴 訂單明細必須反映貨的真實狀態', () => {
   //       第一列逐字 `PR333-PR333B | 下鏈條蓋… | 未到貨 1 | 1 | 1,400 | 1,400` ⇒ 數量欄 = 1。
   //    🔴 而 codex 抓到的正是這一格:欄名改成「數量」而數字還是應揀量
   //       ⇒ 它的實例逐字「訂購 53、到貨 41、已出貨 15 ⇒ 訂單明細會把數量印成 26」。
-  //    ⚠️ **「數量資料尚未就緒」那個資訊沒有消失** —— 它在頁首那顆 Alert 裡(上面那格在守),
+  //    ⚠️ **「到貨數量無法計算」那個資訊沒有消失** —— 它在頁首那顆 Alert 裡(上面那格在守),
   //       而稿把它放在【狀態】欄 ⇒ **那一欄是下一片**。
   it("⑤面2/3/4'(A3-3' 反轉):數量欄印的是【訂購數量】, 不是應揀量", async () => {
     const { container } = await renderPage();
@@ -518,7 +518,7 @@ describe("#10 片1 🔴 A3-3' 誤刪後【還原】的四格 —— 它們與勾
 
   // 🔴🔴 **這一格的來源是【真伺服器 + 真資料】,不是想出來的**(2026-08-18)。
   //    真單 `PCM-2026-0102`:1 個品項、`quantitySummary` 為 `null`
-  //    ⇒ 頁首「有 1 項的數量資料尚未就緒…這張單仍然不算處理完」
+  //    ⇒ 頁首「有 1 項的到貨數量無法計算…這張單仍然不算處理完」
   //    ⇒ 而頁尾同時印「勾選欄共 0 項,全部勾完才算揀完。」
   //    ⇒ 🔴 **「把 0 個框全部勾完」是一個【不做任何事就成立】的條件。**
   //    ⚠️ 兩句話互相矛盾時,拿著紙的人會信**離簽名欄近的那一句**。
@@ -607,11 +607,38 @@ describe("#10 片1 🔴 A3-3' 誤刪後【還原】的四格 —— 它們與勾
     //    ✅ 釘【位置】:那顆警告必須在頁首的 [role="alert"] 裡面。
     const alert = container.querySelector('[role="alert"]');
     expect(alert).not.toBeNull();
-    expect(alert?.textContent).toContain('數量資料尚未就緒');
-    expect(alert?.textContent).toContain('不算處理完');
+    expect(alert?.textContent).toContain('到貨數量無法計算');
+    // 2026-10-02 文案改寫:「仍然不算處理完」⇒「揀完也不能視為完成」(意思不變:這張單不算處理完)。
+    expect(alert?.textContent).toContain('揀完也不能視為完成');
     // 🔴 而它現在【不得】再提一個已經不存在的合計
     expect(container.innerHTML).not.toContain('應揀');
     expect(container.innerHTML).not.toContain('本次應揀合計');
+  });
+
+  // 🔴 2026-10-02(TFJ2B5):沒動過的品項(沒採購、沒取消)⇒ 摘要列本來就不存在, 這不是「讀不到」。
+  //    改用明細表同一支 summaryOrUntouched ⇒ 當 0 算:不出黃框、狀態欄印「未到貨 9」。
+  it('🔴 沒動過的品項 ⇒ 不出黃框, 狀態欄印未到貨', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: ALL_UNKNOWN, cancellations: [], cancellationsTruncated: false } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    const cells = [...container.querySelectorAll('.pd-items table > tbody > tr > td')];
+    expect(cells[2]?.textContent?.trim()).toBe('未到貨 9');
+  });
+
+  // 🔴 真的讀不到(取消紀錄沒讀到等)⇒ 黃框照講, 但這張紙會放進包裹給客人 ⇒ 黃框只在畫面上, 列印時隱藏。
+  it('🔴 真的讀不到 ⇒ 黃框寫清楚怎麼處理, 而且列印時隱藏;狀態欄印「到貨數量無法計算」', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: ALL_UNKNOWN } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('有 1 項商品的到貨數量無法計算');
+    expect(alert?.textContent).toContain('請聯絡系統管理員檢查這張訂單的採購紀錄');
+    expect(alert?.className).toContain('print:hidden');
+    const cells = [...container.querySelectorAll('.pd-items table > tbody > tr > td')];
+    expect(cells[2]?.textContent?.trim()).toBe('到貨數量無法計算');
   });
 
   it('🔴 codex R2 MF4:B 態(itemsTruncated)也不得重新印出揀貨字面', async () => {
@@ -637,12 +664,12 @@ describe("#10 片1 🔴 A3-3' 誤刪後【還原】的四格 —— 它們與勾
     const cells = [...container.querySelectorAll('.pd-items table > tbody > tr > td')];
     expect(cells[3]?.textContent?.trim()).toBe('9');
     // 🔴 而「不知道」這件事仍然要說 —— 只是位置換到頁首 Alert（上面那格釘位置）
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('數量資料尚未就緒');
-    // ✅ 反例:舊行為會在【格子裡】說「數量資料尚未就緒」⇒ 現在不得如此
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('到貨數量無法計算');
+    // ✅ 反例:舊行為會在【格子裡】說「到貨數量無法計算」⇒ 現在不得如此
     // 🔴 而「尚未就緒」現在住在【狀態欄】(cells[2]) —— 稿把它放在那裡。
     //    ⇒ 數量欄(cells[3])不得有它;而狀態欄【應該】有它。
-    expect(cells[3]?.textContent).not.toContain('尚未就緒');
-    expect(cells[2]?.textContent).toContain('尚未就緒');
+    expect(cells[3]?.textContent).not.toContain('無法計算');
+    expect(cells[2]?.textContent).toContain('無法計算');
   });
 });
 

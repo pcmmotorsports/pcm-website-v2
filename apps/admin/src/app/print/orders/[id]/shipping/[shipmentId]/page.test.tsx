@@ -487,7 +487,7 @@ describe('#10 片2b — 版面', () => {
   it('🔴 印的是**本次出貨**的數量,不是下單量', async () => {
     // 🔴 **這格原本用「全頁最後一個 td」定位,`Q-D-6` 落地後就量錯東西了** ——
     //    紙上多了第二張表(尚未出貨),最後一個 td 變成那張表的。
-    //    ⚠️ 它當時**紅得對**(說「數量資料尚未就緒」≠「2」),但紅的原因是選擇器太寬、不是實作壞了。
+    //    ⚠️ 它當時**紅得對**(說「到貨數量無法計算」≠「2」),但紅的原因是選擇器太寬、不是實作壞了。
     //    ⇒ 修法是**把量測範圍縮到該量的那張表**,不是放寬斷言。
     const table = must((await renderPage()).container.querySelectorAll('.pd-items table')[0], '本次出貨表');
     // 🔴🔴 **片4b:從「最後一格」改成「元件宣告的數量格」——【更緊,不是更鬆】。**
@@ -1024,7 +1024,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     setDetail(withSummary(null));
     const t = (await renderPage()).container.querySelectorAll('.pd-items table')[1]?.textContent ?? '';
     expect(t).toContain('LTC-BK-XL');
-    expect(t).toContain('數量資料尚未就緒');
+    expect(t).toContain('到貨數量無法計算');
     expect(t).not.toContain('尚未出貨:無');
   });
 

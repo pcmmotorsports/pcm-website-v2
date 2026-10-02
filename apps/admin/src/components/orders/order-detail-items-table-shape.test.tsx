@@ -283,9 +283,9 @@ describe('🔴 【原樣保留】`ItemAxisValue`:缺值印「—」,不是 `0/0`
 });
 
 describe('🔴 【原樣保留】缺值那句話只講一次;「已取消」是例外不是第四軸', () => {
-  it('summary 為 null ⇒ 出現「數量資料尚未就緒」', () => {
+  it('summary 為 null ⇒ 出現「到貨數量無法計算」', () => {
     const { container } = render(<ItemAxisMissingNote summary={null} />);
-    expect(container.textContent).toContain('數量資料尚未就緒');
+    expect(container.textContent).toContain('到貨數量無法計算');
   });
 
   it('✅ 負向對照:有 summary ⇒ 什麼都不畫', () => {

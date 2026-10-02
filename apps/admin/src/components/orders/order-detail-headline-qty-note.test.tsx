@@ -14,7 +14,7 @@ import { OrderFocalRow } from './order-focal-row';
 // 🔴 **三條路的【下一步】不同,所以不能共用一句話**:
 //    truncated 品項清單沒完整載入 ⇒ 重新整理
 //    noItems   這張單根本沒有品項 ⇒ 沒有東西要做
-//    notReady  數量資料還沒建立   ⇒ 去看標「數量資料尚未就緒」的那幾項 / 找系統維護
+//    notReady  數量資料還沒建立   ⇒ 去看標「到貨數量無法計算」的那幾項 / 找系統維護
 //
 // ⚠️ **擋得住 / 擋不住**:
 //   擋得住 —— 三條路任兩條被合併成同一句、某一句被刪掉、有值時多印了一行。
@@ -102,7 +102,7 @@ describe('頭條「件數」答不出來時,旁邊那一行', () => {
   it('🔴 `notReady`(數量資料還沒建立)⇒ 指去標記那幾項 + 找誰,而**刻意不提重新整理**(重整有沒有用未驗)', () => {
     const t = qtyCell(detailWith({ items: [{ id: 'i1', quantity: 2, quantitySummary: null }] }));
     expect(t).toContain('未知');
-    expect(t).toContain('數量資料尚未就緒');
+    expect(t).toContain('到貨數量無法計算');
     expect(t).toContain('系統維護');
     expect(t).not.toContain('請重新整理');
   });

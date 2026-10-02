@@ -7,6 +7,7 @@ import {
   type SupplierOption,
 } from '../../lib/orders/procurement-suppliers';
 import { REPLY_STATUS_LABEL, unsourcedQuantity } from '../../lib/orders/procurement-view';
+import { summaryOrUntouched } from '../../lib/orders/order-status-axes';
 import { ItemProcurementForm } from './item-procurement-form';
 
 // M-4b E10 A10b:訂單明細的採購區塊(server-render 清單 + 每個品項一份表單)。
@@ -27,13 +28,15 @@ import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
-function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
-  const unsourced = unsourcedQuantity(item.quantitySummary);
+function UnsourcedNotice({ item, detail }: { item: AdminOrderDetailItem; detail: AdminOrderDetail }) {
+  // 🔴 2026-10-02(TFJ2B5):摘要列由 A4a 惰性建立 ⇒ 沒下訂、也沒取消過的品項本來就沒有那一列, 那是「都還是 0」
+  //    不是「讀不到」⇒ 用明細表同一支 summaryOrUntouched(讀不完整的紀錄仍回 null)。
+  const unsourced = unsourcedQuantity(summaryOrUntouched(item, detail));
 
   if (unsourced === null) {
     return (
       <p className='text-muted-foreground mb-2 text-xs'>
-        這個品項的數量資料尚未就緒，目前無法計算有多少件尚未登記來源。
+        這個品項的到貨數量無法計算：系統讀不到它的採購或到貨紀錄，所以算不出有多少件尚未登記來源。請聯絡系統管理員檢查這張訂單的採購紀錄。
       </p>
     );
   }
@@ -219,8 +222,9 @@ export function ItemProcurementBlock({
                     </span>
                   </summary>
                   <div className='mt-3'>
-                    {unsourcedQuantity(item.quantitySummary) === null && (
-                      <UnsourcedNotice item={item} />
+                    {/* 2026-10-02(TFJ2B5):讀不到才印;沒動過的品項用 summaryOrUntouched 當 0 算, 不算讀不到。 */}
+                    {unsourcedQuantity(summaryOrUntouched(item, detail)) === null && (
+                      <UnsourcedNotice item={item} detail={detail} />
                     )}
                     <ItemProcurementForm
                       orderId={detail.id}
@@ -234,7 +238,7 @@ export function ItemProcurementBlock({
                 </DetailsScrollOnOpen>
               ) : (
                 <>
-                  <UnsourcedNotice item={item} />
+                  <UnsourcedNotice item={item} detail={detail} />
 
                   <ProcurementRows
                     item={item}
