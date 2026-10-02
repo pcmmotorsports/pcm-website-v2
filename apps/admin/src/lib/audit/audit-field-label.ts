@@ -122,6 +122,9 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   requested_by: '提申請的人',
   review_note: '退回的理由',
   shipping_address_snapshot: '收件人 / 電話 / 地址',
+  // 貼板 264(Sean 2026-10-02):「編輯個資」改車款與要不要開發票, before/after 多這兩欄(稅、總額、付款狀態本表已有)。
+  vehicle_snapshot: '這張單的車款',
+  invoice_requested: '要不要開發票',
   // ── 取消線片②(2026-09-02):只標記取消 ──────────────────────
   // 🔴 這一欄是**新增的**,不是漏翻的 —— `admin_mark_order_cancelled` 把它寫進 audit 的
   //    before/after 快照。而**那道分母集合比對當場就紅了**(它等的就是有人新增稽核欄位那一天)。
@@ -455,6 +458,7 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
   tier_at_checkout: { general: '會員', store: '車行', premiumStore: '經銷' },
   // `20260714130000_m4a_admin_update_order_workflow*.sql` CHECK
   invoice_status: { not_issued: '還沒開立', issued: '已開立', voided: '已作廢' },
+  invoice_requested: { true: '要開', false: '不開' },
   // `20260927010000` order_returns_status_check
   return_status: { registered: '退貨中（等商品寄回）', received: '已收回', voided: '已作廢' },
   // 各 RPC CHECK 的聯集(`unpaid`/`paid`/`partiallyRefunded`/`refunded`)

@@ -41,6 +41,9 @@ import {
 // inputMode,以及 wallet 兩顆 submit 的 name/value(決定加值還是扣款)。
 // server action 本身的行為不在此檔範圍(那是 lib/*-form.test.ts 與 RPC 層的事)。
 
+// 貼板 264:編輯個資多了車款那一塊(建單畫面的字典搜尋是 server action)⇒ 與 order-edit-form.test.tsx 同一個替身。
+vi.mock('server-only', () => ({}));
+vi.mock('../../lib/orders/vehicle-dictionary-action', () => ({ searchVehicleDictionaryAction: vi.fn(async () => []) }));
 vi.mock('../../lib/orders/order-actions', () => ({
   updateOrderWorkflowAction: async () => {},
 }));

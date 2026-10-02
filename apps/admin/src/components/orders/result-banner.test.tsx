@@ -461,6 +461,16 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'invoice_date_missing',
       'invoice_date_before_order',
       'invoice_date_future',
+      // 貼板 264:車款 / 要不要開發票六顆(RPC P9V01–06)。本格在加進 `MESSAGES` 的當下真的紅過。
+      'vehicle_not_manual',
+      'vehicle_year_invalid',
+      'invoice_toggle_not_allowed',
+      'invoice_toggle_has_records',
+      'invoice_has_number',
+      'invoice_toggle_mismatch',
+      // Fable R1 修正後多兩顆(P9V07 已收超過含稅總額、P9V08 含稅價換算的單)。
+      'invoice_toggle_overpaid',
+      'invoice_tax_not_reproducible',
       NOTE_ADDED_RESULT_CODE,
       // 🔴 貼板 138 的軟刪除結果碼。**本格在我把它加進 `MESSAGES` 的當下真的紅過**
       //    (1 failed / 10752 passed)—— 那是它有判別力的證據, 不是推的。
@@ -756,14 +766,16 @@ describe('🔴🔴 改單:invoice_blocked 與 error 的下一步【相反】(⟦
     expect(generic).toContain('再試');
   });
 
-  it('🔴 invoice_blocked 叫他【不要重試】, 而且沒有叫他再試', () => {
-    expect(blocked).toContain('勿重複送出');
-    expect(blocked).not.toContain('請稍後再試');
+  it('🔴 invoice_blocked 沒有叫他再試(同一包再送一次永遠不會成功)', () => {
+    expect(blocked).not.toContain('再試');
   });
 
+  // 貼板 264(Sean 2026-10-02 Q2 甲推翻 09-04「要開就作廢重開」)⇒ 出路改成「先在編輯個資改成要開」。
   it('🔵 它要說得出【為什麼】與【出路】—— 一句只說「不行」的話會讓他去找人', () => {
     expect(blocked).toContain('不開發票');
-    expect(blocked).toContain('作廢後重新建單');
+    expect(blocked).toContain('「編輯個資」');
+    expect(blocked).toContain('改成「要開」');
+    expect(blocked).not.toContain('作廢後重新建單');
   });
 
   it('🔴 而它【不得】把 DB 的原話漏出來 —— ?r= 是任何人都打得出來的字', () => {

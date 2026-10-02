@@ -15,7 +15,11 @@ import { ORDER_RETURN_TO_FIELD, parseOrderReturnTo } from './order-return-to';
 import {
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
   MANUAL_ORDER_INVOICE_TITLE_FIELD,
+  MANUAL_ORDER_VEHICLE_PICK_FIELD,
+  MANUAL_ORDER_VEHICLE_TEXT_FIELD,
+  MANUAL_ORDER_VEHICLE_YEAR_FIELD,
 } from './manual-order-form';
+import { parseVehicleYear, resolveManualOrderVehicle } from './vehicle-dictionary';
 // 🔴 白名單的唯一副本在那支檔(片15 R2,W5 must-fix 2)——**不要在這裡再寫一次 `'home'`/`'store'`**。
 import { isShippingMethod } from './order-detail-view';
 
@@ -32,6 +36,10 @@ export const SHIP_TO_PHONE_FIELD = 'ship_to_phone';
 export const SHIP_TO_LINE_FIELD = 'ship_to_line';
 /** 三格改收件資料的「開關」:勾了才送三鍵(codex must-fix ②:三格永遠送會讓「只改發票」被舊資料的空電話 / 超長地址擋住)。 */
 export const SHIP_TO_EDIT_FIELD = 'ship_to_edit';
+/** 貼板 264:「改車」旗標(只有手動單畫這一塊;有這一格才送 vehicle, 沒有就不動訂單上的車)。三格沿用建單畫面的欄名。 */
+export const VEHICLE_EDIT_FIELD = 'vehicle_edit';
+/** 貼板 264:要不要開發票(select:on / off;只有電話 / LINE / 其他手動單畫這一格)。 */
+export const INVOICE_REQUESTED_EDIT_FIELD = 'invoice_requested';
 const SHIP_TO_ZERO_WIDTH = /[\u200B\u200C\u200D\u2060\uFEFF]/;
 export const INVOICE_NUMBER_FIELD = 'invoice_number';
 export const INVOICE_AMOUNT_FIELD = 'invoice_amount';
@@ -213,6 +221,11 @@ export const WORKFLOW_SINGLE_FIELDS = [
   SHIP_TO_PHONE_FIELD,
   SHIP_TO_LINE_FIELD,
   SHIP_TO_EDIT_FIELD,
+  VEHICLE_EDIT_FIELD,
+  MANUAL_ORDER_VEHICLE_TEXT_FIELD,
+  MANUAL_ORDER_VEHICLE_PICK_FIELD,
+  MANUAL_ORDER_VEHICLE_YEAR_FIELD,
+  INVOICE_REQUESTED_EDIT_FIELD,
 ] as const;
 
 /**
@@ -360,6 +373,25 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     } else {
       return { ok: false };
     }
+  }
+
+  // 貼板 264(Sean 2026-10-02):車款 + 年份。只有勾了「改車」那一塊在畫面上才送;清空車種 = 清掉這張單的車。
+  if (readSingle(form, VEHICLE_EDIT_FIELD).kind === 'value') {
+    const year = parseVehicleYear(readSingleString(form, MANUAL_ORDER_VEHICLE_YEAR_FIELD));
+    if (year === 'invalid') return { ok: false };
+    const vehicle = resolveManualOrderVehicle(
+      readSingleString(form, MANUAL_ORDER_VEHICLE_TEXT_FIELD),
+      readSingleString(form, MANUAL_ORDER_VEHICLE_PICK_FIELD),
+      year,
+    );
+    if (vehicle === null && year !== undefined) return { ok: false }; // 只填年份不收
+    patch.vehicle = vehicle;
+  }
+  // 貼板 264(Sean 2026-10-02 Q2 甲):要不要開發票。稅、總額與付款狀態由 RPC 重算, 這裡只傳意思。
+  const invoiceRequestedRead = readSingle(form, INVOICE_REQUESTED_EDIT_FIELD);
+  if (invoiceRequestedRead.kind === 'value') {
+    if (invoiceRequestedRead.value !== 'on' && invoiceRequestedRead.value !== 'off') return { ok: false };
+    patch.invoiceRequested = invoiceRequestedRead.value === 'on';
   }
 
   // 🔴 #350d:`return_to` 的守門搬到 `order-return-to.ts`(order 域五支 action 的共同 choke point);

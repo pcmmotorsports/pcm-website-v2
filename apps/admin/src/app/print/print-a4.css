@@ -720,6 +720,24 @@ tr {
   font-size: 9pt;
   line-height: 1.4;
 }
+/* 2026-10-02 Sean:品項品牌。品名前面同一行的小字(字距拉開、次要色);不加框、不加陰影。
+   🔴 刻意不換行:換行會讓每一列多一行高, 7 項的單就從一頁變兩頁(page-measure 那格量到)。
+   🔴 類名不能叫 .pd-brand —— 那是抬頭 PCM 標誌那一塊(display:flex), 撞名會把品牌撐成一整行(本機列印預覽量到)。 */
+.pd-item-brand {
+  font-size: 7pt;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pd-sub);
+  margin-right: 1.5mm;
+}
+/* 2026-10-02:只給員工在螢幕上看的格子(會員等級)。紙會放進包裹 ⇒ 列印時不出現。
+   🔴 不能只靠 Tailwind 的 print:hidden:.pd-field 的 display:flex 是無層規則, 會蓋過 utilities 層(本機列印預覽量到會員等級照印)。 */
+@media print {
+  .pd-field.pd-screen-only {
+    display: none;
+  }
+}
 .pd-spec {
   display: block;
   font-size: 8pt;

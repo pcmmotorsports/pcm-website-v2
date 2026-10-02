@@ -185,6 +185,8 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
         // 🆕 #956 乙(2026-09-14):車種一格 = text + hidden pick。
         'vehicle_pick',
         'vehicle_text',
+        // 2026-10-02 Sean:車種旁多一格「年份」。
+        'vehicle_year',
         'payment_channel',
         'shipping_method',
         'shipping_fee',

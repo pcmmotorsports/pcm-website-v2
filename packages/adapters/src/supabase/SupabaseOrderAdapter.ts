@@ -250,7 +250,7 @@ export const MEMBER_ORDER_DETAIL_SELECT =
 //    · 🔴 forbidden-token 那格用**子字串**比對而清單裡有 `'invoice'`
 //      ⇒ 這一欄與 `invoice_status` 一樣會誤觸，測試那格已多剝一層（見 SupabaseOrderAdapter.test.ts）。
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, invoice_requested, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, invoice_requested, customer_user_id, customers(name), shipping_address_snapshot, vehicle_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
 
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
@@ -2012,7 +2012,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   ): Promise<AdminOrderWorkflowResult> {
     // 逐欄:key 存在且值非 undefined 才進 wire(null=清空、透傳);undefined=視同未提供、不進 wire。
     // 🔴 D-2:workflow_status 不再映射(型別層已無;orders 層停寫、狀態唯一寫入面=item 層 RPC)。
-    const p: Record<string, string | number | null> = {};
+    const p: Record<string, string | number | boolean | null | Record<string, string | number>> = {};
     if ('shippingMethod' in patch && patch.shippingMethod !== undefined) {
       p.shipping_method = patch.shippingMethod;
     }
@@ -2042,6 +2042,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       p.ship_to_name = patch.shipTo.name;
       p.ship_to_phone = patch.shipTo.phone;
       p.ship_to_line = patch.shipTo.line;
+    }
+    // 貼板 264(Sean 2026-10-02):車款(物件 / null = 清掉)、要不要開發票。省略就不進 patch(RPC 不動該欄)。
+    if ('vehicle' in patch && patch.vehicle !== undefined) {
+      p.vehicle = patch.vehicle;
+    }
+    if ('invoiceRequested' in patch && patch.invoiceRequested !== undefined) {
+      p.invoice_requested = patch.invoiceRequested;
     }
 
     const { data, error } = await this.supabase.rpc('admin_update_order_workflow', {

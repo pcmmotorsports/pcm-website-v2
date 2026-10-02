@@ -350,6 +350,8 @@ export type SupabaseAdminOrderRow = Pick<
   | 'display_position'
   | 'cancelled_at'
   | 'tier_at_checkout'
+  // 2026-10-02 Sean:列表的車款欄要看得到手動單【訂單上】的車(#956 乙那一台);顧客站的單車在品項上, 這欄恆 null。
+  | 'vehicle_snapshot'
   | 'invoice_status' // A9c:開票紀錄三態(NOT NULL DEFAULT 'not_issued';CHECK 三值)
   // 🔴 2026-09-13:要不要開發票。**與 `invoice_status`(開了沒)是兩件事** ——
   //    `invoice_status` 三態沒有「不需開立」(Q2b=A 明文不分)⇒ 少這一欄就分不出
@@ -518,6 +520,7 @@ export function mapSupabaseAdminOrderRowToSummary(
     // 🔴 `#879`:runtime 收窄。⚠️ **正下方那句拍板(走 narrowInvoiceStatus、不是裸 as)講的正是這件事**,
     //    而這一行在它旁邊躺了一段時間 —— 「同檔同欄兩種硬度」的第二個實例。
     tierAtCheckout: narrowMemberTier(row.tier_at_checkout, 'mappers/order.tierAtCheckout'), // M-4a Slice D-1a:會員等級
+    vehicle: parseVehicleSnapshot(row.vehicle_snapshot), // 2026-10-02:訂單級車輛(手動單);壞形狀 ⇒ null
     // A9c:開票紀錄三態。🔴 **走 `narrowInvoiceStatus`、不是裸 `as`**(關卡2 抓到):同一欄在明細側
     // (`:710`)本來就用這支,裸 `as` 會讓同檔同欄出現兩種硬度。generated type 是 `string`
     // ⇒ CHECK 日後放寬或出現第四值時,裸 `as` 會把界外字串當成 enum 傳給 A11a-5 的查表(取到 undefined)。

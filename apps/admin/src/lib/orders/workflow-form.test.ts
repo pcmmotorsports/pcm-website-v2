@@ -310,6 +310,13 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     'ship_to_phone',
     'ship_to_line',
     'ship_to_edit',
+    // 貼板 264(Sean 2026-10-02):改車旗標 + 車種 / 字典 hidden / 年份(與建單畫面同欄名)、要不要開發票。十八顆。
+    //    本格在加進 `WORKFLOW_SINGLE_FIELDS` 的當下真的紅過(1 failed)。
+    'vehicle_edit',
+    'vehicle_text',
+    'vehicle_pick',
+    'vehicle_year',
+    'invoice_requested',
   ];
 
   // ── 2026-09-13 P2:invoice_issued_at ────────────────────────────────────────
@@ -357,7 +364,7 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     });
   });
 
-  it('入口清單 = 手寫的十三顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
+  it('入口清單 = 手寫的十八顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
     expect([...WORKFLOW_SINGLE_FIELDS]).toEqual(EXPECTED_SINGLE_FIELDS);
     // 🔴 `return_to` **刻意不在清單內**(判斷不是遺漏;理由見 `WORKFLOW_SINGLE_FIELDS` docstring)。
     expect([...WORKFLOW_SINGLE_FIELDS]).not.toContain(RETURN_TO_FIELD);
@@ -413,6 +420,12 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     ship_to_phone: '0987654321',
     ship_to_line: '高雄市左營區博愛二路 1 號',
     ship_to_edit: '1',
+    // 貼板 264:改車四格各自合法(車種有字、年份 4 碼、字典 hidden 空 = 照打)、開發票 on。
+    vehicle_edit: '1',
+    vehicle_text: 'CBR',
+    vehicle_pick: '',
+    vehicle_year: '2021',
+    invoice_requested: 'on',
   };
   // 第 5 代:三格要一起在 ⇒ 「只送一格」那半對 ship_to_* 要把另外兩格也放上(規則本身由上面那組守)。
   const SHIP_TO_FIELDS = ['ship_to_name', 'ship_to_phone', 'ship_to_line', 'ship_to_edit'] as const;
@@ -465,5 +478,39 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
     expect(r.ok).toBe(true);
     expect(r.ok && r.returnTo).toBe(`/orders/${UUID}`);
     expect(r.ok && r.patch.invoiceStatus).toBe('issued');
+  });
+});
+
+describe('貼板 264(Sean 2026-10-02):車款 + 年份、要不要開發票', () => {
+  const B = { [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '3' };
+  const pick = JSON.stringify({ brand: 'Yamaha', model: 'YZF-R6', display: 'YZF-R6' });
+
+  it('沒有「改車」旗標 ⇒ patch 不含 vehicle(不會把車清掉)', () => {
+    const r = parseWorkflowPatchForm(form({ ...B, vehicle_text: 'CBR' }));
+    expect(r.ok && !('vehicle' in r.patch)).toBe(true);
+  });
+
+  it('改車:字典 + 年份 ⇒ dict 帶 year;照打 ⇒ free;清空 ⇒ null', () => {
+    const dict = parseWorkflowPatchForm(form({ ...B, vehicle_edit: '1', vehicle_text: 'YZF-R6', vehicle_pick: pick, vehicle_year: '2019' }));
+    expect(dict.ok && dict.patch.vehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'YZF-R6', year: 2019 });
+    const free = parseWorkflowPatchForm(form({ ...B, vehicle_edit: '1', vehicle_text: '自組車', vehicle_year: '' }));
+    expect(free.ok && free.patch.vehicle).toEqual({ kind: 'free', raw: '自組車' });
+    const cleared = parseWorkflowPatchForm(form({ ...B, vehicle_edit: '1', vehicle_text: '  ', vehicle_year: '' }));
+    expect(cleared.ok && cleared.patch.vehicle).toBeNull();
+  });
+
+  it('年份錯 / 只填年份 ⇒ ok:false', () => {
+    expect(parseWorkflowPatchForm(form({ ...B, vehicle_edit: '1', vehicle_text: 'CBR', vehicle_year: '21' })).ok).toBe(false);
+    expect(parseWorkflowPatchForm(form({ ...B, vehicle_edit: '1', vehicle_text: '', vehicle_year: '2021' })).ok).toBe(false);
+  });
+
+  it('開發票:on ⇒ true、off ⇒ false、沒送 ⇒ patch 不含;其他值 ⇒ ok:false', () => {
+    const on = parseWorkflowPatchForm(form({ ...B, invoice_requested: 'on' }));
+    expect(on.ok && on.patch.invoiceRequested).toBe(true);
+    const off = parseWorkflowPatchForm(form({ ...B, invoice_requested: 'off' }));
+    expect(off.ok && off.patch.invoiceRequested).toBe(false);
+    const none = parseWorkflowPatchForm(form(B));
+    expect(none.ok && !('invoiceRequested' in none.patch)).toBe(true);
+    expect(parseWorkflowPatchForm(form({ ...B, invoice_requested: 'yes' })).ok).toBe(false);
   });
 });
