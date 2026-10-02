@@ -608,8 +608,11 @@ export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
     };
   }
 
-  const payAxis = orderPayAxis(order);
-  const goodsAxis = orderGoodsAxis(order);
+  return axesView(orderPayAxis(order), orderGoodsAxis(order));
+}
+
+/** 收款軸 × 貨品軸 ⇒ 字面與膠囊。整張單與單一品項共用同一套(`orderStatusView` / `lineStatusView`)。 */
+function axesView(payAxis: OrderPayAxis, goodsAxis: OrderGoodsAxis): OrderStatusView {
   const isRisk = payAxis === 'unpaid' && goodsAxis === 'shipped';
 
   return {
@@ -626,6 +629,26 @@ export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
     goodsAxis,
     cancelled: false,
   };
+}
+
+/**
+ * 單一品項的狀態(2026-10-02 Sean 拍 Q2 甲:列表每個品項各一格狀態, 稿 v22)。
+ * 貨品軸只看【這一樣】的下訂 / 到貨 / 出貨數;收款軸仍看整張單(收款是訂單層的事)。
+ * 🔴 整樣被取消(要的件數 = 0)⇒「已取消」。不攔的話 `goodsAxisOfLines` 的 `.every(已出 ≥ 0)` 會答「出貨完成」。
+ * ⚠️ 上方篩選與計數仍用 `orderStatusView`(整張單 = 最慢的那一樣), 兩者不是同一個數字。
+ */
+export function lineStatusView(order: AdminOrderSummary, line: GoodsAxisLine): OrderStatusView {
+  if (order.cancelledAt !== null || order.paymentStatus === 'refunded') return orderStatusView(order);
+  if (lineNeed(line) === 0) {
+    return {
+      label: ORDER_STATUS_CANCELLED_LABEL,
+      capsuleClass: `${STATUS_CAPSULE} ${CANCELLED_TONE}`,
+      payAxis: null,
+      goodsAxis: null,
+      cancelled: true,
+    };
+  }
+  return axesView(orderPayAxis(order), goodsAxisOfLines([line]));
 }
 
 /**

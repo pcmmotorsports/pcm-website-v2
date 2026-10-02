@@ -20,6 +20,7 @@ import {
   orderGoodsAxis,
   orderPayAxis,
   orderStatusView,
+  lineStatusView,
   type OrderGoodsAxis,
   type OrderPayAxis,
   type OrderStatusView,
@@ -732,3 +733,39 @@ describe('orderNextStep — 部分到貨 ⇒ 先出已到的', () => {
   });
 });
 
+
+// 2026-10-02 Sean 拍 Q2 甲:列表的狀態改成【每個品項各一格】(稿 v22、規格-下一步欄-v1「品項層動作只看貨的狀態」)。
+describe('lineStatusView — 單一品項的狀態', () => {
+  it('同一張單兩個品項各算各的貨;收款軸還是看整張單', () => {
+    const ordered = line(1, { ordered: 1 });
+    const none = { ...line(2), id: 'l-none' };
+    const o = order({ lines: [ordered, none], paymentStatus: 'paid' });
+    expect(lineStatusView(o, ordered).label).toBe(ORDER_STATUS_LABEL.paid.ordered);
+    expect(lineStatusView(o, none).label).toBe(ORDER_STATUS_LABEL.paid.none);
+    expect(lineStatusView(o, ordered).goodsAxis).toBe('ordered');
+    // 整張單的總結仍是「最慢的那一樣」—— 篩選與計數照舊用它
+    expect(orderStatusView(o).label).toBe(ORDER_STATUS_LABEL.paid.none);
+  });
+
+  it('🔴 整個品項被取消 ⇒ 那一列是「已取消」, 不能算成「出貨完成」', () => {
+    const gone = line(2, { cancelled: 2 });
+    const o = order({ lines: [gone, { ...line(1), id: 'l-live' }] });
+    const v = lineStatusView(o, gone);
+    expect(v.label).toBe('已取消');
+    expect(v.goodsAxis).toBeNull();
+    expect(v.label).not.toBe(ORDER_STATUS_LABEL.paid.shipped);
+  });
+
+  it('整張單已取消 / 已退款 ⇒ 每一列都跟整張單一樣', () => {
+    const l = line(1, { ordered: 1 });
+    expect(lineStatusView(order({ lines: [l], cancelledAt: '2026-10-01T00:00:00.000Z' }), l).label).toBe('已取消');
+    expect(lineStatusView(order({ lines: [l], paymentStatus: 'refunded' }), l).label).toBe(ORDER_STATUS_REFUNDED_LABEL);
+  });
+
+  it('未收 × 這一樣已出貨 ⇒ 用實心紅(跟整張單同一條例外)', () => {
+    const shipped = line(1, { ordered: 1, instock: 1, shipped: 1 });
+    const o = order({ lines: [shipped, { ...line(1), id: 'l-other' }], paymentStatus: 'unpaid' });
+    expect(lineStatusView(o, shipped).capsuleClass).toContain('cap-risk');
+    expect(orderStatusView(o).capsuleClass).not.toContain('cap-risk');
+  });
+});

@@ -202,12 +202,15 @@ async function measureStatusCapsule(
   );
 }
 
-describe('驗收 13 — 截斷時「未知」那顆膠囊在真瀏覽器裡看得見', () => {
+describe('驗收 13 — 截斷時狀態膠囊在真瀏覽器裡看得見', () => {
   it('🔴 13a:截斷時膠囊 computed style 可見(非 display:none / visibility:hidden / 零尺寸)', async () => {
     const m = await measureStatusCapsule(true);
     expect(m).not.toBeNull();
     // 🔴 先釘住「我量到的確實是那顆」—— 沒有這一條,下面三個斷言可能是在量另一顆膠囊。
-    expect(m?.text).toBe('未知');
+    // ⛔ ~~截斷時印「未知」~~ 2026-10-02 起狀態逐品項(Sean 拍 Q2 甲):每一列只看自己那一樣, 截斷時也印得出真值。
+    //    本格守的「狀態欄在截斷時沒被樣式吃掉」照舊。
+    expect(m?.text).toBeTruthy();
+    expect(m?.text).not.toBe('未知');
     expect(m?.display).not.toBe('none');
     expect(m?.visibility).not.toBe('hidden');
     expect(m?.width).toBeGreaterThan(0);

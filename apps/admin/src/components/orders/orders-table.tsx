@@ -22,8 +22,8 @@ import {
   type OrderDensity,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
-import { arrivedLineCount, lineArrivalNote, orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
-import type { NextStepDo } from '../../lib/orders/order-return-to';
+import { lineArrivalNote, lineStatusView, orderNextStep, orderStatusView } from '../../lib/orders/order-status-axes';
+import { ORDER_NEXT_ITEMS_PARAM, type NextStepDo } from '../../lib/orders/order-return-to';
 import type { PendingBox } from '../../lib/shipping/box-progress';
 import type { OrderItemCostCell, OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
 
@@ -125,47 +125,8 @@ import type { OrderItemCostCell, OrderItemCostCells } from '../../lib/orders/ord
 const TH = 'px-3 py-2 text-left text-xs font-bold tracking-[1.5px] whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
 
-/**
- * 金額欄要不要合併成整單總額(母 plan §5.1a 逐字)。
- *
- * 🔴 **條件是「品項列 >1 **或** 任一列 `quantity` >1」,兩條缺一不可**:
- * 只寫 `quantity > 1` 那半條會讓**多品項單看不到整單總額**(母 plan 該列自陳這是 v1 的錯);
- * 只寫 `lines.length > 1` 則會讓「單品項但買 3 件」的單顯示成單價脈絡。
- *
- * 🔴🔴 **已知語意落差,照母 plan 字面實作、不自行改規格(R1 code-reviewer 抓到)**:
- * 合併態顯示 `order.total`,而 `total = subtotal + shippingFee − discountTotal`
- * (`packages/domain/src/order/types.ts:131` 逐字);非合併態顯示該列 `lineTotal`,**不含運費與折扣**。
- * ⇒ 單品項且買 1 件的單只要有運費,同一個「金額」欄在不同單之間的**語意就不一樣**
- * (一邊是品項的錢、一邊是訂單的錢)。母 plan §5.1a 只規定了「什麼時候顯示整單總額」,
- * 沒規定非合併態顯示什麼 ⇒ 這是規格缺口,已交棒為決策題。
- *
- * 🏁 **Sean 2026-08-06 拍 B:維持現狀、兩種語意並存=知情接受**(E-115-A)。
- * ⇒ **這不是 bug,勿順手「統一」** —— 要統一得先重拍(改哪一邊、含不含運費/折扣都會動到肉眼驗基準)。
- *
- * 🔴🔴 **`itemsTruncated` 為什麼是第一個判準**(2026-08-18 A 窗,收 codex must-fix `§7:268`)
- *
- * **這個函式是「由半份資料決定要印哪一種語意」的分支** —— 而它讀的 `order.lines`
- * 在 `itemsTruncated` 時**本身就是半份的**(`ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT = 500`,
- * `mappers/order.ts:428`)。壞世界:截斷後只剩 1 列且該列 `quantity === 1`
- * ⇒ 舊式翻 `false` ⇒ **同一張單,資料載全與沒載全,那一欄印的是兩個【不同語意】的數字**
- * (整單的錢 vs 品項的錢)。而 Sean 已知情接受兩種語意並存 ⇒ **畫面上沒有任何差別可看。**
- *
- * 🔴 **這是套用既有拍板 `Q-EMBED-2`(2026-08-16 Sean 拍甲:資料不完整就不要印算出來的值),
- *    不是新規格** —— 與狀態欄印「未知」、與「共 N 筆」那條同一條線。**不需要新拍板。**
- *
- * ⚠️ **今天的實際影響面 = 零,而這【不是】不做它的理由**:
- *    今天截斷恆發生在 500 ⇒ `lines.length > 1` 恆真 ⇒ 舊式今天到不了危險的那一半。
- *    (實測佐證:加上這一行之後,本檔既有 86 格**一格都沒紅**。)
- *    🔴 **但那個安全條件是「截斷上限 > 1」,而它從來沒有被寫下來過。**
- *    同一支 mapper 的註解自己留了口子(`order.ts:425-426` 逐字):
- *    「若專案 `max-rows` 日後被設到低於本值,截斷會發生在那個更低的數字上而**本判定看不見**」
- *    ⇒ **現在這一行讓那個依賴消失,而不是讓它繼續隱形。**
- *    ⚠️ 原 plan `§7` 以「今天構造不出來」豁免這條;codex 判 must-fix:**fixture 明明構造得出來**。
- *    守門在 `orders-table.test.tsx`(那組雙向格)。
- */
-function shouldMergeAmount(order: AdminOrderSummary): boolean {
-  return order.itemsTruncated || order.lines.length > 1 || order.lines.some((l) => l.quantity > 1);
-}
+/* ⛔ `shouldMergeAmount`(合併態 = 多品項只在第一列印整單應收)2026-10-02 退場:金額欄改成每一列印那一樣的金額,
+   整單應收搬到收款格「共 X」(Sean 拍 Q40 甲)。舊的兩種語意並存理由(E-115-A)留在 git。 */
 
 /**
  * 手機卡片模式的欄位排序與標籤,由 `<td>` 上的 `col-*` class 與 `data-l` 承載
@@ -187,11 +148,6 @@ function shouldMergeAmount(order: AdminOrderSummary): boolean {
  *    · `orderStatusView` **有守門**:`orders-table.test.tsx` 的「前 3 列全出貨、第 4 列沒出貨」那格
  *      —— 把切過的 lines 餵給它會紅(實測突變一發:唯一紅那格就是它)。
  *      它守的是那個真病:`.every(...)` 在子集上會答「出貨完成」,而員工看到就不再動作。
- *    · `shouldMergeAmount` **守不了,而且是【構造不出反例】不是我懶**:
- *      它 = `itemsTruncated || lines.length > 1 || some(q > 1)`,
- *      而「有東西被收起來」⇒ 至少 4 列 ⇒ 切到 3 之後 `length > 1` 仍成立
- *      ⇒ **切與不切的輸出恆等**。實測:把 `slice` 餵給它,97 格**一格都沒紅**。
- *      ⇒ 這裡沒有守門格,不是漏做;要有反例得先把 `MAX_VISIBLE_LINES` 降到 1。
  */
 const MAX_VISIBLE_LINES = 3;
 
@@ -448,14 +404,12 @@ function OrderGroup({
   const truncatedReason = order.itemsTruncated
     ? '這張單的品項太多、系統一次載不完(固定限制,不會自己好)。左邊那格的狀態不能拿來判斷這張單的進度,請找負責人。'
     : null;
-  const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
   const status = orderStatusView(order);
-  // 2026-09-30 部分到貨(Sean 拍 Q1 甲):每樣商品旁印到貨灰字、下一步可以先出已到的。
+  // 2026-09-30 部分到貨(Sean 拍 Q1 甲):每樣商品旁印到貨灰字。
   //   已取消 / 已退款 / 全部出完 ⇒ 不印(整單已經不在流程裡, 或狀態欄已經說完了)。
-  //   `itemsTruncated` ⇒ 不算已到樣數:看不到的那幾樣可能也到了, 算出來的 N 會偏小。
+  //   ⛔ ~~下一步印「出貨（已到 N 樣）」~~ 2026-10-02 起下一步逐品項, 已到的那一樣自己就是「出貨」。
   const showArrival = status.goodsAxis !== null && status.goodsAxis !== 'shipped';
-  const arrivedLines = order.itemsTruncated ? 0 : arrivedLineCount(order.lines);
   // 🆕 A1:老闆模式 = 有成本格可畫(頁層只在 manager + `?boss=1` 時才給)。
   const boss = costCells !== null;
   const colSpan = headerCount(boss);
@@ -520,6 +474,8 @@ function OrderGroup({
         // 算一次存起來 —— 兩次呼叫之間沒有任何狀態變化,重算純粹是浪費,而且**兩處字面會漂**。
         // 2026-10-02 Sean:手動單的車記在訂單上(#956 乙)⇒ 品項沒有車時改印訂單上那一台(含年份)。
         const vehicleText = (line && formatOrderItemVehicle(line.vehicle)) || formatOrderItemVehicle(order.vehicle ?? null) || null;
+        // 2026-10-02 逐品項:這一列自己的狀態(狀態格 / 下一步格都用它)。佔位列(沒有品項)沿用整張單的狀態。
+        const lineView = line ? lineStatusView(order, line) : status;
         return (
           <tr
             key={line ? line.id : 'empty'}
@@ -797,6 +753,12 @@ function OrderGroup({
                     ) : (
                       shown
                     )}
+                    {/* 2026-10-02 Sean 拍 Q40 甲:金額欄改成逐品項之後, 整張單應收放這裡(灰色小字, 只在第一列)。
+                        同明細頁的應收(取消後剩下的金額);後台建的含稅單算不出來就照實說。 */}
+                    {/* `whitespace-normal`:七位數「共 1,536,000」一行放不下時在空白處換行(欄寬 70, 量具 1440 實測 66.4 > 56);五位數照樣一行。 */}
+                    <span className='text-muted-foreground mt-0.5 block text-[11px] leading-[1.3] font-normal whitespace-normal' data-testid='order-total'>
+                      {orderAmountDue(order) === null ? '總額算不出來' : `共 ${formatOrderAmount(orderAmountDue(order)!)}`}
+                    </span>
                   </td>
                 );
               })()
@@ -863,86 +825,32 @@ function OrderGroup({
             <td className={`${TD} ${CELL.unit} text-right tabular-nums`} data-l='單價 NT$'>
               {line ? formatOrderAmount(line.unitPrice.amount) : '—'}
             </td>
-            {/* 金額:合併態 = 訂單層(只在第一列出值);非合併態 = 逐列該列小計(見 shouldMergeAmount)。
-                ⚠️ 兩態的 `data-l` 刻意不同(金額 / 小計)—— 手機卡片沒有表頭,
-                標籤是那格語意的唯一載體,而這兩態的語意本來就不同(整單的錢 / 品項的錢)。 */}
-            {mergeAmount ? (
-              first ? (
-                <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='金額 NT$'>
-                  {/* ⟦Q1 甲⟧ 與明細頁同一個應收(取消後剩下的金額)
-                      🔴 Sean 2026-09-16 拍乙:**算不出來就說算不出來**,不印一個看起來對的滿額數字
-                         (後台建的含稅單,稅重現不出來 ⇒ adapter 回 null)。 */}
-                  {orderAmountDue(order) === null ? '算不出來' : formatOrderAmount(orderAmountDue(order)!)}
-                </td>
-              ) : (
-                <td className={`${TD} ${CELL.amount}`} />
-              )
-            ) : (
-              <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='小計 NT$'>
-                {line ? formatOrderAmount(line.lineTotal.amount) : '—'}
-              </td>
-            )}
+            {/* 金額 = 這一樣的金額(數量 × 單價)。2026-10-02 Sean:「金額欄應該是品項金額, 總額另外放」(稿 v22 每列 `td.amt`)。
+                數量用取消後剩下的件數(同左邊數量格), 所以部分取消的那一樣印剩下的金額。
+                整張單應收搬到第一列收款格的「共 X」(Q40 甲)。⛔ ~~合併態:多品項只在第一列印整單應收~~ */}
+            <td className={`${TD} ${CELL.amount} text-right tabular-nums`} data-l='金額 NT$'>
+              {line ? formatOrderAmount(line.unitPrice.amount * (line.quantity - line.quantitySummary.cancelledQuantity)) : '—'}
+            </td>
 
-            {/* 🏁 **L3 片1:狀態八值欄上場,原地換掉訂貨欄**(Sean 拍 Q2=A)。
-
-                🔴 **層級變了,不只是換個欄名**:訂貨是**品項層**(逐列各有 `n/m`),
-                   狀態是**訂單層**(整張單走到哪)⇒ 改成「只在第一列出值、其餘列渲染真的空 `<td>`」,
-                   與單號 / 日期 / 客戶 / 發票 同一套。⚠️ 空格必須是真的空(`<td className={…} />`),
-                   否則卡片模式的 `td:empty{display:none}` 不成立、卡片會冒出一排空標籤。
-
-                🔴 **字面與 class 全部由 `orderStatusView` 算,本檔不自己拼**
-                   —— L1(`f745e04e`)那支已把八值字面、貨品軸配色、未收紅框、已取消虛線框
-                   全部收在 `order-status-axes.ts`;在這裡再拼一次就是第二份會漂的字面。
-                   ⚠️ 它回傳的 `capsuleClass` **已含**共用膠囊形狀 `STATUS_CAPSULE`,不要再串一次。
-
-                ⚠️ **訂貨的資訊沒有消失、只是離開列表**:品項層的 `n/m` 仍在明細頁
-                   (`ItemAxisCell`),而狀態欄的貨品軸是**整單彙總**(所有品項都到齊才進下一階段,
-                   `orderGoodsAxis` docstring 逐字)⇒ 兩者不是同一個數字,**不要拿列表這格去對明細那格**。 */}
-            {/* 🔴🔴 **`itemsTruncated` ⇒ 不印狀態,改印「未知」**(2026-08-16,`Q-EMBED-2` Sean 拍**甲**)。
-                **這不是保守,是那個值真的算錯了**:`goodsAxisOfLines` 三條判定都是 `.every(...)`,
-                而 `.every()` 對子集**單調** ⇒ **子集算出來的階段恆 ≥ 真實階段**
-                ⇒ 看得見的全出貨了就答「出貨完成」,而沒載進來的可能一件都沒出。
-                ⇒ **員工看到「出貨完成」就不再動作** —— 他做對了,但結果是錯的。
-                🔴 **不得印 0、不得留空** —— 兩者都會被讀成「就是沒有」,而語意是「我們不知道」。
-                ⚠️ **閘裝在顯示端、不裝進 `orderStatusView`**:那支的參數是 `AdminOrderSummary`,
-                   理論上讀得到旗標,但它同時服務**明細側**(`order-status-axes.ts` 搜 `orderDetailGoodsAxis`
-                   那組刻意收窄的型別)⇒ 在算式裡混進「資料完不完整」會讓那支函式同時回答兩個問題。
-                   **與頭條數字、出貨狀態那兩格是同一個結構決定。** */}
-            {boss ? null : first ? (
+            {/* 🏁 **2026-10-02 狀態改成【每個品項各一格】**(Sean 拍 Q2 甲;稿 v22 每列 `td.stc`、規格-下一步欄-v1「品項層動作只看貨的狀態」)。
+                ⛔ ~~L3 片1:狀態是訂單層、只在第一列出值~~ —— 那版把多品項的單彙總成「最慢的那一樣」, 員工看不出哪一樣卡住。
+                🔴 字面與 class 仍由 `order-status-axes.ts` 算(`lineStatusView`), 本檔不自己拼;收款軸照舊看整張單。
+                🔴 ⛔ ~~`itemsTruncated` ⇒ 印「未知」~~:那條防的是「子集算出來的整單階段恆偏晚」;
+                   逐列狀態只看那一列自己的數量, 沒有子集問題 ⇒ 每一列印得出真值。看不到的品項由「另有多項」那一列交代。
+                ⚠️ 上方篩選與計數仍是整張單(`orderStatusView`), 跟這一格不是同一個數字。 */}
+            {boss ? null : (
               <td className={`${TD} ${CELL.status}`} data-l='狀態'>
-                {order.itemsTruncated ? (
-                  /* 🔴 **`#639` 甲的第三處(2026-08-18)。** 這裡原本把整段理由掛在 `title=` 上,
-                     而 `#639` 立案的正是那個載體 —— G1 收割時撈到這一處、主視窗釘死「不能還是 title」。
-                     ⚠️ **放法與顧客站那兩處【不同】,理由寫在這裡**:
-                       · 顧客站是**一張卡**,塞得下 79 字的段落;這裡是**表格的一格**,
-                         塞進去會把整列撐爛,而且**每一張截斷的單都會重複同一段**。
-                       · 而這段話要講的事,**同一列已經有一個看得見的家** ——
-                         下面那一列「另有多項(數量未知),點進去看」。
-                     ⇒ 這一格只留「未知」兩個字(它自己就是訊號),**理由由那一列承載**
-                        (那一列的 `truncatedReason`,見上面那段 docstring)。
-                     🔴 **第一版我只做了半件事** —— 拆掉 `title` 卻沒有把三句理由補到那一列上,
-                        codex 判 must-fix:**那不是搬家,那是刪掉**。現在三句都在畫面上了。
-                     🔴 `hasMoreLines` 在 `itemsTruncated` 為真時**恆為真**(見上面那個 `||`)
-                        ⇒ **只要這一格印「未知」,那一列就一定在。** 兩者不會各自出現。
-                        守門:`orders-table.test.tsx` 釘住「截斷態 ⇒ 那一列在,且三件事都在畫面上」。 */
-                  <span className={status.capsuleClass}>未知</span>
-                ) : (
-                  /* 🎨 `data-st` = 稿 v22 `.cap[data-st="<八值字面>"]` 的鉤子:八色(Sean 的 Sheet 色)住在 `globals.css` 的
-                     `--st-*` token,**用字面選色、不另拼 class** —— 字面本來就是 `orderStatusView` 算出來的唯一真相。
-                     形狀(方角 / 12px / 700)照舊走 `.cap-*`。「未知」那一格不帶 data-st ⇒ 灰。 */
-                  <span className={status.capsuleClass} data-st={status.label}>{status.label}</span>
-                )}
+                {/* 🎨 `data-st` = 稿 v22 `.cap[data-st="<八值字面>"]` 的鉤子(八色住在 `globals.css` 的 `--st-*` token)。 */}
+                <span className={lineView.capsuleClass} data-st={lineView.label}>{lineView.label}</span>
                 {/* 2026-09-30 後台三小改 ②(Sean 拍 Q2 甲):收了訂金、還差尾款 ⇒ 膠囊旁小字「訂金」;八個狀態名稱都不動。
                     `payAxis === null` = 已取消 / 已退款, 那兩種膠囊已經說完了 ⇒ 不印。 */}
-                {order.paymentStatus === 'partiallyPaid' && status.payAxis !== null ? (
+                {first && order.paymentStatus === 'partiallyPaid' && status.payAxis !== null ? (
                   /* 放在膠囊下面一行:狀態欄寬度只夠膠囊, 放旁邊會被截成「…」(1440 實測)。 */
                   <span className='text-muted-foreground mt-0.5 block text-[11px] leading-[1.3]' data-testid='deposit-tag'>
                     訂金
                   </span>
                 ) : null}
               </td>
-            ) : (
-              <td className={`${TD} ${CELL.status}`} />
             )}
 
             {/* ⛔ **發票欄(A11a-5)2026-09-13 整欄退場** —— Sean 拍板搬進客戶格當第三層 tag
@@ -976,9 +884,15 @@ function OrderGroup({
                    · 已取消 / 已退款 ⇒ **整格空白**
                      ⚠️ **不要改成「—」** —— 這一欄其他格印的是動詞，一個破折號讀起來像「沒資料」。
                      📌 「沒有下一步了」與「這張單不在流程裡了」是兩件事。 */}
-            {boss ? null : first ? (
+            {/* 2026-10-02 逐品項(Sean 拍 Q2 甲 / Q41 甲):每一列一顆, 文字看【這一樣】的狀態。
+                · 下訂 / 到貨登記 ⇒ 只帶這一樣(`items=`, 跟勾選批次列同一個彈窗與參數)。
+                · 出貨 / 出貨箱的步驟 ⇒ 每個現貨列都顯示、開同一個出貨彈窗(不帶 items;箱子是整張單一個)。
+                ⛔ ~~整張單一顆、只在第一列;部分到貨印「出貨（已到 N 樣）」~~ —— 逐列之後到了的那一樣自己就是「出貨」。 */}
+            {boss ? null : (
               (() => {
-                const next = orderNextStep(status, box, arrivedLines);
+                const next = orderNextStep(lineView, lineView.goodsAxis === 'instock' ? box : null);
+                const nextHref = (action: NextStepDo) =>
+                  action === 'ship' || line === null ? buildNextHref(order.id, action) : `${buildNextHref(order.id, action)}&${ORDER_NEXT_ITEMS_PARAM}=${line.id}`;
                 if (next.kind === 'none') return <td className={`${TD} ${CELL.next}`} data-l='下一步' />;
                 if (next.kind === 'done') {
                   return (
@@ -1005,7 +919,7 @@ function OrderGroup({
                         2026-10-02 Sean:加滑過(浮起、框線加深)與按下(縮一點)的回饋;尺寸不動 —— 這一欄寬度是算剛好的(見上)。 */}
                     {/* 2026-09-27 出貨流程甲:「叫車」帶到出貨清單(goto);結果不確定的那兩種用橘色(tone warn)。 */}
                     <Link
-                      href={next.kind === 'goto' ? next.href : buildNextHref(order.id, next.do)}
+                      href={next.kind === 'goto' ? next.href : nextHref(next.do)}
                       className={`inline-flex min-h-6 items-center rounded-lg border px-2 py-[3px] text-[12px] leading-[1.4] whitespace-nowrap ${
                         next.kind === 'action' && next.tone === 'warn'
                           ? 'border-orange-400 bg-orange-50 font-medium text-orange-800'
@@ -1028,8 +942,6 @@ function OrderGroup({
                   </td>
                 );
               })()
-            ) : (
-              <td className={`${TD} ${CELL.next}`} />
             )}
             {/* 🆕 A1:六欄成本(品項層, 逐列各自有值;稿 v22 `:228` 每一列 `tr.i` 都帶六格 `td.cost`)。 */}
             {boss && <CostCells line={line} cells={costCells} editable={editCosts} orderDisplayId={order.displayId} rates={costRates} />}

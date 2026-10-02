@@ -1767,8 +1767,11 @@ describe('BMW M:表格內文色 --fg-2(片5)', () => {
     // 🏁 **2026-09-30(後台三小改 ② 訂金):8 → 9。看了什麼:**
     //    · 新增的那一處 = 狀態膠囊下面的「訂金」小字(Sean 拍 Q2 甲:八個狀態名稱不動, 只在旁邊加小字)。
     //    · 回去看 `.orders-grid` 那段的理由:它防的是「次要欄的顏色被拿掉」;這是新增一行本來就該是次要色的字,同向。
+    // 🏁 **2026-10-02(逐品項, Sean 拍 Q40 甲):9 → 10。看了什麼:**
+    //    · 新增的那一處 = 收款格下面整張單應收「共 X」灰色小字(金額欄改逐品項後, 整單應收搬到這裡)。
+    //    · 回去看 `.orders-grid` 那段的理由:它防的是「次要欄的顏色被拿掉」;這是新增一行本來就該是次要色的字,同向。
     const n = (table.match(/text-muted-foreground/g) ?? []).length;
-    expect(n, `刻意的次要色從 9 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(9);
+    expect(n, `刻意的次要色從 10 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(10);
   });
 });
 
@@ -2121,8 +2124,9 @@ describe('狀態膠囊八色 = Sean 的 Sheet 色(稿 v22 `.cap[data-st]`;2026-0
     }
   });
 
-  it('🔴 列表膠囊帶 `data-st={status.label}`(少了它八色一條都不會亮,而畫面只是「還是灰的」)', () => {
+  it('🔴 列表膠囊帶 `data-st={lineView.label}`(少了它八色一條都不會亮,而畫面只是「還是灰的」)', () => {
+    // 2026-10-02 起狀態逐品項:膠囊的字面與 class 來自那一列的 `lineView`(原 `status` = 整張單)。
     const table = readFileSync(join(__dirname, '..', 'components', 'orders', 'orders-table.tsx'), 'utf8');
-    expect(table).toMatch(/<span className=\{status\.capsuleClass\} data-st=\{status\.label\}>/);
+    expect(table).toMatch(/<span className=\{lineView\.capsuleClass\} data-st=\{lineView\.label\}>/);
   });
 });

@@ -67,6 +67,7 @@ import {
   ORDER_NEXT_STEP_LABEL,
   ORDER_STATUS_LABEL,
   orderStatusView,
+  lineStatusView,
 } from '../../lib/orders/order-status-axes';
 
 // 🔴 `server-only` 在**本檔**換成空替身 —— **不是放寬護欄,而且刻意不做成全域 alias。**
@@ -212,6 +213,13 @@ const LINE_BASE: Omit<
   workflowStatus: null,
   version: 1,
 };
+
+/** 收款格的收款字面, 不含 2026-10-02 起同一格底下的整單應收「共 X」(`data-testid=order-total`, 那一行有自己的測試)。 */
+function payCellText(td: Element): string {
+  const c = td.cloneNode(true) as Element;
+  c.querySelector('[data-testid="order-total"]')?.remove();
+  return c.textContent ?? '';
+}
 
 function line(id: string, quantity: number, lineTotal: number): AdminOrderLine {
   return {
@@ -450,14 +458,11 @@ const ORDER_LEVEL_COLUMNS = [
   // 🆕 **P7 收款欄(2026-09-13)** —— 訂單層:錢是整張單的事,不是逐品項。
   //    ⚠️ 這張清單**漏登記不會紅**(見上面那段)⇒ 加欄的人要自己記得。這次記得了。
   'col-pay',
-  // 🏁 L3 片1 新入列:狀態是**整張單**走到哪,不是某個品項走到哪 ——
-  //    它從品項層的訂貨欄原地換過來,層級跟著換,這一行就是那個換法的守門。
-  'col-status',
+  // ⛔ `'col-status'` 2026-10-02 移出:狀態改成每個品項各一格(Sean 拍 Q2 甲, 稿 v22)。守門在「逐品項」那組。
   // 🔴 **`col-invoice` 於 P5(2026-09-13)移除** —— 發票變客戶格裡的第三層 tag,不再是一欄
   //    ⇒ 它的「第二列之後是真的空」現在由 `col-customer` 那一格承擔(該格本來就在這張清單裡)。
   // ⛔ `'col-ops'` 2026-09-13 移除:操作欄 DOM 退場。取消入口住在展開區,不在列上。
-  // 🆕 **P8 下一步欄(2026-09-13)** —— 訂單層。⚠️ 漏登記不會紅(見上面那段)。
-  'col-next',
+  // ⛔ `'col-next'` 2026-10-02 移出:下一步改成每個品項各一顆(同上)。
 ] as const;
 
 // ── V1:欄數 ───────────────────────────────────────────────────────────
@@ -588,52 +593,32 @@ describe('V3 — 訂單層欄只在該單第一列出值,其餘列是**真的空
 });
 
 // ── V4:金額合併規則(四格真值表)───────────────────────────────────────
-describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任一列 quantity >1)', () => {
-  // 🔴 這張真值表的價值在 **m×1 那格**:v1 的規則只寫了 `quantity > 1` 半條,
-  //    那樣「3 個品項、每個都買 1 件」的單會**看不到整單總額**。少了這格,錯誤規則全綠。
-  it('1 品項 × 數量 1 → 逐列顯示該列小計(lineTotal)、不合併,且**不是** order.total', () => {
-    // 🔴 `total` 刻意設成 12,100(= lineTotal 12,000 + 運費 100,`HOME_SHIPPING_FEE`)。
-    //    初版兩個值都寫 12,000 ⇒ 把實作改成顯示 `order.total` 也照樣綠 = **這格零判別力**
-    //    (R1 code-reviewer 抓到;memory `feedback_fixture-value-makes-guard-vacuous` 同族)。
-    //    兩值分開之後,這格才真的釘得住「非合併態顯示的是品項的錢、不是訂單的錢」。
+// ⛔ V4「金額合併規則」(多品項只在第一列印整單總額)2026-10-02 退場 —— Sean:「金額欄應該是品項金額(數量×單價), 總額另外放」
+//    (Q2 甲 / Q40 甲, 稿 v22 每列 `td.amt`)。原本那組的五個情境原樣保留, 期望值改成新規則。
+describe('V4(2026-10-02 改寫)— 金額欄每一列 = 那一樣的金額;整單應收在收款格「共 X」', () => {
+  const amounts = (c: HTMLElement) => [...c.querySelectorAll('td.col-amount')].map((td) => td.textContent);
+  const total = (c: HTMLElement) => c.querySelector('[data-testid="order-total"]')?.textContent;
+
+  it('1 品項 × 數量 1 → 那一樣的金額, 不是 order.total;整單應收在收款格', () => {
     const { container } = render(
       <OrdersTable
         buildOpenHref={panelHref}
         orders={[order({ lines: [line('l1', 1, 12000)], total: { amount: toMoneyAmount(12100), currency: 'TWD' } })]}
       />,
     );
-
-    // 🔴🔴 **L3 片2 · R 審 F1:正向那條收斂到金額欄,負向那條刻意不收。**
-    //    片2 起 `unitPrice = lineTotal / quantity` ⇒ **`quantity = 1` 的 fixture,單價恆等於小計**
-    //    ⇒ 掃整個元件的 `toContain('12,000')` **會被單價欄滿足** = 把金額格整個拿掉仍全綠
-    //    (上面 `:322-325` 那段註解警告的「兩值都是 12,000 ⇒ 零判別力」,被我改 fixture 時
-    //     從「總額 vs 小計」換成「單價 vs 小計」**部分還原了**)。
-    //    🔴 **形狀記著:改共用 fixture 有兩個方向的後果 —— 假紅會自己叫、假綠不會。**
-    //       本片改完之後我把全檔 7 條正向金額斷言逐條掃過(量法:`grep -n 'NT\$' <本檔>`),
-    //       只有這一條被單價欄滿足;`:346`(36,000)、`:361`(25,000)、`:383`(29,000)、
-    //       `:1175`(20,000)的期望值都不等於任何一列的單價 ⇒ 判別力未受影響、不動。
-    //    ⚠️ 負向那條(12,100 = 整單總額)**不收斂**:12,100 不可能出現在單價欄,收了是白收。
-    expect(
-      [...container.querySelectorAll('td.col-amount')].map((td) => td.textContent).join('|'),
-    ).toContain('12,000');
-    expect(container.textContent).not.toContain('12,100');
-    // 🔴 L2 起結構面改由 `data-l` 釘(rowSpan 已拆、`td[rowspan]` 計數不再存在):
-    //    非合併態 = 品項的錢 ⇒ 手機卡片標籤是「小計」;合併態 = 訂單的錢 ⇒ 標籤是「金額」。
-    //    這比原本數 rowspan 更貼近使用者看得到的差別 —— 卡片上沒有表頭,標籤就是語意的唯一載體。
-    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('小計 NT$');
+    expect(amounts(container)).toEqual(['12,000']);
+    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額 NT$');
+    expect(total(container)).toBe('共 12,100');
   });
 
-  it('1 品項 × 數量 3 → 合併格顯示整單總額', () => {
+  it('1 品項 × 數量 3 → 數量 × 單價', () => {
     const { container } = render(
       <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 3, 36000)], total: { amount: toMoneyAmount(36000), currency: 'TWD' } })]} />,
     );
-
-    expect(container.textContent).toContain('36,000');
-    // 合併態 ⇒ 金額格是訂單層,卡片標籤是「金額」(上一格的正負對照)
-    expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額 NT$');
+    expect(amounts(container)).toEqual(['36,000']);
   });
 
-  it('⟦Q1 甲⟧ 部分取消 ⇒ 數量印剩下的、金額印取消後的應收(走查路 4 發現 B:列表寫 2 / 14,300)', () => {
+  it('⟦Q1 甲⟧ 部分取消 ⇒ 數量印剩下的、金額 = 剩下的件數 × 單價;整單印取消後的應收', () => {
     const l = line('l1', 2, 10160);
     const cancelledOne = { ...l, quantitySummary: { ...l.quantitySummary, cancelledQuantity: 1, cancellableQuantity: 1 } };
     const { container } = render(
@@ -644,77 +629,34 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     );
     const qty = [...container.querySelectorAll('td[data-l="數量"]')].map((td) => td.textContent);
     expect(qty).toEqual(['1', '1']);
-    expect(container.querySelector('td.col-amount')!.textContent).toBe('9,220');
+    expect(amounts(container)).toEqual(['5,080', '4,140']);
+    expect(total(container)).toBe('共 9,220');
     expect(container.textContent).not.toContain('14,300');
   });
 
-  // 🔴🔴 **[2026-09-16 Sean 拍【乙】· 對抗審查 N2 補的缺口]**
-  //   `amountDue: null` = **系統算不出**這張單取消後還該收多少(不是「讀不到」)。
-  //   ⛔ 舊行為是**落回原總額** ⇒ 列表印出一個看起來正確、其實不該信的滿額數字。
-  //   🎯 本格釘的是**那個字面**:它在元件裡,而 lib 三支測試看不到它 ⇒ 字打錯不會紅。
-  //   🧬 突變:把 `orders-table.tsx` 那行改回 `formatOrderAmount(orderAmountDue(order))`
-  //      ⇒ TypeScript 會先紅(null 不能當 number);把它改成 `?? order.total.amount`
-  //      ⇒ 這一格會拿到 `14,300` ⇒ 紅。
-  it('🔴 算不出來的單:金額欄印「算不出來」, 而【不得】印原總額', () => {
+  it('🔴 算不出來的單:收款格說「總額算不出來」, 而【不得】印原總額', () => {
     const { container } = render(
       <OrdersTable
         buildOpenHref={panelHref}
-        orders={[
-          order({
-            // 🔴 **要兩列** —— 「金額」欄只在合併模式(品項 >1 或任一列數量 >1)才畫;
-            //    單列畫的是「小計」(品項的錢), 那一格與應收無關。第一版我量錯格子。
-            lines: [line('l1', 1, 10160), line('l2', 1, 4140)],
-            total: { amount: toMoneyAmount(14300), currency: 'TWD' },
-            amountDue: null,
-          }),
-        ]}
+        orders={[order({ lines: [line('l1', 1, 10160), line('l2', 1, 4140)], total: { amount: toMoneyAmount(14300), currency: 'TWD' }, amountDue: null })]}
       />,
     );
-    const cell = container.querySelector('td.col-amount')!.textContent;
-    expect(cell).toContain('算不出來');
-    // 🟢 負對照:那個「看起來對、其實不該信」的數字不可以出現在這一格
-    expect(cell).not.toContain('14,300');
+    expect(total(container)).toBe('總額算不出來');
+    expect(amounts(container)).toEqual(['10,160', '4,140']);
+    expect(container.textContent).not.toContain('14,300');
   });
 
-  it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
+  it('🔴 3 品項 × 每個數量 1 → 三列各印自己的金額;整單總額只出現一次', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(
       <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
     );
-
-    // ⚠️ **L2 起「鎖進 `<table>`」這個防護不再承重** —— 收斂後整個 container 只剩一份 markup、
-    //    手機卡片那個「第二個供應者」已經不存在(原註解說的失效模式結構上消失)。
-    //    這裡保留 `table` 限定只為讓斷言意圖仍然明確,不是靠它擋突變。
-    const table = container.querySelector('table')!;
-    expect(table.textContent).toContain('25,000');
-    // 反面:不得再逐列顯示各列小計。
-    // 🏁 **L3 片2:範圍從整張 table 收斂到金額欄** —— `NT$ 8,000` 現在**合法地**出現在
-    //    第二列的單價欄(該品項單價 8,000 × 1 = 小計 8,000),而本格守的是
-    //    「金額欄不逐列重複」,不是「這個數字不准出現在畫面上」。
-    //    ⚠️ 縮小範圍 ⇒ 已用突變證明它仍會紅(見 commit body)。
-    const amountCells = [...table.querySelectorAll('td.col-amount')]
-      .map((td) => td.textContent)
-      .join('|');
-    expect(amountCells).not.toContain('8,000');
-    // 合併態 ⇒ 金額是訂單層:三列各有一格佔位,只有第一列有值
-    const amounts = [...container.querySelectorAll('td.col-amount')];
-    expect(amounts.length).toBe(3);
-    expect(amounts.filter((td) => td.childNodes.length > 0).length).toBe(1);
-  });
-
-  it('2 品項 × 其中一列數量 2 → 合併並顯示整單總額', () => {
-    const lines = [line('l1', 2, 24000), line('l2', 1, 5000)];
-    const { container } = render(
-      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(29000), currency: 'TWD' } })]} />,
-    );
-
-    expect(container.querySelector('table')!.textContent).toContain('29,000');
-    // 合併態 ⇒ 金額是訂單層:兩列各有一格佔位,只有第一列有值
-    const amounts = [...container.querySelectorAll('td.col-amount')];
-    expect(amounts.length).toBe(2);
-    expect(amounts.filter((td) => td.childNodes.length > 0).length).toBe(1);
+    expect(amounts(container)).toEqual(['12,000', '8,000', '5,000']);
+    expect(container.querySelectorAll('[data-testid="order-total"]')).toHaveLength(1);
+    expect(total(container)).toBe('共 25,000');
   });
 });
+
 
 // ── V5:空 lines 兜底 ─────────────────────────────────────────────────
 describe('V5 — 空 lines', () => {
@@ -1007,20 +949,20 @@ describe('L2 — 收斂後每顆膠囊只渲染一次(取代雙 markup 一致性
   //    有人日後為了「手機好看」再補一份卡片 markup 回來,這格會直接紅。
   //    ⚠️ 三品項單是**承重的 fixture**,不是隨手挑的:狀態是訂單層 ⇒ 它必須只在第一列出現;
   //    若有人把它寫成逐列(照抄舊訂貨欄那個分支),這格會數到 3 顆而不是 1 顆。
-  it('狀態軸:三品項單整張表恰一顆、class 走 orderStatusView', () => {
+  it('狀態軸:三品項單每一列恰一顆(2026-10-02 逐品項)、class 走 lineStatusView', () => {
     const testOrder = order({
       lines: [line('l1', 1, 4000), line('l2', 1, 4000), line('l3', 1, 4000)],
       total: { amount: toMoneyAmount(12000), currency: 'TWD' },
     });
     const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[testOrder]} />);
-    const expected = orderStatusView(testOrder);
+    const expected = lineStatusView(testOrder, testOrder.lines[0]!);
 
     const capsules = [...container.querySelectorAll('span')].filter(
       (el) => el.textContent === expected.label,
     );
 
-    expect(capsules.length).toBe(1);
-    expect(capsules[0]!.className).toBe(expected.capsuleClass);
+    expect(capsules.length).toBe(3);
+    for (const c of capsules) expect(c.className).toBe(expected.capsuleClass);
   });
 
   it('🔴 收斂的結構斷言:整個元件不再有第二份列表容器(零 `<ul>`)', () => {
@@ -1101,7 +1043,7 @@ describe('V9(改寫)— 品項層欄位逐列都有值,不得被寫成訂單層�
 
   // 🔴 反面對照:同一張單上,**訂單層**的狀態欄只有第一列有值。
   //    兩格一起看才守得住「層級」這件事 —— 只驗品項層的話,把所有欄都寫成品項層仍全綠。
-  it('🔴 同一張兩品項單:狀態欄(訂單層)只有第一列有值', () => {
+  it('🔴 同一張兩品項單:狀態欄(2026-10-02 起品項層)兩列都有值', () => {
     const lines = [line('l1', 1, 4000), line('l2', 1, 8000)];
     const { container } = render(
       <OrdersTable buildOpenHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(12000), currency: 'TWD' } })]} />,
@@ -1109,7 +1051,7 @@ describe('V9(改寫)— 品項層欄位逐列都有值,不得被寫成訂單層�
     const cells = [...container.querySelectorAll('td.col-status')];
 
     expect(cells.length).toBe(2);
-    expect(cells.filter((td) => td.childNodes.length > 0).length).toBe(1);
+    expect(cells.filter((td) => td.childNodes.length > 0).length).toBe(2);
   });
 });
 
@@ -1333,7 +1275,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
         ]}
       />,
     );
-    expect(container.querySelector('td.col-pay')!.textContent).toBe(label);
+    expect(payCellText(container.querySelector('td.col-pay')!)).toBe(label);
   });
 
   it('🔴 還差 / 多收兩態印出【金額】，而且金額來自應付餘額本身', () => {
@@ -1342,7 +1284,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
       const { container } = render(
         <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
       );
-      return container.querySelector('td.col-pay')!.textContent;
+      return payCellText(container.querySelector('td.col-pay')!);
     };
 
     expect(payText(3500)).toBe('還差 3,500');
@@ -1359,7 +1301,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
       const { container } = render(
         <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], balanceDue })]} />,
       );
-      return container.querySelector('td.col-pay')!.textContent;
+      return payCellText(container.querySelector('td.col-pay')!);
     };
 
     expect(payText(null)).not.toBe(payText(0));
@@ -1492,7 +1434,7 @@ describe('P8 — 下一步欄', () => {
     expect(cancelled.container.querySelector('td.col-next')!.textContent).toBe('');
   });
 
-  it('🔴 下一步是**訂單層**：多品項單只有第一列有值，其餘列是真的空', () => {
+  it('🔴 下一步 2026-10-02 起是**品項層**：多品項單每一列各一顆', () => {
     const lines = [lineAt('l1', 1, 'instock'), lineAt('l2', 1, 'instock')];
     const { container } = render(
       <OrdersTable
@@ -1503,8 +1445,7 @@ describe('P8 — 下一步欄', () => {
     const cells = [...container.querySelectorAll('td.col-next')];
 
     expect(cells.length).toBe(2);
-    expect(cells.filter((td) => td.textContent !== '').length).toBe(1);
-    expect(cells[1]!.childNodes.length).toBe(0); // 空格必須真的空（卡片模式的 `td:empty` 前提）
+    expect(cells.filter((td) => td.textContent !== '').length).toBe(2);
   });
 });
 
@@ -2241,7 +2182,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('金額 NT$');
   });
 
-  it('🔴 金額語意與桌機同源:合併態只在卡頭、非合併態逐品項', () => {
+  it('🔴 金額語意與桌機同源:一律逐品項(2026-10-02 起沒有合併態)', () => {
     // 非合併態 = 單品項且買 1 件 ⇒ 金額走 lineTotal、逐品項顯示。
     // 🔴 `total` 刻意設 **12,100 ≠ lineTotal 12,000**(照本檔 `:209` 桌機那格的同款做法):
     //    兩者相等的話,「一律在卡頭顯示 order.total」這個突變也會讓斷言全綠 = 撞號恆真。
@@ -2260,7 +2201,8 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(amountText(single).split('12,000').length - 1).toBe(1);
     expect(amountText(single)).not.toContain('12,100'); // 非合併態不得顯示整單總額
 
-    // 合併態(多品項)⇒ 整單總額恰一次,且**不逐品項重複金額**
+    // ⛔ ~~合併態(多品項)⇒ 整單總額恰一次、不逐品項~~ 2026-10-02 起多品項也逐品項(Sean 拍 Q2 甲);
+    //    整單總額在收款格「共 X」, 金額欄一格都不出現它。
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
     const { container: multi } = render(
       <OrdersTable
@@ -2268,9 +2210,8 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
         orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
     );
     const text = amountText(multi);
-    expect(text.split('20,000').length - 1).toBe(1);
-    expect(text).not.toContain('12,000');
-    expect(text).not.toContain('8,000');
+    expect(text).toBe('12,000|8,000');
+    expect(text).not.toContain('20,000');
   });
 
   // 🏁 **L3 片6:單號格的「已取消」膠囊下架**(Sean 拍 `Q-E1` = A;理由=與狀態欄重複,而它讓
@@ -2368,7 +2309,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
           orders={[order({ lines: [line('l1', 1, 12000)], balanceDue, paymentStatus })]}
         />,
       );
-      return container.querySelector('td.col-pay')!.textContent;
+      return payCellText(container.querySelector('td.col-pay')!);
     };
 
     expect(payText(12000, 'unpaid')).toBe(PAY_COLUMN_LABEL.none);
@@ -2513,7 +2454,7 @@ describe('L3 片4 — 密度掛勾(`data-den`)', () => {
 //    而 `.every()` 對子集**單調**(全集為真 ⇒ 子集必真,反之不然)
 //    ⇒ **子集算出來的階段恆 ≥ 真實階段** ⇒ 看得見的全出貨了就答「出貨完成」。
 //    ⇒ **員工看到「出貨完成」就不再動作** —— 他做對了,但結果是錯的。
-describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
+describe('itemsTruncated ⇒ (2026-10-02 起)逐列印真值, 並一定有「另有多項」那一列', () => {
   /**
    * 🔴 **fixture 要選【沒有截斷時會算出一個明確狀態】的那組** ——
    *    否則「不印那個狀態」這件事測不出來(那個狀態本來就不會出現)。
@@ -2526,14 +2467,15 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
   //    ⇒ **要餵進量具的東西一律從檔裡讀出來**(本輪第三次同一個教訓)。
   const shippedLines = [lineAt('l1', 2, 'shipped')];
 
-  it('🔴 itemsTruncated=true ⇒ 印「未知」,不印算出來的狀態', () => {
+  // ⛔ 2026-10-02 起狀態逐品項:「子集算出整單階段會偏晚」那個病只存在於整單彙總;
+  //    每一列只看自己那一樣 ⇒ 截斷時看得到的那幾列也印得出真值。沒載到的由「另有多項(數量未知)」那一列交代。
+  it('🔴 itemsTruncated=true ⇒ 看得到的那一列印它自己的狀態, 而且一定有「另有多項(數量未知)」那一列', () => {
     const { container } = render(
       <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
     );
     const text = container.textContent ?? '';
-    expect(text).toContain('未知');
-    // 🔴 反向:那個「算得出來但可能是錯的」狀態一個字都不准出現。
-    expect(text).not.toContain('出貨完成');
+    expect(container.querySelector(STATUS_CELL)!.textContent).toBe('出貨完成');
+    expect(text).toContain('另有多項(數量未知)');
   });
 
   /**
@@ -2570,9 +2512,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     const { container } = render(
       <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
     );
-    const capsule = [...container.querySelectorAll('span')].find((el) => el.textContent === '未知');
-    expect(capsule, '截斷時仍要印「未知」——這一格不是把膠囊拿掉').toBeDefined();
-    expect(capsule?.getAttribute('title'), '說明不得再掛回 title').toBeNull();
+    // 2026-10-02 起截斷時不再印「未知」膠囊(見上一格);說明仍不得掛回 title。
     // 整棵樹都不准出現那句話的 title 版本(有人搬到別的節點上一樣算)
     const titles = [...container.querySelectorAll('[title]')].map((el) => el.getAttribute('title'));
     expect(titles).not.toContain(TRUNCATED_TITLE);
@@ -2627,52 +2567,14 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
    * ⚠️ **不要把這組讀成「修了一個 bug」** —— 今天的實際影響面是零。
    *    它讓一條隱形的依賴變成一格會叫的守門。**性質 = 套用既有拍板 `Q-EMBED-2`,不是新規格。**
    */
-  describe('🔴 截斷 + 只剩一列 quantity=1 ⇒ 金額欄仍走【訂單層】語意', () => {
-    /**
-     * 🔴🔴 **`5,000` 這個值是承重的,不要改成 12,000**(2026-08-18 codex 對抗審查 #3 抓到)。
-     *
-     * 我第一版用 `lineAt('l1', 1, 'shipped')` ⇒ 它的 `lineTotal` 是 **12,000**,
-     * 而 fixture 的 `order.total` **也是 12,000** ⇒ **「印的是 order.total」那條斷言零判別力**:
-     * 把截斷分支改成仍印 `lineTotal`,那格**照樣全綠**。
-     * 🔴 **最刺的是**:我自己在別處的註解寫過「兩值都是 12,000 ⇒ 零判別力」這個坑,
-     *    然後在同一支檔裡**又踩了一次**。⇒ 知道規則不等於執行規則。
-     */
-    const singleUnitLine = [line('l1', 1, 5000)];
-
-    it('截斷時:印 order.total(訂單的錢),data-l 是「金額」', () => {
-      const { container } = render(
-        <OrdersTable
-          buildOpenHref={panelHref}
-          orders={[order({ lines: singleUnitLine, itemsTruncated: true })]}
-        />,
-      );
-      const cell = container.querySelector('td.col-amount')!;
-      // 🔴 兩條缺一不可,而且**兩條守的是不同的東西**:
-      //    `data-l` 守語意標籤(手機卡片上沒有表頭,它是唯一的差別)
-      //    金額數字守**印的是哪一個值** —— 12,000 = order.total、5,000 = 這一列的 lineTotal
-      expect(cell.getAttribute('data-l')).toBe('金額 NT$');
-      expect(cell.textContent).toContain('12,000');
-      // 🔴 反向:那個「由半份資料算出來的」品項小計一個字都不准出現。
-      //    沒有這條,把分支改成印 lineTotal 而標籤照舊,上面兩條仍全綠(codex #3 原話)。
-      // 🔴 **2026-09-10:字面從 `NT$ 5,000` 改成 `5,000`** —— 幣別搬到欄名之後,
-      //    格子裡再也沒有 `NT$`, 這條會【恆真】⇒ 它自己註解說的那個保護就沒了。
-      //    📌 一條斷言在改動之後仍然是綠的, 不代表它還在守著什麼。
-      expect(cell.textContent).not.toContain('5,000');
-    });
-
-    /**
-     * 🔴 **負向對照** —— 同一組 lines、只把旗標關掉,就該回到品項層語意。
-     * 沒有這格,上面那條可能只是因為「這個 fixture 本來就走合併態」而通過。
-     */
-    it('負向對照:非截斷時同一組 lines ⇒ 回到品項層,data-l 是「小計」', () => {
-      const { container } = render(
-        <OrdersTable
-          buildOpenHref={panelHref}
-          orders={[order({ lines: singleUnitLine, itemsTruncated: false })]}
-        />,
-      );
-      expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('小計 NT$');
-    });
+  // ⛔ 「截斷 + 只剩一列 quantity=1 ⇒ 金額欄走訂單層」那組 2026-10-02 退場:金額欄沒有訂單層語意了(一律逐品項),
+  //    整單應收在收款格「共 X」。截斷與否, 金額欄印的都是那一列自己的金額。
+  it('截斷時金額欄仍印那一列自己的金額;整單應收在收款格', () => {
+    const { container } = render(
+      <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: [line('l1', 1, 5000)], itemsTruncated: true })]} />,
+    );
+    expect(container.querySelector('td.col-amount')!.textContent).toBe('5,000');
+    expect(container.querySelector('[data-testid="order-total"]')!.textContent).toBe('共 12,000');
   });
 
   it('正向對照:非截斷時那顆狀態膠囊也不帶那句 title(⇒ 上面那格不是靠「反正沒有 title」恆真)', () => {
@@ -2808,7 +2710,7 @@ describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列�
 describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
   const nLines = (n: number) => Array.from({ length: n }, (_, i) => line(`v${i + 1}`, 1, 1000));
 
-  it('🔴🔴 收合【不影響狀態判定】:前 3 列全出貨、第 4 列沒出貨 ⇒ 狀態**不得**是「出貨完成」', () => {
+  it('🔴🔴 收合:前 3 列全出貨、第 4 列沒出貨 ⇒ 看得到的 3 列印各自的「出貨完成」, 但一定有「另有 1 項」;整單仍不算完成', () => {
     // 🔴 這一格才有判別力:`orderStatusView` 走 `.every(...)`,把切過的 3 列餵給它
     //    ⇒ 「子集全出貨就答出貨完成」——**員工看到出貨完成就不再動作,他做對了但結果是錯的**
     //    (`mappers/order.ts` 那段註解逐字寫的就是這個病)。
@@ -2823,8 +2725,10 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
     const { container } = render(
       <OrdersTable buildOpenHref={panelHref} orders={[order({ lines: mixed })]} />,
     );
-    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelector(STATUS_CELL)!;
-    expect(statusCell.textContent).not.toBe('出貨完成');
+    // 2026-10-02 起狀態逐品項:前 3 列確實出貨了, 印「出貨完成」是那一列的真值。
+    //    沒出貨的第 4 樣不能消失 ⇒ 「另有 1 項」那一列必須在;上方篩選與計數用的整單狀態也不得是「出貨完成」。
+    expect(container.textContent).toContain('另有 1 項');
+    expect(orderStatusView(order({ lines: mixed })).label).not.toBe('出貨完成');
   });
 
   it('正向對照:四列**全部**出貨 ⇒ 狀態就是「出貨完成」(⇒ 上一格不是恆真)', () => {
@@ -2922,7 +2826,7 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
   it('🔴 還沒收 ⇒ 連結', () => {
     const td = cell({ balanceDue: 12000, paymentStatus: 'unpaid' });
     expect(td.querySelector('a')).not.toBeNull();
-    expect(td.textContent).toBe(PAY_COLUMN_LABEL.none);
+    expect(payCellText(td)).toBe(PAY_COLUMN_LABEL.none);
   });
 
   it.each([
@@ -2953,7 +2857,7 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
   it('還差 N 分兩行印(金額在第二行), 不會被欄寬截掉;文字內容不變', () => {
     const td = cell({ balanceDue: 22759, paymentStatus: 'partiallyPaid' });
     expect(td.querySelector('br'), '沒有斷行 ⇒ 1440 寬會被截成「還差 22,…」').not.toBeNull();
-    expect(td.textContent).toBe('還差 22,759');
+    expect(payCellText(td)).toBe('還差 22,759');
   });
 });
 
@@ -3084,7 +2988,7 @@ describe('下一步:現貨而且已建箱 ⇒ 畫出箱子那一步', () => {
 });
 
 // ── 2026-09-30 部分到貨(Sean 拍 Q1 甲):一樣到了、一樣還沒到 ────────────────────────
-describe('部分到貨 ⇒ 商品列灰字、下一步先出已到的', () => {
+describe('部分到貨 ⇒ 商品列灰字、已到的那一樣下一步是出貨', () => {
   const partial = () => order({ lines: [lineAt('l1', 1, 'instock'), lineAt('l2', 1, 'ordered')] });
 
   it('每樣商品列印到貨灰字', () => {
@@ -3093,11 +2997,11 @@ describe('部分到貨 ⇒ 商品列灰字、下一步先出已到的', () => {
     expect(notes).toEqual(['已到 1/1', '等貨']);
   });
 
-  it('下一步是「出貨（已到 1 樣）」, 開出貨彈窗', () => {
+  it('2026-10-02 起逐品項:已到的那一樣是「出貨」, 還沒到的那一樣是「到貨登記」', () => {
     const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[partial()]} />);
-    const link = container.querySelector('[data-next-do]')!;
-    expect(link.textContent).toBe('出貨（已到 1 樣）');
-    expect(link.getAttribute('data-next-do')).toBe('ship');
+    const links = [...container.querySelectorAll('[data-next-do]')];
+    expect(links.map((l) => l.textContent)).toEqual([ORDER_NEXT_STEP_LABEL.instock, ORDER_NEXT_STEP_LABEL.ordered]);
+    expect(links.map((l) => l.getAttribute('data-next-do'))).toEqual(['ship', 'receipt']);
   });
 
   it('全部出完 ⇒ 不印灰字(狀態欄已經說完了)', () => {
@@ -3105,9 +3009,55 @@ describe('部分到貨 ⇒ 商品列灰字、下一步先出已到的', () => {
     expect(container.querySelector('[data-testid="line-arrival"]')).toBeNull();
   });
 
-  it('品項被截斷 ⇒ 不算已到樣數, 下一步照舊', () => {
+  it('品項被截斷 ⇒ 看得到的每一樣仍各自一顆(只看自己那一樣, 跟截斷無關)', () => {
     const o = { ...partial(), itemsTruncated: true };
     const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[o]} />);
-    expect(container.querySelector('[data-next-do]')?.textContent).toBe('到貨登記');
+    expect([...container.querySelectorAll('[data-next-do]')].map((l) => l.textContent)).toEqual([ORDER_NEXT_STEP_LABEL.instock, ORDER_NEXT_STEP_LABEL.ordered]);
+  });
+});
+
+// 2026-10-02 Sean 拍 Q2 甲 / Q40 甲 / Q41 甲:狀態、下一步、金額改成【每個品項各一格】(稿 v22)。
+describe('逐品項:狀態、下一步、金額每一列各自一格', () => {
+  const rowsOf = (container: HTMLElement) => [...container.querySelectorAll('tbody.orders-group > tr')].filter((tr) => tr.querySelector('td.col-status'));
+  const two = () =>
+    order({ lines: [lineAt('l1', 1, 'ordered'), { ...line('l2', 2, 9220), id: 'l2' }], paymentStatus: 'paid', total: { amount: toMoneyAmount(21220), currency: 'TWD' } });
+
+  it('每一列印自己那一樣的狀態', () => {
+    const { container } = render(<OrdersTable orders={[two()]} buildOpenHref={panelHref} />);
+    const labels = rowsOf(container).map((tr) => tr.querySelector('td.col-status')!.textContent!.trim());
+    expect(labels).toEqual([ORDER_STATUS_LABEL.paid.ordered, ORDER_STATUS_LABEL.paid.none]);
+  });
+
+  it('每一列有自己的下一步, 下訂 / 到貨只帶那一樣(items=)', () => {
+    const { container } = render(<OrdersTable orders={[two()]} buildOpenHref={panelHref} />);
+    const links = rowsOf(container).map((tr) => tr.querySelector<HTMLAnchorElement>('td.col-next a')!);
+    expect(links.map((a) => a.textContent!.trim())).toEqual([ORDER_NEXT_STEP_LABEL.ordered, ORDER_NEXT_STEP_LABEL.none]);
+    expect(links[0]!.getAttribute('href')).toContain('do=receipt');
+    expect(links[0]!.getAttribute('href')).toContain('items=l1');
+    expect(links[1]!.getAttribute('href')).toContain('do=order');
+    expect(links[1]!.getAttribute('href')).toContain('items=l2');
+  });
+
+  it('Q41 甲:兩樣都是現貨 ⇒ 兩列都有出貨鈕, 開同一個出貨彈窗(不帶 items)', () => {
+    const o = order({ lines: [lineAt('l1', 1, 'instock'), lineAt('l2', 1, 'instock')] });
+    const { container } = render(<OrdersTable orders={[o]} buildOpenHref={panelHref} />);
+    const hrefs = rowsOf(container).map((tr) => tr.querySelector('td.col-next a')?.getAttribute('href'));
+    expect(hrefs).toHaveLength(2);
+    expect(hrefs[0]).toContain('do=ship');
+    expect(hrefs[1]).toBe(hrefs[0]);
+    expect(hrefs[0]).not.toContain('items=');
+  });
+
+  it('金額欄每一列 = 那一樣的金額(數量 × 單價), 不是整張單', () => {
+    const { container } = render(<OrdersTable orders={[two()]} buildOpenHref={panelHref} />);
+    const amounts = rowsOf(container).map((tr) => tr.querySelector('td.col-amount')!.textContent!.trim());
+    expect(amounts).toEqual(['12,000', '9,220']);
+  });
+
+  it('Q40 甲:整張單應收印在第一列收款格「共 X」, 只出現一次', () => {
+    const { container } = render(<OrdersTable orders={[two()]} buildOpenHref={panelHref} />);
+    const pays = rowsOf(container).map((tr) => tr.querySelector('td.col-pay')!.textContent!.trim());
+    expect(pays[0]).toContain('共 21,220');
+    expect(pays[1]).toBe('');
   });
 });
