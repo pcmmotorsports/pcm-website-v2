@@ -126,10 +126,11 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
       <p className='text-sm font-medium' data-testid='catalog-lookup-hint'>查商品</p>
       <div className='mt-2 flex gap-2'>
         <input
-          aria-label='要查的料號'
+          aria-label='要查的商品'
           autoComplete='off'
           // 2026-09-14:副句拿掉之後,「點那一列會帶入」改由 placeholder 講(打字前看得到, 打了字就讓位)。
-          placeholder='料號,查到點那一列帶入'
+          // 2026-10-02 S3/S6:查商品也比品名、品牌(含品牌俗名「阿卡」), 不再只有料號 ⇒ 提示跟著改。
+          placeholder='料號、品名或品牌,查到點那一列帶入'
           className='block w-64 rounded-md border px-2 py-1'
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}

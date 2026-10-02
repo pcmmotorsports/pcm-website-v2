@@ -3,6 +3,8 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { PRODUCT_ATTENTION_KEYS, type ProductAttention, type ProductSort } from './product-list-view';
 import type { ProductMediaRow } from './product-media';
 import type { BrandOptionRow, CategoryOptionRow } from './product-taxonomy-options';
+// S6:品牌俗名(「阿卡」「蠍子管」)換成正式品牌名再搜, 見 lib/search/brand-synonyms.ts。
+import { applyBrandSynonyms } from '@/lib/search/brand-synonyms';
 
 // M-4b #20 片1a:後台商品列表讀模型。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 //
@@ -421,7 +423,7 @@ async function filteredProducts(columns: string, head: boolean, query: AdminProd
   //   🔴 型別轉換:這支函式還沒進 database.types(型別重產後拿掉);它回的是 products 整列, 與 from('products') 同形。
   let q: ReturnType<typeof fromProducts> = query.keyword
     ? (client
-        .rpc('admin_products_by_keyword' as never, { p_term: query.keyword } as never, { count: 'exact', head })
+        .rpc('admin_products_by_keyword' as never, { p_term: applyBrandSynonyms(query.keyword) } as never, { count: 'exact', head })
         .select(withSortColumns(columns)) as unknown as ReturnType<typeof fromProducts>)
     : fromProducts();
 

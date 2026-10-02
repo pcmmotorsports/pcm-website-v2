@@ -652,6 +652,11 @@ describe('D2 搜尋接到 admin_products_by_keyword', () => {
     expect(q.calls.filter((c) => c[0] === 'from' && c[1] === 'products')).toEqual([]);
   });
 
+  it('S6:品牌俗名「阿卡」換成 Akrapovic 再送(其他詞與空白原樣)', async () => {
+    await listProductsForAdmin(20, 0, { keyword: '阿卡 排氣管' });
+    expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'Akrapovic 排氣管' }, { count: 'exact', head: false }]);
+  });
+
   it('🔴 其他篩選照樣疊在搜尋結果上(品牌、要處理、排序、分頁同一段程式)', async () => {
     await listProductsForAdmin(20, 40, { keyword: 'panigale', brandIds: ['b1'], attention: ['delisted'] });
     expect(q.calls).toContainEqual(['in', 'brand_id', ['b1']]);
