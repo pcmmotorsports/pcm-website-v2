@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # `20261002130000_m4b_admin_search_orders_multi_term.sql`(S2 訂單搜尋拆詞)的行為驗證
-# 要證的(Sean 2026-10-02 Q1 甲):拆詞每個詞都要對到;全形轉半形;一個詞的查詢結果與第 3 代逐筆相同;上限與 truncated 照舊;回滾來回。
+# 要證的(Sean 2026-10-02 Q1 甲):拆詞每個詞都要對到;全形轉半形;一個詞的查詢結果與第 3 代逐筆相同;回滾來回。(上限 100 / truncated / 日期範圍沒有格子, 靠逐字 diff 證明與第 3 代相同)
 # 世界:拋棄式 PG = 正式庫 2026-09-15 schema dump + 之後已貼(APPLIED.tsv)的 migration。先紅:套本支之前跑同一批格子。
 set -u
 export LC_ALL=C LANG=C
@@ -57,13 +57,13 @@ run_cells() {
   cell "「王 煞車」⇒ 沒有(沒有一張單兩個詞都對到)" "$(S '王 煞車')" "-"
   cell "全形電話「０９１２」⇒ 王小明" "$(S '０９１２')" "a"
   cell "全形料號「ＡＫＲ－Ｓ」⇒ 王小明" "$(S 'ＡＫＲ－Ｓ')" "a"
-  cell "「排氣管 R6」⇒ 品名 + 料號跨維" "$(S '排氣管 r6')" "a"
+  cell "「排氣管 y6r5」⇒ 品名 + 料號跨維" "$(S '排氣管 y6r5')" "a"
 }
 echo "── 貼前(先紅)──"
 OB="$(run_cells 2>/dev/null)"; printf '%s\n' "$OB" | sed 's/^/  [貼前] /'
 RED="$(printf '%s\n' "$OB" | grep -c FAIL)"
-# 「排氣管 r6」第 3 代的模糊比對(word_similarity)本來就對得到, 所以貼前紅的是拆詞兩格加全形兩格。
-cell "貼前紅的正好是:王 小明 / 明 台中 / 全形電話 / 全形料號" "$(printf '%s\n' "$OB" | grep FAIL | grep -c '王 小明\|明 台中\|全形電話\|全形料號')/$RED" "4/4"
+# 「排氣管 r6」第 3 代的模糊比對(word_similarity)本來就對得到(所以這格改用 y6r5, 真的要兩維各對一個詞)。下面只核這四格貼前一定是紅的。
+cell "貼前紅的正好是:王 小明 / 明 台中 / 全形電話 / 全形料號" "$(printf '%s\n' "$OB" | grep FAIL | grep -c '王 小明\|明 台中\|全形電話\|全形料號')" "4"
 P -f "$MIG" >/dev/null || { echo "🔴 migration 套不上"; exit 1; }
 echo "── 貼後 ──"
 run_cells

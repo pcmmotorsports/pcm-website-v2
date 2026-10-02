@@ -8,7 +8,7 @@
 --      只把 p_query 換成 p_term。內部函式, 只給 ② 呼叫(收掉所有角色的 EXECUTE)。
 --   ② admin_search_orders 第 4 代(簽章、回傳形狀、上限、排序都不變):
 --      · 先 NFKC(全形轉半形:「０９１２」=「0912」、全形空白 = 空白), 再小寫去頭尾空白。
---      · 整串照舊比一次(= 第 3 代的行為, 一個詞的查詢結果完全不變)。
+--      · 整串照舊比一次(= 第 3 代的行為;一般輸入的單詞查詢逐筆相同。頭尾帶 tab / NBSP / 零寬字的, 第 4 代先修掉, 只會多找到、不會少)。
 --      · 有兩個詞以上時, 另外拆詞(最多 8 個), 一張單【每個詞都對到某一維】才算命中(「王 小明」對得到「王小明」)。
 --      · 兩組聯集後照舊 created_at DESC, 最多 100 筆, 超過標 truncated。
 -- 回滾:supabase/rollbacks/20261002130000-rollback.sql(換回第 3 代本體, DROP 內部函式)。
@@ -213,7 +213,7 @@ BEGIN
   END IF;
   v_limit := CASE WHEN p_limit IS NULL OR p_limit <= 0 THEN 100 ELSE LEAST(p_limit, 100) END;
 
-  -- 拆詞:最多 8 個(與顧客站同一個上限), 重複的詞只算一次。
+  -- 拆詞:最多 8 個(與顧客站同一個上限), 第 9 個以後的詞直接丟掉(條件變寬, 不會報錯);重複的詞只算一次。
   SELECT pg_catalog.array_agg(t.term ORDER BY t.first_ord)
     INTO v_terms
     FROM (SELECT x.term, pg_catalog.min(x.ord) AS first_ord
@@ -279,6 +279,9 @@ BEGIN
   IF pg_catalog.has_function_privilege('service_role', 'public.pcm_admin_search_order_term_hits(text,timestamptz,timestamptz)'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION '收權斷言:內部函式不該開給 service_role';
   END IF;
+  -- 實際叫一次(兩個詞 ⇒ 一定走到內部函式):貼板角色若不是 admin_search_orders 的 owner,
+  -- 外層叫不到內部函式, 在這裡就整筆回滾, 不要等員工搜尋才炸 permission denied(Fable R1 C1)。
+  PERFORM public.admin_search_orders('smoke test');
 END
 $acl$;
 
