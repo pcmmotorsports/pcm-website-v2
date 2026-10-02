@@ -2450,9 +2450,11 @@ body {font-size:14.5px;line-height:1.4}
    這裡沒有 `.w1` 那層包裝(DOM 是三個並列的 span,`orders-table.tsx:509-514`)⇒ 用 inline-block + calc:
    名字最多吃「格寬 − 42px」(等級 tag 兩個中文字 + 內距 ≈ 36,再留 4 間距 + 2 保險),放不下就省略號;
    發票 tag `display:block` 自然掉到下一行。
-   🔴 三行變兩行是列高 87 → 52 的關鍵:`--od-row-h:52px` 一直是對的,是內容撐到三行才 87。 */
+   🔴 三行變兩行是列高 87 → 52 的關鍵:`--od-row-h:52px` 一直是對的,是內容撐到三行才 87。
+   🔴 2026-10-02 Sean:「會員」tag 跟著名字長短跑來跑去 ⇒ 名字改【固定寬】(width,不是 max-width),
+      tag 每一列都在同一個位置 —— 這才是稿 `.w1` 名字 `flex:1` 的效果(舊的 max-width 只做到截斷、沒做到對齊)。 */
 .orders-grid td.col-customer>.cust-name {
-  display:inline-block;max-width:calc(100% - 42px);vertical-align:top;line-height:20px;
+  display:inline-block;width:calc(100% - 42px);vertical-align:top;line-height:20px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap
 }
 .orders-grid td.col-customer>.cust-tag:not(.inv-tag) {display:inline-block;vertical-align:top;line-height:20px;margin-left:4px}

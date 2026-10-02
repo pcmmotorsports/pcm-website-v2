@@ -1212,6 +1212,21 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
       expect(rules[0]).toBe('block');
     });
 
+    it('🔴 名字是【固定寬】(width 不是 max-width)⇒ 等級 tag 每一列都在同一個位置(Sean 2026-10-02)', () => {
+      // 稿 v20/v22 `.w1{display:flex}`:名字 `flex:1`、tag `flex:0 0 auto` ⇒ tag 永遠在那一行的尾端。
+      // 舊寫法 `max-width:calc(100% - 42px)` ⇒ 名字多長 tag 就跟到哪, 長短不同的名字讓 tag 跑來跑去。
+      const decls = new Map<string, string>();
+      ROOT2.walkRules((r) => {
+        if (r.selector.replace(/\s+/g, '') === '.orders-gridtd.col-customer>.cust-name') {
+          r.walkDecls(/^(width|max-width)$/, (d) => {
+            decls.set(d.prop, d.value.trim());
+          });
+        }
+      });
+      expect(decls.get('width'), '名字沒有固定寬 ⇒ 等級 tag 跟著名字長短跑').toBe('calc(100% - 42px)');
+      expect(decls.has('max-width')).toBe(false);
+    });
+
     it('🔴 三態各有自己的底色規則，而且是三條不同的', () => {
       // 少了這一條，三顆 tag 全變同一色（或某一態根本沒規則）都不會有人叫。
       const byState = new Map<string, string>();
