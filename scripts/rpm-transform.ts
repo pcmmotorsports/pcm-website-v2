@@ -863,3 +863,35 @@ export function variantSortKey(v: SourceProductRow): string {
   const s = v.spec ?? {};
   return `${s.weave ?? ''}|${s.finish ?? ''}|${s.special ? '1' : '0'}|${v.sku}`;
 }
+
+/**
+ * 乾跑抽樣要印的欄位(白名單)。🔴 repo 是公開的, GitHub Actions 紀錄任何人都看得到 ⇒
+ * 不印經銷價(price_store、price_by_tier)、成本或 metadata;新增欄位要印得先加進這裡。
+ * (2026-10-02 run 37006117503 evotech 乾跑紀錄裡已有經銷價數字;主視窗 pcm-website-v2-ce 派修。)
+ */
+export function dryRunSample(product: ProductRow, variants: VariantRow[]) {
+  return {
+    product: {
+      supplier_slug: product.supplier_slug,
+      external_id: product.external_id,
+      handle: product.handle,
+      title: product.title,
+      subtitle: product.subtitle,
+      price_general: product.price_general,
+      availability: product.availability,
+      brand_id: product.brand_id,
+      category_id: product.category_id,
+      image_count: product.images.length,
+      fitment_count: product.fitments.length,
+    },
+    variant_count: variants.length,
+    sample_variants: variants.slice(0, 3).map((v) => ({
+      sku: v.sku,
+      spec: v.spec,
+      price_general: v.price_general,
+      availability: v.availability,
+      sort_order: v.sort_order,
+      image_count: v.images.length,
+    })),
+  };
+}

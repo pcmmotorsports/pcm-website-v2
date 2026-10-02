@@ -103,6 +103,7 @@ import {
   groupRowsToSync,
   isNonProductListing,
   isFullyDelisted,
+  dryRunSample,
   type ProductRow,
   type VariantRow,
   type GroupTransformContext,
@@ -1198,7 +1199,8 @@ async function main(): Promise<void> {
     if (sample) {
       const vrs = variantsByExternalId.get(sample.external_id)!;
       console.log('\n-- 抽樣群(transform 驗) --');
-      console.log(JSON.stringify({ product: sample, variant_count: vrs.length, sample_variants: vrs.slice(0, 3) }, null, 2));
+      // 只印白名單欄位:repo 公開, Actions 紀錄任何人看得到, 不能印經銷價或成本(rpm-transform.ts dryRunSample)
+      console.log(JSON.stringify(dryRunSample(sample, vrs), null, 2));
     }
     // S4 來源消失對賬(只全量;篩選下 source 不完整、跳過避免誤判)。
     // dry-run 即使 gate 觸發也只印報告不 throw(故意:Sean 要看完整報告、不靠 dry-run exit code 當預檢;真跑才 exit 1)。
