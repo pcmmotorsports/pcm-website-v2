@@ -15,9 +15,11 @@ describe('AkrapovicShowcase', () => {
   it('N°01:eyebrow logo + h2 + lead + 3 卡', () => {
     render(<AkrapovicShowcase />);
     expect(document.querySelector('#pd-h-akra01')).not.toBeNull();
-    expect(screen.getByAltText('Akrapovič')).toBeDefined();
-    expect(screen.getByRole('heading', { level: 2, name: '為什麼選 Akrapovič' })).toBeDefined();
+    expect(screen.getByAltText('Akrapovic')).toBeDefined();
+    expect(screen.getByRole('heading', { level: 2, name: '為什麼選 Akrapovic' })).toBeDefined();
     expect(screen.getByText(/排氣系統世界霸主/)).toBeDefined();
+    // Sean 2026-10-03 Q 甲:站上一律寫 Akrapovic(無撇), 與 651 件商品名稱一致
+    expect(document.body.textContent).not.toContain('Akrapovič');
     expect(screen.getByRole('heading', { level: 3, name: '世界冠軍血統' })).toBeDefined();
     // 「自有鈦合金鑄造廠」亦出現在 N°02 故事段/信任狀(皆 div)→ 用 h3 role 精準鎖 N°01 卡標
     expect(screen.getByRole('heading', { level: 3, name: '自有鈦合金鑄造廠' })).toBeDefined();
