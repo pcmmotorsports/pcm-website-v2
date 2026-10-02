@@ -42,6 +42,7 @@ import type {
 // eslint-disable-next-line no-restricted-imports -- 受控例外(鏡像 payment/composition.ts):composition root 注入 email server-only adapter;SupabaseEmailOutboxAdapter 持 service_role client(email_outbox 含 recipient_email PII)、ResendEmailSenderAdapter 持 RESEND_API_KEY、皆 server-only 不進 client bundle。
 import {
   SupabaseEmailOutboxAdapter,
+  SupabaseEmailCopyVersionsAdapter,
   SupabasePaidEmailContextAdapter,
   SupabasePaidOrderScannerAdapter,
   SupabaseUnpaidCancelledOrderScannerAdapter,
@@ -119,6 +120,8 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   const shippedContext = new SupabaseShippedEmailContextAdapter(serviceClient);
   // 部分取消信寄出當下的金額(2026-09-14;沒接 ⇒ 那條線一封都不寄, fail-closed)。
   const partiallyCancelledContext = new SupabasePartiallyCancelledEmailContextAdapter(serviceClient);
+  // 信件文字第 2 片:員工在後台改的字(表 email_copy_versions;要先貼 20261002200000 再推本行)。
+  const copyVersions = new SupabaseEmailCopyVersionsAdapter(serviceClient);
   // 🔴 **寄送前合格性閘(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)。**
   //    共用同一個 serviceClient(見上方那條「不要再開一條連線」的註解)。
   //    ⚠️ 這一行與 `shippedContext` 那一行**性質相反**:那一行接上去也不會寄出任何東西,
@@ -248,6 +251,7 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   return {
     outbox, sender, shippedContext, ineligibleScanner, paidContext, bankOrderMailable, orderPlacedAt,
     partiallyCancelledContext,
+    copyVersions,
     currentRecipient,
     ...line,
   };

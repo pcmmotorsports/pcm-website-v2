@@ -43,10 +43,9 @@ import { subtotalLabelOf } from '@pcm/domain';
 import {
   formatOrderAmount,
   orderAmountsBalance,
-  ORDER_LINE_TITLE_MISSING,
-  ORDER_PAID_HTML_LEAD_SENTENCE,
-  ORDER_PAID_NEXT_STEP_SENTENCE,
 } from './order-email-copy';
+// 2026-10-02 信件文字第 2 片:句子在寄信當下才取, 員工改的字才會生效。
+import { emailCopy } from './email-copy-catalog';
 // 🔵 2026-09-12:頁首 / 訂單編號列 / 聯絡段 / 頁尾搬到共用外框(其他 6 封客人信也用它)。
 //    本檔只剩付款信自己的內容(品項、金額、付款時間、PDF 那一塊)。
 import { esc, MONO, renderCtaButton, renderCustomerEmailShell, SANS } from './customer-email-shell';
@@ -294,7 +293,7 @@ export function renderPaidEmailHtml(ctx: PaidEmailContext, chrome: PaidEmailChro
   //    空白那一列與「這張單只有兩項」長得一樣。
   const lineRows = ctx.lines
     .map((l) => {
-      const title = l.title === null ? ORDER_LINE_TITLE_MISSING : esc(l.title);
+      const title = l.title === null ? esc(emailCopy('lineTitleMissing')) : esc(l.title);
       const skuRow =
         l.variantSku === null
           ? ''
@@ -449,7 +448,7 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
   // ✅ **動作是【拿掉一句變成假的話】, 不是【加一句新的】** ——
   //    加新文案要 Sean 拍;**移除一個已經不成立的宣稱不用**, 而且它讓兩份信回到一致(兩份都不宣稱)。
   //    ⇒ 📌 客人仍看得到「我們收到您的付款了」與下一步那句, 信的用途沒有變。
-  const leadSentence = amountsBalance ? ORDER_PAID_HTML_LEAD_SENTENCE : '';
+  const leadSentence = amountsBalance ? esc(emailCopy('paidHtmlLead')) : '';
 
   // 🔴🔴 **下面這段【本來是一個 HTML 註解, 寫在 amountsBlock 的 template literal 裡】**
   //    ⇒ 🛑 **而 template literal 裡的 HTML 註解【會被原樣寄進客人的信】。**
@@ -516,7 +515,7 @@ ${discountRow}${taxRow}          <tr class="hair">
     title: 'PCM 訂單付款成功通知',
     kicker: '付款成功通知',
     headline: '我們收到您的付款了',
-    leadHtml: `${leadSentence}${ORDER_PAID_NEXT_STEP_SENTENCE}`,
+    leadHtml: `${leadSentence}${esc(emailCopy('paidNextStep'))}`,
     orderDisplayId: ctx.orderDisplayId,
     idRowExtraCellHtml: paidAtCell,
     bodyHtml: `${amountsBlock}${ctaBlock}${pdfBlock}`,

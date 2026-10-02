@@ -148,6 +148,7 @@ export {
   SupabasePartiallyCancelledEmailContextAdapter,
   type PartiallyCancelledEmailContextClient,
 } from './email/SupabasePartiallyCancelledEmailContextAdapter';
+export { SupabaseEmailCopyVersionsAdapter } from './email/SupabaseEmailCopyVersionsAdapter';
 // 退貨收回通知(2026-09-27, Sean A3 甲甲甲)—— 掃描端。
 export {
   SupabaseReturnReceivedScannerAdapter,

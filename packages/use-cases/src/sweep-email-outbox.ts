@@ -1,4 +1,6 @@
 import type {
+  EmailCopyVersionRow,
+  IEmailCopyVersionsReader,
   IPartiallyCancelledEmailContext,
   ClaimedEmailJob,
   IEmailOutbox,
@@ -41,35 +43,14 @@ import { readPaidSnapshot } from './paid-email-snapshot';
 import {
   formatOrderAmount,
   orderAmountsBalance,
-  ORDER_CANCELLED_HEADLINE_NO_ID,
-  ORDER_LINE_TITLE_MISSING,
   ORDER_PARTIALLY_CANCELLED_HEADLINE,
-  ORDER_PARTIALLY_CANCELLED_ITEMS_TITLE,
-  ORDER_PARTIALLY_CANCELLED_AMOUNTS_TITLE,
-  ORDER_PARTIALLY_CANCELLED_SUBTOTAL_LABEL,
-  ORDER_PARTIALLY_CANCELLED_SHIPPING_LABEL,
-  ORDER_PARTIALLY_CANCELLED_TOTAL_LABEL,
-  ORDER_PARTIALLY_CANCELLED_EXACT_SENTENCE,
-  ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE,
-  ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE,
-  ORDER_PARTIALLY_CANCELLED_COMPANY_LINES,
-  ORDER_RETURN_RECEIVED_HEADLINE,
-  ORDER_RETURN_RECEIVED_REFUND_SENTENCE,
   orderReturnReceivedItemLine,
   orderPartiallyCancelledOverpaidSentence,
   orderPartiallyCancelledUnpaidSentence,
   orderPartiallyCancelledShortSentence,
   ORDER_CANCELLED_HEADLINE_WITH_ID,
-  ORDER_CANCELLED_REFUNDED_SENTENCE,
-  ORDER_CONTACT_LEAD,
-  ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE,
   orderCancelledExtraRefundHeadline,
   orderCancelledPartialRefundSentence,
-  ORDER_MEMBER_CENTER_SENTENCE,
-  ORDER_PAID_NEXT_STEP_SENTENCE,
-  ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
-  PCM_COMPANY_ADDRESS,
-  PCM_COMPANY_LINE,
   PCM_LINE_ID,
   PCM_LINE_URL,
   customerFacingCancelReason,
@@ -78,7 +59,12 @@ import {
 } from './order-email-copy';
 import { renderTextEmailHtml } from './customer-email-html';
 // 2026-10-02 信件文字第 1 片(1b):組信程式裡的固定句子改從清單取, 寄出的信逐字不變(__golden__ 快照)。
-import { emailCopy } from './email-copy-catalog';
+import {
+  emailCopy,
+  resolveEmailCopyOverrides,
+  withEmailCopyOverrides,
+  type EmailCopyKey,
+} from './email-copy-catalog';
 import {
   computeEmailBackoff,
   LEASE_RECLAIM_RETRY_DELAY_MS,
@@ -144,6 +130,13 @@ export type SweepEmailOutboxDeps = {
    *    退回 payload 的舊數字正是本片要修的那件事。
    */
   partiallyCancelledContext?: IPartiallyCancelledEmailContext;
+  /**
+   * 信件文字第 2 片:員工在後台改的字(表 `email_copy_versions`)。
+   * 不給 ⇒ 全部用程式預設文字(= 第 1 片之前的行為, 逐字快照鎖住)。
+   * 讀不到 ⇒ 這一輪 errors 只加 1(排程網址回 503、送失敗告警);還沒交給 Resend 的信用預設照寄,
+   *   交給過的這一輪不寄、放回佇列且不算一次嘗試(否則重試的內容和上次不同, Resend 會擋, 那封信就寄不出去)。
+   */
+  copyVersions?: IEmailCopyVersionsReader;
   /**
    * 🔴🔴 **寄送前的合格性讀取(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)。**
    *
@@ -420,6 +413,8 @@ export type SweepEmailOutboxResult = {
    * 同一封同時計 `errors`(⇒ route 回 503,因為 DB 真的有問題要有人看)。
    */
   eligibilityUnknown: number;
+  /** 信件文字第 2 片:這一輪讀不到員工改的字 = 1, 其他 = 0(讀不到時 errors 也只加 1, 不是每封加一次)。 */
+  copyTableUnreadable: number;
   /**
    * 🔴 **本輪有幾封是撞到【額度用盡】而失敗的。**
    *
@@ -665,15 +660,15 @@ type EmailContent = { text: string; html: string | null };
 function standardTail(orderUrl: string | undefined): string[] {
   return [
     '',
-    ORDER_MEMBER_CENTER_SENTENCE,
+    emailCopy('memberCenter'),
     ...(orderUrl === undefined ? [] : [orderUrl]),
     '',
-    `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`,
+    `${emailCopy('contactLead')} ${PCM_LINE_ID}`,
     PCM_LINE_URL,
     '',
     'PCM重機零件販售',
-    PCM_COMPANY_LINE,
-    PCM_COMPANY_ADDRESS,
+    emailCopy('companyLine'),
+    emailCopy('companyAddress'),
   ];
 }
 
@@ -887,7 +882,7 @@ function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undef
   if (orderUrl !== undefined) {
     tail.push('', emailCopy('bankCreatedLinkLead'), orderUrl);
   }
-  tail.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
+  tail.push('', `${emailCopy('contactLead')} ${PCM_LINE_ID}`, PCM_LINE_URL);
   return customerEmail(job.subject, displayId, emailCopy('greetingHalfwidth'), body, tail, orderUrl);
 }
 
@@ -966,7 +961,7 @@ function buildBankOrderAmountChangedText(
   if (orderUrl !== undefined) {
     tail.push('', emailCopy('bankAmountChangedLinkLead'), orderUrl);
   }
-  tail.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
+  tail.push('', `${emailCopy('contactLead')} ${PCM_LINE_ID}`, PCM_LINE_URL);
   return customerEmail(job.subject, displayId, emailCopy('greetingHalfwidth'), body, tail, orderUrl);
 }
 
@@ -1002,7 +997,7 @@ function buildOrderCreatedText(
     detail.push('', emailCopy('paidDetailTitle'));
     for (const l of paid.lines) {
       // 🔴 品名從缺時的字面**與排版那份同一句**(`(品名未記錄)`)—— 兩份不可以各講各的。
-      const title = l.title === null ? ORDER_LINE_TITLE_MISSING : l.title;
+      const title = l.title === null ? emailCopy('lineTitleMissing') : l.title;
       const sku = l.variantSku === null ? '' : ` (${l.variantSku})`;
       detail.push(`· ${title}${sku} x ${l.quantity}  NT$ ${formatOrderAmount(l.lineTotal)}`);
     }
@@ -1045,8 +1040,8 @@ function buildOrderCreatedText(
     paid === null ? undefined : paidEmailOrderUrl(siteUrl, paid.orderDisplayId);
   const memberCenter =
     orderUrl === undefined
-      ? ORDER_MEMBER_CENTER_SENTENCE
-      : `${ORDER_MEMBER_CENTER_SENTENCE}\n${orderUrl}`;
+      ? emailCopy('memberCenter')
+      : `${emailCopy('memberCenter')}\n${orderUrl}`;
 
   return [
     emailCopy('greeting'),
@@ -1114,7 +1109,7 @@ function buildOrderCreatedText(
     //    ⛔ ~~原本這裡是一份手打的字面,而它的逗號是 `U+002C`(半形)~~
     //    而 HTML 那一份與稿一樣是 `U+FF0C`(全形)⇒ **同一封信的兩份,標點是不同的字元**。
     //    ⇒ 統一的方向是【純文字向稿對齊】(鐵則 1),所以會變的是這一半。
-    ORDER_PAID_NEXT_STEP_SENTENCE,
+    emailCopy('paidNextStep'),
     ...detail,
     '',
     memberCenter,
@@ -1135,8 +1130,8 @@ function buildOrderCreatedText(
     PCM_LINE_URL,
     '',
     'PCM重機零件販售',
-    PCM_COMPANY_LINE,
-    PCM_COMPANY_ADDRESS,
+    emailCopy('companyLine'),
+    emailCopy('companyAddress'),
   ].join('\n');
 }
 
@@ -1248,11 +1243,11 @@ function buildOrderUnpaidCancelledText(job: ClaimedEmailJob, siteUrl: string | u
 
   const body: string[] = [
     displayId === null
-      ? ORDER_CANCELLED_HEADLINE_NO_ID
+      ? emailCopy('cancelledHeadlineNoId')
       : ORDER_CANCELLED_HEADLINE_WITH_ID(displayId),
   ];
   if (reason !== null) body.push('', reason);
-  body.push('', ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE);
+  body.push('', emailCopy('unpaidCancelledNoCharge'));
   // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(原本只有一句會員中心 + 店名;Sean 09-12 抓到③④不一致)。
   const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
   return customerEmail(job.subject, displayId, emailCopy('greeting'), body, standardTail(orderUrl), orderUrl);
@@ -1299,7 +1294,7 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
 
   const body: string[] = [
     displayId === null
-      ? ORDER_CANCELLED_HEADLINE_NO_ID
+      ? emailCopy('cancelledHeadlineNoId')
       : ORDER_CANCELLED_HEADLINE_WITH_ID(displayId),
   ];
   if (reason !== null) body.push('', reason);
@@ -1313,7 +1308,7 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
   //    ⚠️ 而這是一個**對寫入端的契約**:payload 要帶 `refund_kind`。片 B 要照著填。
   const refundKind = readStr('refund_kind');
   if (refundKind === 'full') {
-    body.push('', ORDER_CANCELLED_REFUNDED_SENTENCE);
+    body.push('', emailCopy('cancelledFullRefund'));
     if (refunded !== null) body.push(`退款金額  NT$ ${formatOrderAmount(refunded)}`);
   } else if (refundKind === 'partial' && refunded !== null) {
     // 🔵 2026-09-12(Sean Q1 拍甲):取消 + 只退了一部分 ⇒ 說退了多少、其餘請洽 LINE。
@@ -1438,7 +1433,7 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
     body.push('', emailCopy('partialRefundOrderActive'));
   } else if (orderState === 'fully_refunded') {
     // 🔴 全數退回之後**不可以**再說「其餘照常出貨」(Sean Q1 的第 ② 句)
-    body.push('', ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE);
+    body.push('', emailCopy('refundNowFullyRefunded'));
   }
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
@@ -1468,17 +1463,17 @@ function buildOrderReturnReceivedText(job: ClaimedEmailJob, siteUrl: string | un
         const t = (el as { title?: unknown }).title;
         if (typeof q !== 'number' || !Number.isSafeInteger(q) || q <= 0) return [];
         const title = typeof t === 'string' && t.trim() !== '' ? sanitizeCustomerFacingReason(t) : null;
-        return [{ title: title ?? ORDER_LINE_TITLE_MISSING, quantity: q }];
+        return [{ title: title ?? emailCopy('lineTitleMissing'), quantity: q }];
       })
     : [];
   if (items.length === 0) {
     throw new Error('sweepEmailOutbox:order_return_received payload 品項為空、fail-closed 不寄');
   }
   const body: string[] = [
-    ORDER_RETURN_RECEIVED_HEADLINE,
+    emailCopy('returnReceivedHeadline'),
     ...items.map((i) => orderReturnReceivedItemLine(i.title, i.quantity)),
     '',
-    ORDER_RETURN_RECEIVED_REFUND_SENTENCE,
+    emailCopy('returnReceivedRefund'),
   ];
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   return customerEmail(job.subject, displayId, emailCopy('greeting'), body, standardTail(orderUrl), orderUrl);
@@ -1525,7 +1520,7 @@ function buildOrderPartiallyCancelledText(job: ClaimedEmailJob, siteUrl: string 
         const t = (el as { title?: unknown }).title;
         if (typeof q !== 'number' || !Number.isSafeInteger(q) || q <= 0) return [];
         const title = typeof t === 'string' && t.trim() !== '' ? sanitizeCustomerFacingReason(t) : null;
-        return [{ title: title ?? ORDER_LINE_TITLE_MISSING, quantity: q }];
+        return [{ title: title ?? emailCopy('lineTitleMissing'), quantity: q }];
       })
     : [];
   if (items.length === 0) {
@@ -1544,10 +1539,10 @@ function buildOrderPartiallyCancelledText(job: ClaimedEmailJob, siteUrl: string 
   const body: string[] = [
     ORDER_PARTIALLY_CANCELLED_HEADLINE(displayId, count),
     '',
-    ORDER_PARTIALLY_CANCELLED_ITEMS_TITLE,
+    emailCopy('partiallyCancelledItemsTitle'),
     ...items.map((i) => `· ${i.title} × ${i.quantity}`),
     '',
-    ORDER_PARTIALLY_CANCELLED_AMOUNTS_TITLE,
+    emailCopy('partiallyCancelledAmountsTitle'),
   ];
   // 🔴🔴 codex R1 must-fix ①:`effective_subtotal` / `effective_shipping_fee` 是【未稅】, 而
   //    `remaining_receivable` 含稅(pcm_order_remaining_receivable)⇒ 含稅單三行印出來是
@@ -1557,15 +1552,15 @@ function buildOrderPartiallyCancelledText(job: ClaimedEmailJob, siteUrl: string 
   //    🔵 未稅單(絕大多數)三行照樣印, 字面與 Sean 定稿逐字相同。
   if (subtotal + shipping === remaining) {
     body.push(
-      `${ORDER_PARTIALLY_CANCELLED_SUBTOTAL_LABEL}  NT$ ${formatOrderAmount(subtotal)}`,
-      `${ORDER_PARTIALLY_CANCELLED_SHIPPING_LABEL}  NT$ ${formatOrderAmount(shipping)}`,
+      `${emailCopy('partiallyCancelledSubtotalLabel')}  NT$ ${formatOrderAmount(subtotal)}`,
+      `${emailCopy('partiallyCancelledShippingLabel')}  NT$ ${formatOrderAmount(shipping)}`,
     );
   }
-  body.push(`${ORDER_PARTIALLY_CANCELLED_TOTAL_LABEL}  NT$ ${formatOrderAmount(remaining)}`, '');
+  body.push(`${emailCopy('partiallyCancelledTotalLabel')}  NT$ ${formatOrderAmount(remaining)}`, '');
   if (paid > remaining) {
     body.push(orderPartiallyCancelledOverpaidSentence(formatOrderAmount(paid - remaining)));
   } else if (paid === remaining) {
-    body.push(ORDER_PARTIALLY_CANCELLED_EXACT_SENTENCE);
+    body.push(emailCopy('partiallyCancelledExact'));
   } else if (paid === 0) {
     body.push(orderPartiallyCancelledUnpaidSentence(formatOrderAmount(remaining)));
   } else {
@@ -1575,13 +1570,13 @@ function buildOrderPartiallyCancelledText(job: ClaimedEmailJob, siteUrl: string 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   const tail: string[] = [
     '',
-    ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE,
+    emailCopy('partiallyCancelledMember'),
     ...(orderUrl === undefined ? [] : [orderUrl]),
     '',
-    ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE,
+    emailCopy('partiallyCancelledLine'),
     PCM_LINE_URL,
     '',
-    ...ORDER_PARTIALLY_CANCELLED_COMPANY_LINES,
+    ...[emailCopy('partiallyCancelledCompanyName'), emailCopy('partiallyCancelledCompanyTaxId'), emailCopy('partiallyCancelledCompanyAddress')],
   ];
   return customerEmail(job.subject, displayId, emailCopy('greeting'), body, tail, orderUrl);
 }
@@ -1776,6 +1771,7 @@ export async function sweepEmailOutbox(
     budgetExhaustedBeforeClaim: 0,
     skippedIneligible: 0,
     eligibilityUnknown: 0,
+    copyTableUnreadable: 0,
     quotaFailed: 0,
     skippedShipmentVoided: 0,
     skippedTrackingSuperseded: 0,
@@ -1926,6 +1922,39 @@ export async function sweepEmailOutbox(
   }
   result.claimed = jobs.length;
 
+  // ── 信件文字第 2 片:這一輪讀一次員工改的字(表很小)。讀不到不中斷這一輪, 只記一次錯誤, 逐封分流見迴圈開頭。──
+  let copyVersions: EmailCopyVersionRow[] | null = null;
+  let copyUnreadable = false;
+  /** 讀不到表時, 已經放回佇列的列(迴圈裡遇到就跳過)。 */
+  const releasedForCopy = new Set<string>();
+  if (deps.copyVersions !== undefined && jobs.length > 0) {
+    try {
+      copyVersions = await deps.copyVersions.listAll();
+    } catch {
+      copyUnreadable = true;
+      result.copyTableUnreadable = 1;
+      result.errors++;
+      console.error('[sweepEmailOutbox] 讀不到員工改的信件文字(email_copy_versions);新信用預設文字, 交給過 Resend 的這一輪不寄');
+      // 交給過 Resend 的列【在這裡就放回】, 不等迴圈:讀表若慢到耗盡時間預算, 迴圈會提早 break,
+      // 那些列會留在 sending 而 attempts 已扣(與 cutoff 讀不到那條同一個病, Fable 第 2 片審查 consider 1)。
+      for (const j of jobs) {
+        if (j.handedToProviderAt === null) continue;
+        releasedForCopy.add(j.id);
+        try {
+          const owned = await outbox.releaseClaimForCutoffUnknown(
+            j.id,
+            j.attempts,
+            new Date(Date.now() + LEASE_RECLAIM_RETRY_DELAY_MS).toISOString(),
+          );
+          if (!owned) result.staleMarks++;
+        } catch {
+          // 連釋放都失敗 ⇒ 留 sending, 交下一輪回收。
+        }
+      }
+    }
+  }
+  const NO_OVERRIDES: ReadonlyMap<EmailCopyKey, string> = new Map();
+
   /**
    * ── ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**cutoff 在【送出層】也要擋** ────────────────
    *
@@ -2042,6 +2071,19 @@ export async function sweepEmailOutbox(
       break;
     }
     const job = jobs[i]!;
+
+    // 信件文字第 2 片:這封信用哪一版文字 —— 「排進佇列那一刻」生效的版本, 重試時不變。
+    // 交給過 Resend 的信, 上次可能用了員工改的字;這次換成預設會被 Resend 擋(內容不同的重送)⇒ 這一輪不寄。
+    // 讀表失敗時已經放回佇列(不算一次嘗試), 錯誤也已經記過一次 ⇒ 這裡只跳過。
+    if (releasedForCopy.has(job.id)) continue;
+    let copyOverrides: ReadonlyMap<EmailCopyKey, string> = NO_OVERRIDES;
+    if (copyVersions !== null && copyVersions.length > 0 && job.createdAt !== undefined) {
+      const resolved = resolveEmailCopyOverrides(copyVersions, job.createdAt);
+      copyOverrides = resolved.overrides;
+      if (resolved.invalidKeys.length > 0) {
+        console.error('[sweepEmailOutbox] 員工改的字檢查不過, 這幾句改用預設', { keys: resolved.invalidKeys });
+      }
+    }
 
     /**
      * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**送出層的 cutoff 閘**(放在合格性閘之前 —— 先問「該不該有這封信」)。
@@ -2800,9 +2842,11 @@ export async function sweepEmailOutbox(
     //      **不是印一顆連到空網址的按鈕** —— 死入口比沒入口糟。
     const html =
       paid !== null
-        ? renderPaidEmailHtml(paid, {
-            orderUrl: paidEmailOrderUrl(opts.siteUrl, paid.orderDisplayId),
-          })
+        ? withEmailCopyOverrides(copyOverrides, () =>
+            renderPaidEmailHtml(paid, {
+              orderUrl: paidEmailOrderUrl(opts.siteUrl, paid.orderDisplayId),
+            }),
+          )
         : null;
 
     /**
@@ -2909,7 +2953,9 @@ export async function sweepEmailOutbox(
       }
       try {
         // 🔵 純文字 = 與 email 同一份文案(`buildEmailContent(...).text`);不做 Flex(plan §1-4)。
-        const content = buildEmailContent(job, shipped, paid, opts.siteUrl, correctedTrackingPageUrl);
+        const content = withEmailCopyOverrides(copyOverrides, () =>
+        buildEmailContent(job, shipped, paid, opts.siteUrl, correctedTrackingPageUrl),
+      );
         // 🔴🔴 先記「交給 provider 了」再送 —— 與 email 同一條規矩、同一個理由(見下面 email 那段)。
         const handedOwned = await outbox.markHandedToProvider(job.id, job.attempts, now().toISOString());
         if (!handedOwned) {
@@ -2991,7 +3037,9 @@ export async function sweepEmailOutbox(
       //      ⇒ 📌 標了型別之後,**未來加附件的人在這裡加一行就會被守門看到**, 不必知道它存在。
       // 🔵 2026-09-12:付款成功信以外的 6 封也帶 HTML(同一組 body 長出來,見 `customerEmail`)。
       //    付款成功信照舊用上面那份 `html`(它有品項與金額表,不走純文字排版)。
-      const content = buildEmailContent(job, shipped, paid, opts.siteUrl, correctedTrackingPageUrl);
+      const content = withEmailCopyOverrides(copyOverrides, () =>
+        buildEmailContent(job, shipped, paid, opts.siteUrl, correctedTrackingPageUrl),
+      );
       const bodyHtml = html ?? content.html;
       const sendInput: SendEmailInput = {
         to: job.recipientEmail,

@@ -51,6 +51,7 @@ const {
   orderPlacedAtCtor,
   currentRecipientCtor,
   partiallyCancelledContextCtor,
+  copyVersionsCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
 } =
@@ -75,6 +76,8 @@ const {
     //    與 bankOrderMailable / orderPlacedAt / currentRecipient 同方向 —— **接上去【開始擋東西】**
     //    (composition.ts:108 逐字「沒接 ⇒ 那條線一封都不寄, fail-closed」)。
     partiallyCancelledContextCtor: vi.fn(),
+    // 🔵 2026-10-02 信件文字第 2 片:讀員工改的字(讀取, 不是發送管道;沒接 ⇒ 全用程式預設)。
+    copyVersionsCtor: vi.fn(),
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
   }));
@@ -91,6 +94,7 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabaseOrderPlacedAtReaderAdapter: orderPlacedAtCtor,
   SupabaseOrderCurrentRecipientAdapter: currentRecipientCtor,
   SupabasePartiallyCancelledEmailContextAdapter: partiallyCancelledContextCtor,
+  SupabaseEmailCopyVersionsAdapter: copyVersionsCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 
@@ -230,6 +234,8 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
     expect(Object.keys(deps).sort()).toEqual([
       'bankOrderMailable',
+      // 🔵 2026-10-02 信件文字第 2 片:讀取(員工改的字), 不是發送管道 ⇒ 告警管道那兩行斷言照舊。
+      'copyVersions',
       'currentRecipient',
       'ineligibleScanner',
       'orderPlacedAt',

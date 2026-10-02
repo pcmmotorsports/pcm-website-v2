@@ -34,6 +34,7 @@ export type * from './IUnpaidCancelledOrderScanner';
 export type * from './ICancelledOrderScanner';
 export type * from './IPartialRefundOrderScanner';
 export type * from './IPartiallyCancelledOrderScanner';
+export type * from './IEmailCopyVersions';
 export type * from './IPartiallyCancelledEmailContext';
 export type * from './IReturnReceivedScanner';
 // 🔴 ⟦b4-BANKNOEMAIL⟧:匯款單成立信的掃描 port(2026-09-06)。與上面兩支【型別不同形】——
