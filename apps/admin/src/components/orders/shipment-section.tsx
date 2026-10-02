@@ -142,14 +142,14 @@ function ShipmentBalanceNote({
   if (orderAmountDue(detail) === null) {
     return (
       <span className='text-muted-foreground text-xs'>
-        尾款<strong>算不出來</strong>(系統算不出取消後還該收多少)—— 不是「已收足」,請人工確認。
+        尾款<strong>算不出來</strong>(系統算不出取消後還該收多少)—— 不是「已收」,請人工確認。
       </span>
     );
   }
   if (summary.kind === 'unknown') {
     return (
       <span className='text-muted-foreground text-xs'>
-        尾款<strong>未知</strong>(收款明細沒載入)—— 不是「已收足」,也不是「還沒收到錢」。
+        尾款<strong>未知</strong>(收款明細沒載入)—— 不是「已收」,也不是「未收」。
       </span>
     );
   }
@@ -166,14 +166,14 @@ function ShipmentBalanceNote({
     //       理由在 payment-amount-due-single-source.test.ts「出貨區那兩支不得提到」那格)。
     const cancelAdjusted = orderAmountDueAdjusted(detail);
     const left = cancelAdjusted && refundedTotal !== null ? summary.excess - refundedTotal : summary.excess;
-    if (left <= 0) return <span className='text-muted-foreground text-xs'>款項已收足</span>;
+    if (left <= 0) return <span className='text-muted-foreground text-xs'>款項已收</span>;
     return (
       <span className='text-muted-foreground text-xs tabular-nums'>
         {cancelAdjusted ? `多收 ${formatOrderAmount(left)} 待退` : `已溢收 ${formatOrderAmount(left)}`}
       </span>
     );
   }
-  return <span className='text-muted-foreground text-xs'>款項已收足</span>;
+  return <span className='text-muted-foreground text-xs'>款項已收</span>;
 }
 
 

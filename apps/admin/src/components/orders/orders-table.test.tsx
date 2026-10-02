@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 // 🔴 真的 CSS parser,**不是新增依賴**:`postcss` 已是 `apps/admin` 的直接 devDependency
@@ -1300,7 +1301,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
     expect(payCellText(container.querySelector('td.col-pay')!)).toBe(label);
   });
 
-  it('🔴 還差 / 多收兩態印出【金額】，而且金額來自應付餘額本身', () => {
+  it('🔴 尾款 / 多收兩態印出【金額】，而且金額來自應付餘額本身', () => {
     // 🔴 **這兩態不能只驗「有那兩個字」** —— 印「還差 0」也含「還差」。要驗數字。
     const payText = (balanceDue: number) => {
       const { container } = render(
@@ -1309,7 +1310,7 @@ describe('P7 — 收款欄印應付餘額的五態', () => {
       return payCellText(container.querySelector('td.col-pay')!);
     };
 
-    expect(payText(3500)).toBe('還差 3,500');
+    expect(payText(3500)).toBe('尾款 3,500');
     // 🔴 **負的就是客人多付了，金額 = `-balanceDue`**（Sean 拍 Q3 甲）。
     //    ⚠️ 印出來**不得帶負號** —— 「多收 -800」是一句沒有人看得懂的話。
     expect(payText(-800)).toBe('多收 800');
@@ -2323,7 +2324,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
   //    變的只是它畫在哪:付款膠囊(~L3 片1 下架~)→ 狀態膠囊的紅框(~P7 下架~)→ **收款欄**。
   //    🔴 ⇒ 這一格現在量的是**收款欄本身**,而且是**正負對照**(兩態印不同的字)。
   //    ⚠️ 卡片模式下這一格靠 `data-l` 帶欄名(桌機才有表頭)—— 那由上面 `data-l` 那族守。
-  it('卡片上收款軸仍看得出來:收款欄對「還沒收 / 已收足」印不同的字(正負對照)', () => {
+  it('卡片上收款軸仍看得出來:收款欄對「未收 / 已收」印不同的字(正負對照)', () => {
     const payText = (balanceDue: number | null, paymentStatus: 'paid' | 'unpaid') => {
       const { container } = render(
         <OrdersTable
@@ -2824,7 +2825,7 @@ describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
 });
 
 // ── 收款欄可點（2026-09-13，Sean 答甲）────────────────────────────────────
-describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', () => {
+describe('收款欄可點 — 只有「尾款 N」與「未收」是連結', () => {
   const cell = (over: Partial<Parameters<typeof order>[0]>) => {
     const { container } = render(
       <OrdersTable
@@ -2836,23 +2837,23 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
     return container.querySelector('td.col-pay')!;
   };
 
-  it('🔴 還差 N ⇒ 連結，去 ?pay=<id>，浮在整列連結上', () => {
+  it('🔴 尾款 N ⇒ 連結，去 ?pay=<id>，浮在整列連結上', () => {
     const td = cell({ balanceDue: 3500, paymentStatus: 'partiallyPaid', id: 'ord-P' as AdminOrderSummary['id'] });
     const a = td.querySelector('a')!;
-    expect(a, '還差 N 沒有連結 ⇒ Sean 答甲的入口沒落地').not.toBeNull();
+    expect(a, '尾款 N 沒有連結 ⇒ Sean 答甲的入口沒落地').not.toBeNull();
     expect(a.getAttribute('href')).toBe('/orders?x=1&pay=ord-P');
     expect(a.className).toContain('relative z-10');
-    expect(a.textContent).toBe('還差 3,500');
+    expect(a.textContent).toBe('尾款 3,500');
   });
 
-  it('🔴 還沒收 ⇒ 連結', () => {
+  it('🔴 未收 ⇒ 連結', () => {
     const td = cell({ balanceDue: 12000, paymentStatus: 'unpaid' });
     expect(td.querySelector('a')).not.toBeNull();
     expect(payCellText(td)).toBe(PAY_COLUMN_LABEL.none);
   });
 
   it.each([
-    ['已收足', { balanceDue: 0 }],
+    ['已收', { balanceDue: 0 }],
     ['多收 N', { balanceDue: -800 }],
   ] as const)('🔴 %s ⇒ 【不可點】（沒有收款要做）', (_label, over) => {
     const td = cell(over as Partial<Parameters<typeof order>[0]>);
@@ -2876,10 +2877,12 @@ describe('收款欄可點 — 只有「還差 N」與「還沒收」是連結', 
     expect(a.textContent).toBe(PAY_COLUMN_LABEL.unknown);
   });
 
-  it('還差 N 分兩行印(金額在第二行), 不會被欄寬截掉;文字內容不變', () => {
+  // ⛔ ~~還差 N 分兩行印(金額固定在第二行)~~ 2026-10-02 Sean:「尾款 22,759」盡量同一行, 讓第一列變矮。
+  it('尾款 N 同一行(不再強制換行);欄寬放不下時才在空白處換行, 不會被截成「尾款 22,…」', () => {
     const td = cell({ balanceDue: 22759, paymentStatus: 'partiallyPaid' });
-    expect(td.querySelector('br'), '沒有斷行 ⇒ 1440 寬會被截成「還差 22,…」').not.toBeNull();
-    expect(payCellText(td)).toBe('還差 22,759');
+    expect(td.querySelector('br'), '又被強制換行 ⇒ 第一列多一行').toBeNull();
+    expect(td.querySelector('.whitespace-normal'), '整格 nowrap ⇒ 七位數會被截掉').not.toBeNull();
+    expect(payCellText(td)).toBe('尾款 22,759');
   });
 });
 

@@ -1,3 +1,4 @@
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 // order-list-view.test.ts — 訂單列表顯示層純函式單測(M-4a 訂單線第一片)。
 // 訂單專屬:searchParams 白名單守門 / buildOrderListHref / 標籤覆蓋 / 格式化。
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
@@ -1027,11 +1028,11 @@ describe('P7 收款欄 — `formatOrderPayColumn` 五態（Sean 2026-09-13 三�
     formatOrderPayColumn(balanceDue, ambiguous, pay);
 
   // 🔴 **這裡是那五個中文字面的【唯一一份】守門** —— 元件那邊只釘「哪個餘額印哪一句」。
-  it('🔴 五個字面逐字（他答的是「已收足 / 還差 N / 還沒收」+ 追加的「需確認 / 多收 N」）', () => {
-    expect(PAY_COLUMN_LABEL.settled).toBe('已收足');
-    expect(PAY_COLUMN_LABEL.none).toBe('還沒收');
+  it('🔴 五個字面逐字（他答的是「已收 / 尾款 N / 未收」+ 追加的「需確認 / 多收 N」）', () => {
+    expect(PAY_COLUMN_LABEL.settled).toBe('已收');
+    expect(PAY_COLUMN_LABEL.none).toBe('未收');
     expect(PAY_COLUMN_LABEL.unknown).toBe('需確認');
-    expect(fmt(3500)).toBe('還差 3,500');
+    expect(fmt(3500)).toBe('尾款 3,500');
     expect(fmt(-800)).toBe('多收 800');
   });
 
@@ -1058,18 +1059,18 @@ describe('P7 收款欄 — `formatOrderPayColumn` 五態（Sean 2026-09-13 三�
       expect(fmt(bd, true), `餘額 ${bd} 在取消過的單上不得印數字`).toBe(PAY_COLUMN_LABEL.unknown);
     }
     // 分母：同樣的餘額在**沒取消**的單上仍然印得出各自的字 ⇒ 上面那圈不是恆真。
-    expect(fmt(7000, false)).toBe('還差 7,000');
+    expect(fmt(7000, false)).toBe('尾款 7,000');
     expect(fmt(0, false)).toBe(PAY_COLUMN_LABEL.settled);
   });
 
-  it('🔴🔴 must-fix ②：「還沒收」由 `paymentStatus` 判，**不看 `total`**', () => {
+  it('🔴🔴 must-fix ②：「未收」由 `paymentStatus` 判，**不看 `total`**', () => {
     // 🔴 codex R1 must-fix ②（2026-09-13）：`total` 來自第一發、`balanceDue` 來自第二發
     //    ⇒ **不是同一個快照**。舊版 `balanceDue === total` 的反例逐字：
     //    第一發讀到 10,000 → 有人改成 12,000 並再收 2,000 → 第二發回 10,000
     //    ⇒ 相等 ⇒ 印「還沒收」，而其實已經收到 2,000。
     //    ✅ 改用 `paymentStatus` 之後 **`total` 整個退出這支函式** ⇒ 那個反例構造不出來。
     expect(fmt(10000, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.none);
-    expect(fmt(10000, false, 'partiallyPaid')).toBe('還差 10,000');
+    expect(fmt(10000, false, 'partiallyPaid')).toBe('尾款 10,000');
     // 🔴 **`0` 先進「已收足」**：一張 `unpaid` 卻餘額 0 的單不得被判成「還沒收」。
     expect(fmt(0, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.settled);
   });
@@ -1088,11 +1089,11 @@ describe('P7 收款欄 — `formatOrderPayColumn` 五態（Sean 2026-09-13 三�
     expect(anyFmt(3500.5, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.unknown);
     expect(anyFmt(Number.NaN, false, 'unpaid')).toBe(PAY_COLUMN_LABEL.unknown);
     // 分母：正常值仍然走得通。
-    expect(fmt(3500)).toBe('還差 3,500');
+    expect(fmt(3500)).toBe('尾款 3,500');
   });
 
   it('🛑 千分位跟著 `formatOrderAmount` 走，本函式不自己格式化金額', () => {
-    expect(fmt(1536000)).toBe(`還差 ${formatOrderAmount(1536000)}`);
+    expect(fmt(1536000)).toBe(`尾款 ${formatOrderAmount(1536000)}`);
     expect(fmt(-1536000)).toBe(`多收 ${formatOrderAmount(1536000)}`);
   });
 });

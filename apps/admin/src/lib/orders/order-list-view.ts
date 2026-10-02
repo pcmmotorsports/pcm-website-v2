@@ -1056,9 +1056,9 @@ export function formatOrderAmount(amount: number): string {
  */
 export const PAY_COLUMN_LABEL = {
   /** 應付餘額 = 0：剛好付清。**這是具體斷言，不是「沒資料」**。 */
-  settled: '已收足',
+  settled: '已收', // 2026-10-02 Sean:「已收足」→「已收」(收款欄字面縮短, 第一列變矮)
   /** 應付餘額 = 訂單總額：一毛沒收（含收了又全額沖銷）。 */
-  none: '還沒收',
+  none: '未收', // 2026-10-02 Sean:「還沒收」→「未收」
   /** 應付餘額 `null`：這張單有有效退款 ⇒ 算不清楚。**不給數字。** */
   unknown: '需確認',
 } as const;
@@ -1144,7 +1144,8 @@ export function formatOrderPayColumn(
   //       (`order_id, balance_due`;拋棄式 PG 實查)⇒ 那要改 view = migration = 鐵則 8 要 Sean 批。
   //       📌 **已知缺口,寫在這裡,不是沒想到。**
   if (paymentStatus === 'unpaid') return PAY_COLUMN_LABEL.none;
-  return `還差 ${formatOrderAmount(balanceDue)}`;
+  // 2026-10-02 Sean:「還差 X」→「尾款 X」(跟篩選「待尾款」、明細頁「尾款」同一個名稱)。
+  return `尾款 ${formatOrderAmount(balanceDue)}`;
 }
 
 /**

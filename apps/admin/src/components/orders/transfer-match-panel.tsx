@@ -52,7 +52,7 @@ export function TransferMatchPanel({
         ))}
         <div className='w-full'>
           <h2 className='m-0 text-[15px] leading-[1.4] font-semibold'>匯款對帳</h2>
-          <p className={`${NOTE} text-(--fg-2)`}>輸入銀行入帳金額，找出還差金額剛好相符的訂單。</p>
+          <p className={`${NOTE} text-(--fg-2)`}>輸入銀行入帳金額，找出尾款剛好相符的訂單。</p>
         </div>
         <label className='flex flex-col gap-1 text-[13px]'>
           入帳金額（新臺幣元）
@@ -97,7 +97,7 @@ export function TransferMatchPanel({
       {result.kind === 'ok' && result.rows.length > 0 && (
         <>
           <p className={NOTE}>
-            找到 {result.rows.length} 張還差 {formatOrderAmount(result.amount)} 元的訂單。按「新增收款」會帶入金額和末五碼，請核對後勾選「我已核對」再送出。
+            找到 {result.rows.length} 張尾款 {formatOrderAmount(result.amount)} 元的訂單。按「新增收款」會帶入金額和末五碼，請核對後勾選「我已核對」再送出。
           </p>
           <table className='w-full border-collapse'>
             <tbody>
@@ -111,7 +111,7 @@ export function TransferMatchPanel({
                   <td className={`${TD} whitespace-nowrap`}>{r.customerName ?? '—'}</td>
                   {/* 📱 390 寬放不下四欄 ⇒ 窄螢幕藏這一欄(上面那句已經寫了還差多少), 不用橫捲。 */}
                   <td className={`${TD} hidden text-right whitespace-nowrap tabular-nums sm:table-cell`}>
-                    還差 {formatOrderAmount(result.amount)}
+                    尾款 {formatOrderAmount(result.amount)}
                   </td>
                   <td className={`${TD} text-right`}>
                     <Link href={r.payHref} className={ACT}>

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import type { ReverseResult } from '../../lib/orders/payment-reverse-state';
@@ -253,16 +254,16 @@ describe('#437 ② 每筆列精簡單行 + 細節收合', () => {
 });
 
 describe('#437 ④ 卡頂彙總三態', () => {
-  it('已收足:應收=已收 ⇒ 徽章,且不出現「還差」「溢收」', () => {
+  it('已收足:應收=已收 ⇒ 徽章,且不出現「尾款」「溢收」', () => {
     const t = text({ status: 'ok', rows: [{ ...ROW, amount: 6800 }] }, 6800);
     expect(t).toContain('已收足');
-    expect(t).not.toContain('還差');
+    expect(t).not.toContain('尾款');
     expect(t).not.toContain('溢收');
   });
 
-  it('少收:差額算得出來且逐字「還差」(Sean 補「少收也要注意」)', () => {
+  it('少收:差額算得出來且逐字「尾款」(Sean 補「少收也要注意」)', () => {
     const t = text({ status: 'ok', rows: [{ ...ROW, amount: 6800 }] }, 10000);
-    expect(t).toContain('還差 3,200 元');
+    expect(t).toContain('尾款 3,200 元');
     expect(t).not.toContain('已收足');
     expect(t).not.toContain('溢收');
   });
@@ -271,7 +272,7 @@ describe('#437 ④ 卡頂彙總三態', () => {
     const t = text({ status: 'ok', rows: [{ ...ROW, amount: 6800 }] }, 5000);
     expect(t).toContain('溢收 1,800 元');
     expect(t).not.toContain('已收足');
-    expect(t).not.toContain('還差');
+    expect(t).not.toContain('尾款');
   });
 
   // 🔴 Sean 2026-09-05 `Q-多匯 = 乙`(逐字):狀態不翻, 而單上要標「待人工」。
@@ -303,14 +304,14 @@ describe('#437 ④ 卡頂彙總三態', () => {
       />,
     ).container.textContent ?? '';
 
-  it('⟦Q1 甲⟧ 部分取消還沒退 ⇒「多收 5,080 待退」+ 待退款那一行;不印溢收 / 多付, 待人工 / 還差', () => {
+  it('⟦Q1 甲⟧ 部分取消還沒退 ⇒「多收 5,080 待退」+ 待退款那一行;不印溢收 / 多付, 待人工 / 尾款', () => {
     const t = cancelView({ refunded: 0, pending: 5080 });
     expect(t).toContain('應收 9,220 元 / 已收 14,300 元');
     expect(t).toContain('多收 5,080 待退');
     expect(t).toContain('待退款 5,080 元（已開，尚未退）');
     expect(t).not.toContain('溢收');
     expect(t).not.toContain('多付, 待人工');
-    expect(t).not.toContain('還差');
+    expect(t).not.toContain('尾款');
   });
 
   it('⟦Q1 甲⟧ 退完 ⇒「已收足」,待退款結清後那一行消失;讀不到待退款(null)也不印', () => {
@@ -338,7 +339,7 @@ describe('#437 ④ 卡頂彙總三態', () => {
       },
       6800,
     );
-    expect(t).toContain('還差 6,800 元');
+    expect(t).toContain('尾款 6,800 元');
     expect(t).not.toContain('已收足');
   });
 
@@ -348,7 +349,7 @@ describe('#437 ④ 卡頂彙總三態', () => {
       const t = text({ status }, 6800);
       expect(t).toContain('已收金額');
       expect(t).toContain('未知');
-      expect(t).not.toContain('還差');
+      expect(t).not.toContain('尾款');
       expect(t).not.toContain('溢收');
       expect(t).not.toContain('已收足');
     }
@@ -531,7 +532,7 @@ describe('🔴 成功後要有正面確認(R2 nit7:面板收起來 = 什麼都�
 });
 
 describe('🔴 溢收 → 沖掉之後翻回正確態(R2 nit4:Sean 肉眼驗走的正是這條算術)', () => {
-  it('應收 5000、已收 6800(溢收 1,800)⇒ 沖掉那筆 ⇒ 已收 0 ⇒ 還差 5,000', () => {
+  it('應收 5000、已收 6800(溢收 1,800)⇒ 沖掉那筆 ⇒ 已收 0 ⇒ 尾款 5,000', () => {
     const before = text({ status: 'ok', rows: [{ ...CASH, amount: 6800 }] }, 5000);
     expect(before).toContain('溢收 1,800 元');
 
@@ -547,7 +548,7 @@ describe('🔴 溢收 → 沖掉之後翻回正確態(R2 nit4:Sean 肉眼驗走�
       5000,
     );
     // 🔴 這條分支既有格子沒走過(既有的只走「已收足 → 還差」)。
-    expect(after).toContain('還差 5,000 元');
+    expect(after).toContain('尾款 5,000 元');
     expect(after).not.toContain('溢收');
     expect(after).not.toContain('已收足');
   });
@@ -683,7 +684,7 @@ describe('B17 dialog 版面:確認勾下面那行狀態摘要', () => {
   describe('帶入尾款的數字', () => {
     const one = (amount: number) => [pay('a', amount, '2026-09-09T00:00:00+00:00')];
 
-    it('🔴 還差錢 ⇒ 給【還差多少】,不是應收總額', () => {
+    it('🔴 尾款錢 ⇒ 給【尾款多少】,不是應收總額', () => {
       // 應收 1000、已收 300 ⇒ 要 700。給 1000 的話他會再收一次全額。
       expect(fillable(one(300), 1000)).toBe('700');
     });
@@ -716,7 +717,7 @@ describe('B17 dialog 版面:確認勾下面那行狀態摘要', () => {
     // ── 🔴🔴 退過款的單(2026-09-16 主視窗裁甲)────────────────────────────────
     //   這一族**在加進來之前,上面 153 格全綠** —— 因為當時的 helper 把 `refundedTotal`
     //   寫死成 `0`,那個世界**造不出來**。⇒ 8d 那句的第五次。
-    it('🔴 退過款 ⇒ 不畫 —— 退款可能還在途中,「還差多少」本身就不確定', () => {
+    it('🔴 退過款 ⇒ 不畫 —— 退款可能還在途中,「尾款多少」本身就不確定', () => {
       // 應收 1,000 · 收 1,000 · 退 300(可能還在 processing、錢沒出去)
       // ⇒ 淨額已收 700 ⇒ `short`、差額 300 ⇒ **沒有 `refundedTotal === 0` 那道條件的話,
       //    鈕會印「帶入尾款 NT$300」而員工按下去就多收了 300。**

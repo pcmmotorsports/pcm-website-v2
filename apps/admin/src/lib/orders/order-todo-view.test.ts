@@ -1,3 +1,4 @@
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 import { describe, expect, it } from 'vitest';
 import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
 import { buildOrderTodoRows } from './order-todo-view';
@@ -74,7 +75,7 @@ describe('buildOrderTodoRows', () => {
       displayId: 'PCM-0001',
       customerName: '王小明',
       itemSummary: '排氣管',
-      money: '還差 7,000',
+      money: '尾款 7,000',
       action: { kind: 'link', label: '新增收款', href: '/orders?pay=ord-1', tone: 'default' },
     });
   });

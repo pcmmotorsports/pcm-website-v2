@@ -1,3 +1,4 @@
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 // 匯款對帳小工具(2026-09-30 Sean 批研究 Q2 乙)。
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -49,7 +50,7 @@ describe('TransferMatchPanel', () => {
     );
     expect(out).toContain('PCM-0001');
     expect(out).toContain('王小明');
-    expect(out).toContain('還差 7,000');
+    expect(out).toContain('尾款 7,000');
     expect(out).toContain('href="/orders?pay=a&amp;match_amt=7000&amp;match_ref=12345"');
     expect(out).toContain('新增收款');
     expect(out).toContain('我已核對');

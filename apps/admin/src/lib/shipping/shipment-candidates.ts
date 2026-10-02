@@ -587,7 +587,7 @@ async function balanceWarningOf(details: readonly AdminOrderDetail[]): Promise<s
  *   ⇒ 📌 **一個「捕捉之後重試同一件事」的 catch, 對「錯在那件事本身」這一類完全無效。**
  */
 const BALANCE_UNKNOWN_FALLBACK =
-  '尾款未知(收款明細沒載入)—— 不是「已收足」,也不是「還沒收到錢」。出貨前請到「收款 · 退款」分頁看一眼。';
+  '尾款未知(收款明細沒載入)—— 不是「已收」,也不是「未收」。出貨前請到「收款 · 退款」分頁看一眼。';
 
 /**
  * 勾多張時印的那一句。**不含任何金額, 也不宣稱任何一張的狀態。**

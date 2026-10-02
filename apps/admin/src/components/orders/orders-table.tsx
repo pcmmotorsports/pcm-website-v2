@@ -731,16 +731,10 @@ function OrderGroup({
                   : text === PAY_COLUMN_LABEL.unknown
                     ? `/orders/${order.id}?tab=money`
                     : null;
-                /* 「還差 N」/「多收 N」在 1440 寬會被截成「還差 22,…」(研究第 7 點)⇒ 金額換到第二行, 字面不變。 */
-                const amountLine = /^(還差|多收) (.+)$/.exec(text);
-                const shown = amountLine ? (
-                  <>
-                    {amountLine[1]} <br />
-                    {amountLine[2]}
-                  </>
-                ) : (
-                  text
-                );
+                /* 2026-10-02 Sean:「尾款 22,759」盡量排在同一行, 讓第一列變矮。
+                   ⛔ ~~「還差 N」/「多收 N」金額固定換到第二行~~(研究第 7 點, 那時欄寬放不下)。
+                   現在整句一行, 欄寬放不下時才在空白處換行(`whitespace-normal`), 不會被截成「尾款 22,…」。 */
+                const shown = <span className='whitespace-normal'>{text}</span>;
                 return (
                   <td
                     className={`${TD} ${CELL.pay} ${warn ? 'pay-warn' : 'text-muted-foreground'}`}

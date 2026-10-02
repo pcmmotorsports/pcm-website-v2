@@ -159,7 +159,7 @@ function SummaryLine({
   if (summary.kind === 'unknown') {
     return (
       <p className='text-muted-foreground mb-3 text-xs'>
-        已收金額<strong>未知</strong>(收款或退款明細沒載入)—— 不是「還沒收到錢」。
+        已收金額<strong>未知</strong>(收款或退款明細沒載入)—— 不是「未收」。
       </p>
     );
   }
@@ -175,7 +175,7 @@ function SummaryLine({
       )}
       {summary.kind === 'short' && !cancelled && (
         <span className='text-foreground font-medium tabular-nums'>
-          還差 {formatAmount(summary.gap)}
+          尾款 {formatAmount(summary.gap)}
         </span>
       )}
       {summary.kind === 'over' && cancelAdjusted && (

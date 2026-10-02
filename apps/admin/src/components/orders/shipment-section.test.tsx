@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 // shipment-section.test.tsx — 出貨卡的**畫面**守門(#351④,2026-08-10 新建)。
 //
 // 🔴 **為什麼非要有這一檔**:資料層(`order-shipments.test.ts`)只證得了「空箱算得出來」。
@@ -276,7 +277,7 @@ describe('🔴🔴 片9 尾款那一句:三態必須分得開(它就在「出貨
       typeof ShipmentSection
     >[0]['payments'];
 
-  it('🔴 讀不到收款明細 ⇒ 【一個數字都不印】,而且要說「不是已收足」', async () => {
+  it('🔴 讀不到收款明細 ⇒ 【一個數字都不印】,而且要說「不是已收」', async () => {
     // 理由逐字在 `payment-list.tsx:114-115`:「讀不到明細時算出來的『已收』必然是假的」。
     // 🔴 而在這個位置更貴:這句話就在**出貨**那顆鈕旁邊(字面見 `shipment-launcher.tsx:232`),
     //    印一個假的 0 會讓員工以為已收足而直接出貨。
@@ -312,15 +313,15 @@ describe('🔴🔴 片9 尾款那一句:三態必須分得開(它就在「出貨
     expect(el.textContent).not.toMatch(/[0-9],?[0-9]{3}/);
   });
 
-  it('還差錢 ⇒ 「尾款 N 未收」,而 N 是【應收 − 已收】', async () => {
+  it('尾款錢 ⇒ 「尾款 N 未收」,而 N 是【應收 − 已收】', async () => {
     render(await ShipmentSection({ detail: withTotal(5000), payments: paid(2000) }));
     expect(screen.getByText(/尾款 3,000 未收/)).not.toBeNull();
   });
 
-  it('🔴 收足 ⇒ 【要講「已收足」】,不是留白', async () => {
+  it('🔴 收足 ⇒ 【要講「已收」】,不是留白', async () => {
     // 留白與「讀不到」在畫面上長得一樣 ⇒ 空白不是一個安全的預設。
     render(await ShipmentSection({ detail: withTotal(5000), payments: paid(5000) }));
-    expect(screen.getByText(/款項已收足/)).not.toBeNull();
+    expect(screen.getByText(/款項已收/)).not.toBeNull();
   });
 
   it('溢收 ⇒ 標出來(Sean Q-溢收=A:只標不擋)', async () => {
@@ -337,7 +338,7 @@ describe('🔴🔴 片9 尾款那一句:三態必須分得開(它就在「出貨
       paid(6000),
     ]) {
       render(await ShipmentSection({ detail: withTotal(5000), payments: p }));
-      texts.push(screen.getByText(/尾款|已收足|已溢收/).textContent ?? '');
+      texts.push(screen.getByText(/尾款|款項已收|已溢收/).textContent ?? '');
       cleanup();
     }
     expect(new Set(texts).size).toBe(4);

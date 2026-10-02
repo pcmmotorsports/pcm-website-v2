@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
@@ -1125,7 +1126,7 @@ describe('收款欄可點 — ?pay= 開的是明細頁那份收款表單', () =>
     withOrder();
     const { container } = await renderPage({ payment_status: 'paid', page: '2' });
     const a = container.querySelector('td.col-pay a');
-    expect(a, '還差 3,500 那格沒有連結').not.toBeNull();
+    expect(a, '尾款 3,500 那格沒有連結').not.toBeNull();
     const qs = new URLSearchParams(a!.getAttribute('href')!.split('?')[1] ?? '');
     expect(qs.get('pay')).toBe(U);
     expect(qs.get('payment_status')).toBe('paid');
@@ -1677,7 +1678,7 @@ describe('OrdersPage — 待辦模式(首頁格子點進來)', () => {
     const href = btn!.getAttribute('href')!;
     expect(href).toContain(`pay=${PARTIAL_ID}`);
     expect(href).toContain('todo=partial-paid');
-    expect(list!.textContent).toContain('還差 7,000');
+    expect(list!.textContent).toContain('尾款 7,000');
   });
 
   it('🔴 todo 是顯示軸:送去查的 filter 跟不帶 todo 時逐字相同(格子上的數字 = 點進去的筆數)', async () => {

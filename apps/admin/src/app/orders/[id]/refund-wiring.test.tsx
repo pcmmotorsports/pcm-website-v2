@@ -1,3 +1,4 @@
+// 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 
 // 🔴🔴 **2026-08-27:本檔的期望字串改了,而那【不是放寬】—— 是版面換了(OD FIX-01,Sean 拍乙)。**
 //    舊字面長成 `值 + 小標`(例如 `1,200 / 500總額 / 已收`), 因為舊版是「大數字在上、小標在下」
@@ -1000,7 +1001,7 @@ describe('訂單明細頭條數字', () => {
     // ⟦Sean 09-16 Q1 甲⟧ 應收 = 取消後剩下的金額。本格的單【沒有取消】(fixture 沒帶 cancelledAt)
     //    ⇒ 應收仍是原總額 1,200, 退款不減應收 ⇒ 「還差 1,200 元」是 Q1 甲底下的正確值, 不再是待拍的現況。
     //    「付款 → 整單取消 → 全額退」那一種單在下方 `已取消 + 全額退款` 那格(應收 0 ⇒ 已收足)。
-    expect(text).toContain('還差 1,200 元');
+    expect(text).toContain('尾款 1,200 元');
   });
 
   /**
@@ -1059,7 +1060,7 @@ describe('訂單明細頭條數字', () => {
     expect(text).toContain('已收 -500 元');
     // 尾款 = 1200 − (-500) = 1,700。
     expect(text).toContain('尾款1,700');
-    expect(text).toContain('還差 1,700 元');
+    expect(text).toContain('尾款 1,700 元');
     // 🛑 夾成 0 的世界長這樣 —— 兩處都不得出現。
     expect(text).not.toContain('總額 / 已收 1,200 / 0');
     expect(text).not.toContain('已收 0 元');
@@ -1169,7 +1170,7 @@ describe('訂單明細頭條數字', () => {
     return { row };
   };
 
-  it('🔴 已取消 + 全額退款 ⇒ 頭條沒有「尾款」那格, 付款卡沒有「還差」而印「已收足」', async () => {
+  it('🔴 已取消 + 全額退款 ⇒ 頭條沒有「尾款」那格, 付款卡沒有「尾款」而印「已收足」', async () => {
     await cancelledFull();
     const text = await render({
       total: { amount: 1200, currency: 'TWD' },
@@ -1187,13 +1188,13 @@ describe('訂單明細頭條數字', () => {
     // 🔴 兩格不見了。`尾款1,200` 是頭條的字面(標籤與值中間無空白);
     //    出貨區那句是「尾款 13,800 未收」(帶空白)⇒ 兩者不會互相誤命中。
     expect(text).not.toContain('尾款1,200');
-    expect(text).not.toContain('還差');
+    expect(text).not.toContain('尾款');
     // ⟦Sean 09-16 Q1 甲⟧「退完顯示『已收足』」:應收 0、淨額 0 ⇒ 付款卡印「已收足」。
     expect(text).toContain('應收 0 元 / 已收 0 元');
     expect(text).toContain('已收足');
   });
 
-  it('🟢 正對照:同一張單【沒取消】⇒ 尾款與還差都要在(否則「永遠不印」的實作也會綠)', async () => {
+  it('🟢 正對照:同一張單【沒取消】⇒ 尾款與尾款都要在(否則「永遠不印」的實作也會綠)', async () => {
     await cancelledFull();
     const text = await render({
       total: { amount: 1200, currency: 'TWD' },
@@ -1203,7 +1204,7 @@ describe('訂單明細頭條數字', () => {
 
     expect(text).toContain('總額 / 已收 1,200 / 0');
     expect(text).toContain('尾款1,200');
-    expect(text).toContain('還差 1,200 元');
+    expect(text).toContain('尾款 1,200 元');
   });
 
   /**
