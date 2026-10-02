@@ -25,13 +25,21 @@ describe('ManualOrderTierSelect', () => {
     expect(select(container).disabled).toBe(true);
   });
 
-  it('🔴 選了客人 ⇒ 啟用, 預設 = 那位的等級;三個選項字面 會員 / 車行 / 經銷', () => {
+  // 2026-10-02 Sean:建單這一格先拿掉「經銷」, 只留一般和車行(之後他再決定要不要加回)。舊訂單與列表篩選不動。
+  it('🔴 選了客人 ⇒ 啟用, 預設 = 那位的等級;選項只有 會員 / 車行(經銷先拿掉)', () => {
     const { container, getByLabelText } = render(<Harness tiers={[['c1', 'store'], ['c2', 'premiumStore']]} />);
     fireEvent.click(getByLabelText('c1'));
     const s = select(container);
     expect(s.disabled).toBe(false);
     expect(s.value).toBe('store');
-    expect([...s.options].map((o) => o.textContent)).toEqual(['會員', '車行', '經銷']);
+    expect([...s.options].map((o) => o.textContent)).toEqual(['會員', '車行']);
+  });
+
+  it('🔴 那位客人帳號本來就是經銷 ⇒ 經銷那一項還在、預設選它(不得因為選項拿掉就靜靜改成一般)', () => {
+    const { container, getByLabelText } = render(<Harness tiers={[['c2', 'premiumStore']]} />);
+    fireEvent.click(getByLabelText('c2'));
+    expect(select(container).value).toBe('premiumStore');
+    expect([...select(container).options].map((o) => o.textContent)).toEqual(['會員', '車行', '經銷']);
   });
 
   it('🔴 換客人 ⇒ 跟著換成那位的;員工改過的選擇在【同一位】底下不被蓋掉', () => {
@@ -46,8 +54,8 @@ describe('ManualOrderTierSelect', () => {
   it('🔴 換到【同級】的另一位客人也要重設(codex R1 MF1:只記等級的話, 替甲改的選擇會沿用到乙)', () => {
     const { container, getByLabelText } = render(<Harness tiers={[['c1', 'store'], ['c2', 'store']]} />);
     fireEvent.click(getByLabelText('c1'));
-    fireEvent.change(select(container), { target: { value: 'premiumStore' } });
-    expect(select(container).value).toBe('premiumStore');
+    fireEvent.change(select(container), { target: { value: 'general' } });
+    expect(select(container).value).toBe('general');
     fireEvent.click(getByLabelText('c2'));
     expect(select(container).value).toBe('store');
   });
@@ -57,8 +65,8 @@ describe('ManualOrderTierSelect', () => {
     const form = container.querySelector('form')!;
     expect(new FormData(form).has(MANUAL_ORDER_TIER_FIELD)).toBe(false);
     fireEvent.click(getByLabelText('c1'));
-    fireEvent.change(select(container), { target: { value: 'premiumStore' } });
-    expect(new FormData(form).get(MANUAL_ORDER_TIER_FIELD)).toBe('premiumStore');
+    fireEvent.change(select(container), { target: { value: 'general' } });
+    expect(new FormData(form).get(MANUAL_ORDER_TIER_FIELD)).toBe('general');
   });
 
   it('掛載時已經有一位被勾著(剛建好的客人 defaultChecked, 不發 change)⇒ 一掛上就讀到', () => {
@@ -137,5 +145,24 @@ describe('新客人(送出時才建)', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(select(container).disabled).toBe(false);
     expect(select(container).value).toBe('store');
+  });
+});
+
+
+// 2026-10-02 Sean 拍 Q50 甲:新客人時那格下方加小字, 讓員工知道帳號也會跟著設。
+describe('新客人的小字說明', () => {
+  it('🔴 新客人(還沒建 / 剛建好)⇒ 那格下方印「新客人的帳號也會設成這個等級」', () => {
+    const { container } = render(
+      <form>
+        <input type='hidden' data-new-customer-pending='1' />
+        <ManualOrderTierSelect />
+      </form>,
+    );
+    expect(container.querySelector('[data-testid="manual-order-tier-new-note"]')?.textContent).toBe('新客人的帳號也會設成這個等級');
+  });
+  it('既有客人 ⇒ 不印(改的只是這張單)', () => {
+    const { container, getByLabelText } = render(<Harness tiers={[['c1', 'store']]} />);
+    fireEvent.click(getByLabelText('c1'));
+    expect(container.querySelector('[data-testid="manual-order-tier-new-note"]')).toBeNull();
   });
 });

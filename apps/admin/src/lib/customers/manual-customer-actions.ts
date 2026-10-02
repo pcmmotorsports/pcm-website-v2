@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { getRequestId } from '../audit/context';
 import { getAdminAuditLogRepository } from '../orders/order-repository';
 import { authorizeAdminMutation } from '../session/authorize';
+import { readCustomerTier, setCustomerTier } from './customer-repository';
 import {
   createManualCustomer,
   findCustomerCandidatesByPhone,
@@ -293,7 +294,14 @@ export async function searchManualCustomersAction(rawPhone: string): Promise<Sea
 export type CreateCustomerOutcome = 'created' | 'idempotent' | 'existing';
 
 export type CreateCustomerResult =
-  | { ok: true; candidate: PickerCandidate; idempotent: boolean; outcome: CreateCustomerOutcome }
+  | {
+      ok: true;
+      candidate: PickerCandidate;
+      idempotent: boolean;
+      outcome: CreateCustomerOutcome;
+      /** 客人建好了, 但帳號等級沒有跟著這張單設成車行 ⇒ 畫面要提醒員工到客戶頁再設(不擋建單)。 */
+      tierWarning?: string;
+    }
   | {
       ok: false;
       reason: 'denied' | 'invalid_name' | 'invalid_phone' | 'invalid_request_id' | 'error';
@@ -313,6 +321,11 @@ export async function createManualCustomerInlineAction(input: {
   name: string;
   phone: string;
   requestId: string;
+  /**
+   * 這張單在「會員等級」那格選的等級(2026-10-02 Sean 拍 Q48–Q50 甲, 計畫-建單新客人等級-20261002.md)。
+   * 選車行 ⇒ 新建的客人帳號一起設成車行;一般 / 經銷 / 沒帶 ⇒ 帳號維持一般(經銷客戶頁也不能設)。
+   */
+  tier?: MemberTier;
 }): Promise<CreateCustomerResult> {
   const authorization = await authorizeAdminMutation();
   if (!authorization) {
@@ -439,6 +452,39 @@ export async function createManualCustomerInlineAction(input: {
       }),
     );
   }
+  // 2026-10-02 Sean 拍 Q48–Q50 甲:這張單選了車行 ⇒ 新客人的帳號一起設成車行。
+  //   🔴 共用客戶頁那支 `setCustomerTier`(= admin_set_customer_tier):同一個「在職員工」檢查、同一筆稽核。
+  //   🔴 只有【我們剛建的】(created / 同一張表單重送的 idempotent)才設;預檢撞到的既有客人(existing)上面已經先 return。
+  //   🔴 設定失敗不擋建單:客人已經建好、這張單的等級另外存在訂單上 ⇒ 回一句提醒, 讓員工到客戶頁再設。
+  //   ⚠️ 經銷價:這種帳號是後台編的信箱、不能改、LINE 也登不進去 ⇒ 設成車行不會讓任何人在網站上看到經銷價
+  //      (計畫第 1 節最後一列)。哪天開放「客人認領後台建的帳號」, 這一段要重看。
+  let tier: MemberTier = 'general';
+  let tierWarning: string | undefined;
+  if (input.tier === 'store') {
+    try {
+      const r = await setCustomerTier({
+        customerId: created.userId,
+        tier: 'store',
+        from: 'general',
+        note: `建單時新建客人,員工在建單畫面選了車行(表單 ${input.requestId.slice(0, 8)})`,
+        actor: authorization.actorId,
+        requestId,
+      });
+      // 🔴 審查 C1:同一張表單重送時, 第一發已經設成車行 ⇒ 第二發比「現值是不是一般」回 STALE(零寫入、不重複稽核)。
+      //    ⇒ STALE 時再讀一次現值:已經是車行 = 成功;是別的 = 有人先改過, 不硬改、照實提醒(不斷言「沒有設成」)。
+      const current = r === 'STALE' ? await readCustomerTier(created.userId) : null;
+      if (r === 'UPDATED' || r === 'NO_CHANGE' || current === 'store') {
+        tier = 'store';
+      } else {
+        // NOT_FOUND = 找不到這位 / STALE 且現值不是車行 ⇒ 不硬改, 照實提醒。
+        console.warn(JSON.stringify({ evt: 'admin.manual_customer.tier_not_set', requestId, result: r }));
+        tierWarning = '客人已經建好,但帳號等級可能已經被改過,這次沒有設成車行。請到這位客人的客戶頁確認會員等級。';
+      }
+    } catch (error) {
+      console.error(JSON.stringify({ evt: 'admin.manual_customer.tier_failed', requestId }), error);
+      tierWarning = '客人已經建好,但帳號等級沒有設成車行。請到這位客人的客戶頁把會員等級改成車行。';
+    }
+  }
   return {
     ok: true,
     idempotent: created.idempotent === true,
@@ -450,8 +496,10 @@ export async function createManualCustomerInlineAction(input: {
       name: input.name.trim(),
       phone: normalizeManualPhone(input.phone),
       isManual: true,
-      // 現場新建的客人 = 一般會員(plan §1-b);`createManualCustomer` 沒給 tier ⇒ DB DEFAULT 就是 general。
-      tier: 'general',
+      // 現場新建的客人 = 一般會員(plan §1-b;`createManualCustomer` 沒給 tier ⇒ DB DEFAULT 就是 general);
+      // 2026-10-02 起這張單選車行且設定成功 ⇒ 車行(見上面那段)。
+      tier,
     },
+    ...(tierWarning ? { tierWarning } : {}),
   };
 }

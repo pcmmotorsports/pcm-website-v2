@@ -90,12 +90,20 @@ export function ManualOrderTierSelect() {
         className={MANUAL_FIELD_INPUT}
         data-testid='manual-order-tier'
       >
-        {MEMBER_TIER_VALUES.map((t) => (
+        {/* 2026-10-02 Sean:建單這一格先拿掉「經銷」, 只留一般和車行(之後他再決定要不要加回;舊訂單與列表篩選不動)。
+            🔴 例外:那位客人帳號本來就是經銷 ⇒ 那一項留著, 否則預設值找不到選項、會靜靜變成一般(正式庫 10-02 實查 0 位)。 */}
+        {MEMBER_TIER_VALUES.filter((t) => t !== 'premiumStore' || picked?.tier === 'premiumStore').map((t) => (
           <option key={t} value={t}>
             {MEMBER_TIER_LABEL[t]}
           </option>
         ))}
       </select>
+      {/* 2026-10-02 Sean 拍 Q50 甲:新客人時帳號也會跟著設(選車行 ⇒ 帳號車行;見 manual-customer-actions.ts)。 */}
+      {picked?.id === NEW_CUSTOMER.id && (
+        <span className='text-(--fg-2) text-xs font-normal' data-testid='manual-order-tier-new-note'>
+          新客人的帳號也會設成這個等級
+        </span>
+      )}
     </label>
   );
 }

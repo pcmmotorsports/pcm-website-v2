@@ -14,6 +14,9 @@ import {
   MANUAL_ORDER_CUSTOMER_FIELD,
   MANUAL_ORDER_SHIP_TO_NAME_FIELD,
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
+  MANUAL_ORDER_TIER_FIELD,
+  MANUAL_ORDER_TIERS,
+  type ManualOrderTier,
 } from '@/lib/orders/manual-order-form';
 import {
   createManualCustomerInlineAction,
@@ -377,7 +380,11 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
       //    拋出來的那一刻可能**已經留下一個真的帳號**(`manual-customer.ts` 自陳)。
       let res: Awaited<ReturnType<typeof createManualCustomerInlineAction>>;
       try {
-        res = await createManualCustomerInlineAction({ name, phone, requestId: customerRequestId });
+        // 2026-10-02 Sean 拍 Q48–Q50 甲:把這張單「會員等級」那格選的值一起送 ⇒ 選車行時新客人的帳號一起設成車行。
+        //   讀同一張表單上的那顆 select(跟會員等級那格讀客人 radio 是同一條「共用的東西放在原生控制項上」)。
+        const tierRaw = formOf()?.querySelector<HTMLSelectElement>(`select[name="${MANUAL_ORDER_TIER_FIELD}"]`)?.value;
+        const tier = (MANUAL_ORDER_TIERS as readonly string[]).includes(tierRaw ?? '') ? (tierRaw as ManualOrderTier) : undefined;
+        res = await createManualCustomerInlineAction({ name, phone, requestId: customerRequestId, ...(tier ? { tier } : {}) });
       } catch {
         if (submitAfterCreate.current) restoreAutoAfterFailedCreate();
         submitAfterCreate.current = false;
@@ -427,7 +434,9 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
               tone: 'warn',
               text: `系統裡已經有一位「${res.candidate.name}」,電話也一樣,所以我【沒有】幫你多開一個帳號、也【沒有】幫你選起來。請你自己確認:下面那位就是你要的客人的話,點一下選起來;不是同一個人的話,請按「換一位客人」另外找,或請系統管理員協助。${stoppedSubmit ? '訂單還沒有送出,選好之後再按一次「確認」。' : ''}`,
             }
-          : { tone: 'ok', text: `已經建好「${res.candidate.name}」,並且幫你選起來了。` },
+          : res.tierWarning
+            ? { tone: 'warn', text: `已經建好「${res.candidate.name}」,並且幫你選起來了。${res.tierWarning}` }
+            : { tone: 'ok', text: `已經建好「${res.candidate.name}」,並且幫你選起來了。` },
       );
     });
   }

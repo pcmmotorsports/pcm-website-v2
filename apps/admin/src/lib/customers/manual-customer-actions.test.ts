@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   createManualCustomer: vi.fn(),
   findCandidates: vi.fn(),
   auditRecord: vi.fn(),
+  setCustomerTier: vi.fn(),
+  readCustomerTier: vi.fn(),
 }));
 
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorizeAdminMutation }));
@@ -19,6 +21,7 @@ vi.mock('../orders/order-repository', () => ({
   getAdminAuditLogRepository: () => ({ record: mocks.auditRecord }),
 }));
 vi.mock('@pcm/adapters/server', () => ({ createSupabaseServiceClient: vi.fn(() => ({})) }));
+vi.mock('./customer-repository', () => ({ setCustomerTier: mocks.setCustomerTier, readCustomerTier: mocks.readCustomerTier }));
 // 🔴 只換掉兩支會打 DB 的,`normalizeManualPhone` 走真實作 ——
 //    「回傳的電話有沒有正規化」是本檔要量的性質之一,mock 掉它那格會變成自問自答。
 vi.mock('./manual-customer', async (importOriginal) => {
@@ -51,6 +54,7 @@ beforeEach(() => {
     shouldWarnDuplicates: false,
   });
   mocks.auditRecord.mockResolvedValue(undefined);
+  mocks.setCustomerTier.mockResolvedValue('UPDATED');
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -541,5 +545,79 @@ describe('⟦b4-ENUM3⟧ 搜尋要留下一列查得到的稽核', () => {
     expect(
       warn.mock.calls.map((c) => String(c[0])).some((l) => l.includes('audit_write_failed')),
     ).toBe(false);
+  });
+});
+
+
+// 2026-10-02 Sean 拍 Q48 甲 / Q49 甲 / Q50 甲(計畫-建單新客人等級-20261002.md):
+//   建單新建客人時, 這張單選了車行 ⇒ 客人帳號一起設成車行(共用客戶頁那支 admin_set_customer_tier, 有稽核)。
+describe('新建客人:這張單選了車行 ⇒ 帳號一起設成車行', () => {
+  const create = (tier?: 'general' | 'store' | 'premiumStore') =>
+    createManualCustomerInlineAction({ name: '技安摩托-小梅', phone: '0912345678', requestId: REQ, ...(tier ? { tier } : {}) });
+
+  it('🔴 選車行 ⇒ 用客戶頁同一支函式設成車行(從一般改、操作人是建單的員工、原因寫明從建單來), 畫面那位顯示車行', async () => {
+    mocks.createManualCustomer.mockResolvedValue({ ok: true, userId: NEW_USER });
+    const res = await create('store');
+    expect(mocks.setCustomerTier).toHaveBeenCalledTimes(1);
+    const arg = mocks.setCustomerTier.mock.calls[0]![0];
+    expect(arg).toMatchObject({ customerId: NEW_USER, tier: 'store', from: 'general', actor: 'staff-1', requestId: 'req-1' });
+    expect(arg.note).toContain('建單時新建客人');
+    expect(res.ok && res.candidate.tier).toBe('store');
+  });
+
+  it('選一般 / 沒帶等級 ⇒ 不動帳號(本來就是一般)', async () => {
+    mocks.createManualCustomer.mockResolvedValue({ ok: true, userId: NEW_USER });
+    await create('general');
+    await create();
+    expect(mocks.setCustomerTier).not.toHaveBeenCalled();
+  });
+
+  it('🔴 Q49 甲:選經銷 ⇒ 帳號維持一般(客戶頁也不能設經銷)', async () => {
+    mocks.createManualCustomer.mockResolvedValue({ ok: true, userId: NEW_USER });
+    const res = await create('premiumStore');
+    expect(mocks.setCustomerTier).not.toHaveBeenCalled();
+    expect(res.ok && res.candidate.tier).toBe('general');
+  });
+
+  it('🔴 設定失敗 ⇒ 客人照樣建好(不擋建單), 畫面那位維持一般, 並帶一句請他到客戶頁再設', async () => {
+    mocks.createManualCustomer.mockResolvedValue({ ok: true, userId: NEW_USER });
+    mocks.setCustomerTier.mockRejectedValue(new Error('boom'));
+    const res = await create('store');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.candidate.tier).toBe('general');
+    expect(res.tierWarning).toContain('客戶頁');
+  });
+
+  it('🔴 撞到已經有的客人(existing)⇒ 不動他的帳號等級(只有新建的才跟著這張單)', async () => {
+    mocks.findCandidates.mockResolvedValue({
+      candidates: [{ userId: NEW_USER, name: '技安摩托-小梅', phone: '0912345678', isManual: true, tier: 'general' }],
+      truncated: false, samePhoneCount: 1, shouldWarnDuplicates: false,
+    });
+    const res = await create('store');
+    expect(res.ok && res.outcome).toBe('existing');
+    expect(mocks.setCustomerTier).not.toHaveBeenCalled();
+  });
+
+  // 🔴 審查 C1(Fable R1):重送時第一發已經設成車行 ⇒ 第二發帶 from:'general', 函式先比「現值是不是一般」⇒ 回 STALE(零寫入、不重複稽核),
+  //    不是 NO_CHANGE。⇒ STALE 時再讀一次現值:已經是車行 = 成功, 不能印「沒有設成」。
+  it('🔴 重送同一張表單(idempotent)且選車行:函式回 STALE、帳號現在已是車行 ⇒ 當成功, 不印提醒', async () => {
+    mocks.createManualCustomer.mockResolvedValue({ ok: true, userId: NEW_USER, idempotent: true });
+    mocks.setCustomerTier.mockResolvedValue('STALE');
+    mocks.readCustomerTier.mockResolvedValue('store');
+    const res = await create('store');
+    expect(mocks.setCustomerTier).toHaveBeenCalledTimes(1);
+    expect(mocks.readCustomerTier).toHaveBeenCalledWith(NEW_USER);
+    expect(res.ok && res.candidate.tier).toBe('store');
+    expect(res.ok && res.tierWarning).toBeFalsy();
+  });
+
+  it('🔴 STALE 而現值不是車行(有人先改過)⇒ 不硬改, 提醒他到客戶頁確認(不斷言「沒有設成」)', async () => {
+    mocks.createManualCustomer.mockResolvedValue({ ok: true, userId: NEW_USER });
+    mocks.setCustomerTier.mockResolvedValue('STALE');
+    mocks.readCustomerTier.mockResolvedValue('general');
+    const res = await create('store');
+    expect(res.ok && res.candidate.tier).toBe('general');
+    expect(res.ok && res.tierWarning).toContain('請到這位客人的客戶頁確認');
   });
 });

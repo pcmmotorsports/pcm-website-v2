@@ -137,6 +137,22 @@ export function isSixArgSignatureMissing(error: unknown): boolean {
   );
 }
 
+/**
+ * 讀一位客人帳號現在的等級(2026-10-02 建單新客人等級, 審查 C1)。
+ * `setCustomerTier` 回 STALE 時用:重送同一張表單時第一發已經設成車行, 第二發比「現值是不是一般」會回 STALE,
+ * 這時要知道現值才分得出「已經是車行(成功)」與「有人改成別的(要提醒)」。讀不到 ⇒ null。
+ */
+export async function readCustomerTier(customerId: string): Promise<'general' | 'store' | 'premiumStore' | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('customers')
+    .select('tier')
+    .eq('user_id', customerId)
+    .maybeSingle();
+  if (error) throw error;
+  const tier = (data as { tier?: unknown } | null)?.tier;
+  return tier === 'general' || tier === 'store' || tier === 'premiumStore' ? tier : null;
+}
+
 export async function setCustomerTier(args: {
   customerId: string;
   tier: 'general' | 'store' | 'premiumStore';

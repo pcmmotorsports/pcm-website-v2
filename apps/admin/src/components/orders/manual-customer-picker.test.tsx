@@ -1396,3 +1396,41 @@ describe('版面:剛好一位已連結時排成一行(建單簡化 S4)', () => {
     expect(screen.getByTestId('manual-customer-auto').className).toContain('sr-only');
   });
 });
+
+// 2026-10-02 Sean 拍 Q48–Q50 甲:新建客人時把這張單選的等級一起送給建立那支, 選車行 ⇒ 帳號一起設成車行。
+describe('建立新客人時帶上這張單的會員等級', () => {
+  const renderWithTier = (tier: string) =>
+    render(
+      <form data-testid='f'>
+        <select name='tier_at_checkout' defaultValue={tier}>
+          <option value='general'>一般</option>
+          <option value='store'>車行</option>
+        </select>
+        <ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />
+      </form>,
+    );
+
+  it('🔴 那格選車行 ⇒ 建立那支收到 tier: store', async () => {
+    mocks.create.mockResolvedValue({
+      ok: true, idempotent: false, outcome: 'created',
+      candidate: { userId: USER_A, name: '新客人', phone: '0900000999', isManual: true, tier: 'store' },
+    });
+    renderWithTier('store');
+    await requestCreate('新客人');
+    expect(mocks.create).toHaveBeenCalledWith({ name: '新客人', phone: '0900000999', requestId: CUSTOMER_KEY, tier: 'store' });
+  });
+
+  it('🔴 帳號等級沒設成功 ⇒ 客人照樣選起來, 而畫面說清楚要去客戶頁再設', async () => {
+    mocks.create.mockResolvedValue({
+      ok: true, idempotent: false, outcome: 'created',
+      candidate: { userId: USER_A, name: '新客人', phone: '0900000999', isManual: true, tier: 'general' },
+      tierWarning: '客人已經建好,但帳號等級沒有設成車行。請到這位客人的客戶頁把會員等級改成車行。',
+    });
+    renderWithTier('store');
+    await requestCreate('新客人');
+    await waitFor(() => {
+      expect((document.querySelector(`input[value="${USER_A}"]`) as HTMLInputElement | null)?.checked).toBe(true);
+    });
+    expect((await screen.findByTestId('manual-customer-picker-notice')).textContent).toContain('客戶頁');
+  });
+});
