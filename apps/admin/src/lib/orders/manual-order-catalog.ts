@@ -1,6 +1,7 @@
 import 'server-only';
 import { splitSearchTerms } from '@pcm/adapters';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import { applyBrandSynonym } from '@/lib/search/brand-synonyms';
 
 // manual-order-catalog.ts — M12-A3-a:手動建單表單的品項選擇器**唯一讀取端**。
 //
@@ -245,7 +246,8 @@ export async function searchManualOrderCatalog(
   const needle = keyword.normalize('NFKC').trim();
   if (needle === '') return [];
   // 只有零寬字之類 ⇒ 切完零詞 ⇒ 不查(送出去會是「沒有條件」= 全部)。
-  const terms = splitSearchTerms(needle);
+  // S6:品牌俗名(「阿卡」「蠍子管」)換成正式品牌名, 商品搜尋才對得到品牌。料號比對那條照舊用原字。
+  const terms = splitSearchTerms(needle).map(applyBrandSynonym);
   if (terms.length === 0) return [];
 
   // 舊的料號部分字比對照留:新搜尋對短料號(例如 3 個字)不一定比得到, 合併後不會比以前少。

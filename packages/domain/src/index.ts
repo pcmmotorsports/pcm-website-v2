@@ -78,6 +78,9 @@ export { ADMIN_CUSTOMER_SORT_KEYS } from './identity/types';
 export { resolveEnd, matchFitmentYear, isYearUnrestricted } from './catalog/year-range';
 // 2026-10-02:車款打字比對(顧客站選車與後台車種搜尋共用)。
 export { normalizeVehicleQuery, looseVehicleKey, filterVehicleOptions, uniqueExactMatch, vehicleLabel } from './catalog/vehicle-match';
+export { foldSearchTerm, foldEquals, foldStartsWith, foldIncludes } from './catalog/search-terms-fold';
+export { SEARCH_SYNONYMS, synonymFor } from './catalog/search-synonyms';
+export type { SearchSynonym, SynonymKind } from './catalog/search-synonyms';
 export { FITMENT_EXCLUSIONS, findFitmentExclusion, reconcileFitmentExclusions, formatExclusionViolation } from './catalog/fitment-exclusions';
 export type { FitmentExclusion, ExclusionSourceProduct, ExclusionReconcileViolation } from './catalog/fitment-exclusions';
 export { computeEffectivePrice } from './catalog/pricing';

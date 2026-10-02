@@ -341,3 +341,12 @@ describe('rankCatalogHits(合併與排序)', () => {
     expect(out).toHaveLength(1);
   });
 });
+
+describe('S6 品牌俗名', () => {
+  it('「阿卡 排氣管」⇒ 送給商品搜尋的是 Akrapovic + 排氣管;料號比對那條照舊用原字', async () => {
+    const calls = stubClient({ data: [], error: null });
+    await searchManualOrderCatalog('阿卡 排氣管');
+    expect(arg(calls, 'rpc')).toEqual(['admin_search_product_ids', { p_terms: ['Akrapovic', '排氣管'] }]);
+    expect(arg(calls, 'ilike')).toEqual(['sku', '%阿卡 排氣管%']);
+  });
+});
