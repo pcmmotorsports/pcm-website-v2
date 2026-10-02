@@ -77,6 +77,8 @@ import {
   stripLineInviteForLinePush,
 } from './order-email-copy';
 import { renderTextEmailHtml } from './customer-email-html';
+// 2026-10-02 信件文字第 1 片(1b):組信程式裡的固定句子改從清單取, 寄出的信逐字不變(__golden__ 快照)。
+import { emailCopy } from './email-copy-catalog';
 import {
   computeEmailBackoff,
   LEASE_RECLAIM_RETRY_DELAY_MS,
@@ -865,14 +867,14 @@ function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undef
   // 🔴 純文字那份的字面綁著 Sean 核可的 spec(`docs/specs/2026-09-06-bank-order-created-email-copy.md`,
   //    測試整串比對)⇒ 2026-09-12 **一個字都不動**;公司頁尾只出現在 HTML 那份(外框給的)。
   const body: string[] = [
-    `您的訂單 ${displayId} 已成立,目前尚未付款。`,
-    '請依下列資訊完成轉帳,我們收到款項後會再通知您。',
+    emailCopy('bankCreatedHeadline', { 訂單編號: displayId }),
+    emailCopy('bankCreatedInstruction'),
     '',
     `訂單金額  NT$ ${formatOrderAmount(total)}`,
     `已收      NT$ ${formatOrderAmount(paidSoFar)}`,
     `應付餘額  NT$ ${formatOrderAmount(balanceDue)}`,
     '',
-    '匯款資訊',
+    emailCopy('bankRemittanceTitle'),
     `銀行      ${PCM_REMITTANCE_BANK_NAME}(${PCM_REMITTANCE_BRANCH})`,
     `戶名      ${PCM_REMITTANCE_ACCOUNT_NAME}`,
     `帳號      ${PCM_REMITTANCE_ACCOUNT_NO}`,
@@ -883,10 +885,10 @@ function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undef
   const tail: string[] = [];
   // 🔴 缺 siteUrl ⇒ **這兩行整段不印**(不是印一個壞連結)。
   if (orderUrl !== undefined) {
-    tail.push('', '訂單內容與匯款資訊也可以在這裡查看:', orderUrl);
+    tail.push('', emailCopy('bankCreatedLinkLead'), orderUrl);
   }
   tail.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
-  return customerEmail(job.subject, displayId, '您好,', body, tail, orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greetingHalfwidth'), body, tail, orderUrl);
 }
 
 /**
@@ -928,14 +930,14 @@ function buildBankOrderAmountChangedText(
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   const body: string[] = [
-    `您的訂單 ${displayId} 已完成部分商品取消,應付金額已同步更新。`,
-    '請依下列最新金額完成轉帳,我們確認款項後將儘速為您處理。',
+    emailCopy('bankAmountChangedHeadline', { 訂單編號: displayId }),
+    emailCopy('bankAmountChangedInstruction'),
     '',
     `訂單金額  NT$ ${formatOrderAmount(total)}`,
     `已收      NT$ ${formatOrderAmount(paidSoFar)}`,
     `應付餘額  NT$ ${formatOrderAmount(balanceDue)}`,
     '',
-    '匯款資訊',
+    emailCopy('bankRemittanceTitle'),
     `銀行      ${PCM_REMITTANCE_BANK_NAME}(${PCM_REMITTANCE_BRANCH})`,
     `戶名      ${PCM_REMITTANCE_ACCOUNT_NAME}`,
     `帳號      ${PCM_REMITTANCE_ACCOUNT_NO}`,
@@ -952,20 +954,20 @@ function buildBankOrderAmountChangedText(
     //    Sean 2026-09-13 A2 甲 = 照寄, 而**要在信裡講一句為什麼** ⇒ 就是這一段。
     //    🛑 措辭邊界(他的版本自己守著):**零內部說法** —— 不提券作廢、不提原價回算、
     //      不提門檻、不提 5000、不提百分比;用「可能」不用「將」。
-    '※ 特別提醒:',
-    '部分商品取消後,原訂單套用之優惠折扣可能隨之失效,運費亦將依調整後的金額重新計算;因此最終應付金額可能與您下單時有所不同(或略有增加),敬請見諒。',
+    emailCopy('bankAmountChangedNoticeTitle'),
+    emailCopy('bankAmountChangedNotice'),
     '',
     // 🔴 「已經照舊金額匯了」那條出口**指定走 LINE**(Sean 改的;原草稿只寫「請與我們聯絡」)
     //    ⇒ 他要的是一條**他自己看得到**的管道, 不是信箱。
-    '若您先前已完成舊金額之匯款,請直接透過 LINE 與我們聯繫,我們將主動協助您辦理差額處理。',
+    emailCopy('bankAmountChangedPaidOld'),
   ];
   const tail: string[] = [];
   // 🔴 缺 siteUrl ⇒ **這兩行整段不印**(不是印一個壞連結)—— 與姊妹那支同一條規則。
   if (orderUrl !== undefined) {
-    tail.push('', '完整訂單明細與匯款資訊亦可點擊此處查閱:', orderUrl);
+    tail.push('', emailCopy('bankAmountChangedLinkLead'), orderUrl);
   }
   tail.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
-  return customerEmail(job.subject, displayId, '您好,', body, tail, orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greetingHalfwidth'), body, tail, orderUrl);
 }
 
 function buildOrderCreatedText(
@@ -981,7 +983,8 @@ function buildOrderCreatedText(
     typeof (payload as { display_id: unknown }).display_id === 'string'
       ? (payload as { display_id: string }).display_id
       : null;
-  const orderLine = displayId === null ? '您的訂單已付款成功。' : `您的訂單 ${displayId} 已付款成功。`;
+  const orderLine =
+    displayId === null ? emailCopy('paidHeadlineNoId') : emailCopy('paidHeadlineWithId', { 訂單編號: displayId });
   // 🔴🔴 **金額與品項那一段(Sean 2026-09-03 勾 A1)** —— 而病灶要寫在這裡, 不是只寫做了什麼:
   //    這封信寄出去是**兩份**(本份純文字 + `renderPaidEmailHtml` 有排版那份), 兩份都送,
   //    **而客人看到哪一份是他的收信軟體決定的, 不是我們。**
@@ -996,7 +999,7 @@ function buildOrderCreatedText(
   //    🔵 而這道判斷**留著** —— 它防的是**下一個被加進 `total` 而沒人記得印的欄位**。
   //    ⇒ 判準問「加不加得起來」而不是「有沒有稅」—— 後者只擋得住我今天想得到的那一欄。
   if (paid !== null && orderAmountsBalance(paid)) {
-    detail.push('', '訂單明細');
+    detail.push('', emailCopy('paidDetailTitle'));
     for (const l of paid.lines) {
       // 🔴 品名從缺時的字面**與排版那份同一句**(`(品名未記錄)`)—— 兩份不可以各講各的。
       const title = l.title === null ? ORDER_LINE_TITLE_MISSING : l.title;
@@ -1016,7 +1019,7 @@ function buildOrderCreatedText(
     //    理由與 `ORDER_MEMBER_CENTER_SENTENCE` 同一條(手動單的佔位帳號登不進去),
     //    而**這裡不加條件句是因為【同一封信下面那句已經帶著條件了】** ⇒ 重複兩次反而更吵。
     //    🔵 「僅列出部分」那半留著 —— 它是這一行存在的理由(讓客人知道自己看的是部分)。
-    if (paid.linesTruncated) detail.push('(品項過多，此處僅列出部分)');
+    if (paid.linesTruncated) detail.push(emailCopy('paidLinesTruncated'));
     // 🔴 有稅時小計是【未稅】的 ⇒ 標籤要說得出來(`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
     //    共用 `subtotalLabelOf` 而不在這裡寫死 —— 五個面要逐字相同, 而抄五份時
     //    下一個人只會改他打開的那一份。
@@ -1046,7 +1049,7 @@ function buildOrderCreatedText(
       : `${ORDER_MEMBER_CENTER_SENTENCE}\n${orderUrl}`;
 
   return [
-    '您好，',
+    emailCopy('greeting'),
     '',
     orderLine,
     // 🛑🛑 **2026-09-02:這一句【提出過改法, 而最後【沒有改】】—— 而不改是刻意的, 全文在這裡。**
@@ -1252,7 +1255,7 @@ function buildOrderUnpaidCancelledText(job: ClaimedEmailJob, siteUrl: string | u
   body.push('', ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE);
   // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(原本只有一句會員中心 + 店名;Sean 09-12 抓到③④不一致)。
   const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
-  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greeting'), body, standardTail(orderUrl), orderUrl);
 }
 
 /**
@@ -1321,7 +1324,7 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
   const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
   // 🔴 聯絡資訊與付款信同一份來源(A2 的理由在這裡更強:**他的錢剛被動過**, 而他要找得到我們)。
   //    🛑 而**不含「回覆這封信」** —— 那個信箱沒有人收(Sean 2026-09-03 答 A3;板列 ⟦b4-REPLYTO1⟧)。
-  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greeting'), body, standardTail(orderUrl), orderUrl);
 }
 
 /**
@@ -1419,7 +1422,7 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
     // 已取消的單又退一筆 ⇒ 開頭那句要說清楚是哪一張(Sean Q1 的第 ③ 句)
     orderState === 'cancelled'
       ? orderCancelledExtraRefundHeadline(displayId)
-      : `您的訂單 ${displayId} 已退回一筆款項。`,
+      : emailCopy('partialRefundHeadline', { 訂單編號: displayId }),
     '',
     `退款金額  NT$ ${formatOrderAmount(refunded)}`,
   ];
@@ -1427,12 +1430,12 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
   // 🛑 **非卡(匯款 / 現金)不可以說「退回您的信用卡」** —— 那是一句假的話。
   //    而「非卡退款怎麼措辭」Sean 沒拍過 ⇒ **那一句整段不印**(少一句話, 好過一句錯的話), 已端他。
   if (refundSource === 'card') {
-    body.push('款項將退回您原本付款的信用卡。');
+    body.push(emailCopy('partialRefundToCard'));
   }
   // 🛑 **刻意不寫到帳天數**(檔頭第 1 格)。
   if (orderState === 'active') {
     // 🔴 這張單**還在** —— 而那正是它與取消信最大的差別, 要明說。
-    body.push('', '這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。');
+    body.push('', emailCopy('partialRefundOrderActive'));
   } else if (orderState === 'fully_refunded') {
     // 🔴 全數退回之後**不可以**再說「其餘照常出貨」(Sean Q1 的第 ② 句)
     body.push('', ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE);
@@ -1440,7 +1443,7 @@ function buildOrderPartiallyRefundedText(job: ClaimedEmailJob, siteUrl: string |
 
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
   // 🔴 聯絡資訊與取消信同一份來源(他的錢剛被動過, 而他要找得到我們)。
-  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greeting'), body, standardTail(orderUrl), orderUrl);
 }
 
 /**
@@ -1478,7 +1481,7 @@ function buildOrderReturnReceivedText(job: ClaimedEmailJob, siteUrl: string | un
     ORDER_RETURN_RECEIVED_REFUND_SENTENCE,
   ];
   const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
-  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greeting'), body, standardTail(orderUrl), orderUrl);
 }
 
 /**
@@ -1580,7 +1583,7 @@ function buildOrderPartiallyCancelledText(job: ClaimedEmailJob, siteUrl: string 
     '',
     ...ORDER_PARTIALLY_CANCELLED_COMPANY_LINES,
   ];
-  return customerEmail(job.subject, displayId, '您好，', body, tail, orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greeting'), body, tail, orderUrl);
 }
 
 /** 有字的字串才算數:`null` / `undefined` / 全空白都回 false(見 `buildOrderShippedText` ④)。 */
@@ -1604,9 +1607,9 @@ function buildOrderShippedText(
   //    ⚠️ **而代價明寫**:出貨信因此成為**唯一還用半形逗號的一封** ——
   //      A7 原本要解的就是不一致, 而這個切法**把不一致從「多對一」變成「一對多」**。
   //    ⏰ **什麼時候可以統一**:下一次 Sean 本人看這封信的全文時, 一併問他一句。
-    '您好,',
+    emailCopy('greetingHalfwidth'),
     '',
-    `您的訂單 ${ctx.orderDisplayId} 有一批商品已出貨。`,
+    emailCopy('shippedHeadline', { 訂單編號: ctx.orderDisplayId }),
     '',
     `箱號:${ctx.shipmentReference}`,
   ];
@@ -1615,7 +1618,7 @@ function buildOrderShippedText(
   // 🔴 判準是 `trackingNumber === null`,**不是 `carrierName === null`** ——
   //    客人要拿去查的是碼;而一個「有貨運商、碼還沒填」的箱子也該走「無追蹤碼」那一句。
   if (ctx.trackingNumber === null) {
-    lines.push('本批為自取／自送,無追蹤碼。');
+    lines.push(emailCopy('shippedNoTracking'));
   } else {
     if (ctx.carrierName !== null) lines.push(`貨運:${ctx.carrierName}`);
     lines.push(`追蹤碼:${ctx.trackingNumber}`);
@@ -1623,15 +1626,15 @@ function buildOrderShippedText(
     //   🔴 網址【自成一行】:`customer-email-html.ts` 只把整行是網址的那行做成可點的 <a>。
     //   `typeof` 而不是 `!== null`:舊資料 / 替身給得出 `undefined`(同檔收件資訊那段的教訓)。
     if (typeof ctx.trackingPageUrl === 'string' && ctx.trackingPageUrl !== '') {
-      lines.push('查詢配送進度(請輸入上面的追蹤碼):', ctx.trackingPageUrl);
+      lines.push(emailCopy('shippedTrackingLookupLead'), ctx.trackingPageUrl);
     }
   }
 
-  lines.push('', '本批出貨內容:');
+  lines.push('', emailCopy('shippedContentsTitle'));
   for (const line of ctx.lines) {
     // 🔴 品名從缺**照樣印那一列**(port 的「防禦容缺」)—— 少印一列的話,
     //    客人手上的清單會比箱子裡少一項,**而他不會知道要問**。
-    lines.push(`· ${line.title ?? '(品名從缺)'} × ${line.quantity}`);
+    lines.push(`· ${line.title ?? emailCopy('shippedTitleMissing')} × ${line.quantity}`);
   }
 
   // ④ 收件資訊(Sean 2026-09-19 拍甲:**完整印, 不遮罩**)。
@@ -1649,7 +1652,7 @@ function buildOrderShippedText(
   if (recipientReady) {
     lines.push(
       '',
-      '收件資訊:',
+      emailCopy('shippedRecipientTitle'),
       `收件人:${ctx.recipientName}`,
       `地址:${ctx.recipientAddress}`,
       `電話:${ctx.recipientPhone}`,
@@ -1658,7 +1661,7 @@ function buildOrderShippedText(
 
   // ② 這張訂單還有沒出的東西。
   if (ctx.orderHasUnshippedItems) {
-    lines.push('', '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。');
+    lines.push('', emailCopy('shippedSplitNotice'));
   }
 
   // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(plan §4;原本只有一句會員中心 + 店名)。
@@ -3137,17 +3140,17 @@ function buildTrackingCorrectedText(
 
   const body: string[] = [
     displayId === null
-      ? '您先前那封出貨通知上的貨運單號有誤。'
-      : `您的訂單 ${displayId} 先前那封出貨通知上的貨運單號有誤。`,
+      ? emailCopy('trackingCorrectedHeadlineNoId')
+      : emailCopy('trackingCorrectedHeadlineWithId', { 訂單編號: displayId }),
     '',
   ];
   // 🔵 箱號缺了照樣寄 —— 它幫客人分辨「哪一箱」, 而少了它那封信仍然回答得了主要問題。
   if (shipmentReference !== null) body.push(`箱號:${shipmentReference}`);
   body.push(`正確的貨運單號:${trackingNumber}`);
   // Sean 2026-09-27 Q1 甲:與出貨信同一行(網址自成一行才會變成連結)。網址來自寄出前比對過的那一箱。
-  if (trackingPageUrl !== null) body.push('查詢配送進度(請輸入上面的貨運單號):', trackingPageUrl);
-  body.push('', '請以這一封為準;先前那個號碼查不到是正常的。');
+  if (trackingPageUrl !== null) body.push(emailCopy('trackingCorrectedLookupLead'), trackingPageUrl);
+  body.push('', emailCopy('trackingCorrectedNote'));
   // 🔵 2026-09-12:結尾補齊會員中心連結 / LINE / 公司段(plan §4)。
   const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
-  return customerEmail(job.subject, displayId, '您好，', body, standardTail(orderUrl), orderUrl);
+  return customerEmail(job.subject, displayId, emailCopy('greeting'), body, standardTail(orderUrl), orderUrl);
 }
