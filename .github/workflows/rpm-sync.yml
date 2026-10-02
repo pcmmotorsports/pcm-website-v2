@@ -111,9 +111,10 @@ on:
       dealer_price_checksum:
         # 🔴 **經銷價首灌的【事前綁定】** —— 沒有它,「核准的那批」與「真正寫進去的那批」之間
         #   沒有任何關係:正式跑會**重新讀來源**,而來源每天在動。
-        #   ⇒ 本機 dry-run 印出 sha256, 貼進這裡;寫入前重算比對, 不同就走 A1(那一家帶舊值), 不寫新值。
+        #   ⇒ 用本 workflow 勾 dry_run 乾跑, 把它印的完整核對碼貼進這裡;寫入前重算比對, 不同就走 A1(那一家帶舊值), 不寫新值。
+        #   🔴 2026-10-02 起核對碼是帶金鑰的 HMAC(secret DEALER_PRICE_CHECKSUM_KEY);本機乾跑要有同一把金鑰才算得出一樣的值。
         # 🔵 **留空 = 不比對**(排程觸發本來就沒有 input)⇒ 對 18 家的日常同步零影響。
-        description: '經銷價批次 sha256(本機 dry-run 印的那個;留空 = 不比對)'
+        description: '經銷價批次核對碼(本 workflow 勾 dry_run 乾跑時印的完整值;留空 = 不比對)'
         required: false
         type: string
         default: ''
@@ -276,6 +277,8 @@ jobs:
           #   🛑 URL 只認這一個變數;碼不得 fallback 到 pg 的 `PGHOST`/`PGPASSWORD` 預設(靜默 fallback)。
           DEALER_PRICE_DATABASE_URL: ${{ secrets.DEALER_PRICE_DATABASE_URL }}
           DEALER_PRICE_SUPPLIERS: ${{ secrets.DEALER_PRICE_SUPPLIERS }}
+          # 🔴 2026-10-02:經銷價核對碼改成帶金鑰的 HMAC(repo 公開、紀錄任何人看得到)。沒設 ⇒ 不寫新經銷價(走 A1 帶舊值)。
+          DEALER_PRICE_CHECKSUM_KEY: ${{ secrets.DEALER_PRICE_CHECKSUM_KEY }}
           # 🔵 排程觸發時 inputs 不存在 ⇒ 這裡是空字串 ⇒ 不比對(見上面 inputs 那段)。
           DEALER_PRICE_EXPECT_CHECKSUM: ${{ github.event.inputs.dealer_price_checksum }}
           # 🔴 **顯式注入事件名, 不依賴 runner 的預設 `GITHUB_EVENT_NAME`** ——

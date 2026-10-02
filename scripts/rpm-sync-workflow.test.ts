@@ -159,3 +159,9 @@ describe('rpm-sync.yml IndexNow(2026-09-29 計畫 ~/pcm-mailbox/計畫-IndexNow-
     expect(jobBlock('notify-failure')).not.toContain('indexnow');
   });
 });
+
+describe('經銷價核對碼的金鑰(2026-10-02 資安)', () => {
+  it('🔴 sync job 把 DEALER_PRICE_CHECKSUM_KEY 從 secret 傳進 rpm-import(沒傳 ⇒ 每家都走 A1, 經銷價停住)', () => {
+    expect(jobBlock('sync')).toContain('DEALER_PRICE_CHECKSUM_KEY: ${{ secrets.DEALER_PRICE_CHECKSUM_KEY }}');
+  });
+});

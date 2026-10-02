@@ -76,7 +76,7 @@ import {
   gateReasons,
   fetchUpstreamDealerPrices,
   indexUpstream,
-  dealerBatchChecksum,
+  checksumVerdict,
   readLocalProductStore,
   type UpstreamRead,
 } from './dealer-price-source';
@@ -357,54 +357,23 @@ if (!dealerOn) {
     }
   }
 
-  // 🔴 checksum:**空白【不放行】** —— codex 總審 must-fix:留空直接過會讓
-  //   「核准的那批」與「真正寫進去的那批」沒有綁定。⇒ 有上游就一定要有期望值。
+  // 🔴 checksum:提供了就必須相符(首灌綁 Sean 核准的那批);沒提供只有排程(日常同步)放行, 手動與本機一律要帶;
+  //   2026-10-02 起是帶金鑰的 HMAC, 沒有金鑰一律不放行, 正式跑只印前 8 碼。判定與歷次審查理由見 dealer-price-source.ts checksumVerdict。
+  //   🛑 事件名顯式從 workflow 注入(DEALER_PRICE_TRIGGER), 不依賴 runner 預設的 GITHUB_EVENT_NAME(本機沒有那個變數)。
   const expectChecksum = (process.env.DEALER_PRICE_EXPECT_CHECKSUM ?? '').trim();
   let checksumOk = true;
   if (upstream) {
-    const actual = dealerBatchChecksum(
-      [...upstream.bySku].map(([sku, price_store]) => ({ supplier_slug: SUPPLIER, sku, price_store })),
-    );
-    // 🔵 **完整印出來** —— dry-run 要拿它去貼 dispatch input;只印前 12 碼是貼不了的。
-    console.log(`[dealer-price] 本批 checksum(完整):${actual}`);
-    // 🔴🔴 **checksum 只在【提供時】比對** —— codex 收工總審:
-    //   我原本寫成「空白 = 不放行」, 而**排程觸發本來就沒有 input**
-    //   ⇒ 啟用的家【每天都走 A1】、而且**仍回報成功**
-    //   ⇒ 📌 **首灌之後經銷價永遠停在那一天, 再也跟不上上游** —— 那等於把管線做完就關掉。
-    //   ✅ 語意:**提供了就必須相符**(首灌那一發用它綁核准的批次);
-    //     **沒提供 = 日常同步, 照常跟上游**。
-    //   🛑 「這是不是首灌」由【人】在 dispatch 時貼不貼 checksum 表達, 不是靠碼猜。
-    if (expectChecksum !== '') {
-      checksumOk = actual === expectChecksum;
-      if (!checksumOk) {
-        console.error(`🔴 [dealer-price] checksum 不符:期望 ${expectChecksum} / 實際 ${actual}`);
-      }
-    } else {
-      // 🔴🔴 **首灌與日常同步要分得開** —— codex 窄審 must-fix:
-      //   沒提供就照寫 ⇒ **allowlist 一開, 排程可能先於人工核准那一發寫入** ⇒ 綁定被繞過。
-      //   ✅ 判準 = **本站該家【現在有沒有任何經銷價】**:
-      //     一筆都沒有 ⇒ 這就是首灌 ⇒ **必須帶 checksum**, 沒帶就走 A1(帶舊值, 不寫新值)。
-      //     已經有了 ⇒ 已啟用 ⇒ 日常同步照常跟上游, 不必每天貼 checksum。
-      //   🛑 這個判準不靠人記得、也不靠額外的狀態檔 —— 它就是資料本身。
-      // 🔴🔴 **首灌判準改成【事件本身】, 不再猜資料**(主視窗 B 裁)——
-      //   ⛔ ~~看「本站有沒有經銷價」~~:首灌【中途失敗】留下的非空值會把它騙成「已啟用」,
-      //     而反向(合法全清)又會卡在 A1。**兩個方向都錯, 而它們是同一個猜。**
-      //   ✅ `workflow_dispatch` ⇒ **一律要 checksum**(首灌與中途失敗補跑【都是】dispatch);
-      //     `schedule` ⇒ 不要(日常同步照常跟上游)。
-      //   🛑 事件名**顯式從 workflow 注入**(`DEALER_PRICE_TRIGGER`), 不依賴 runner 預設的
-      //     `GITHUB_EVENT_NAME` —— 判準要看得到, 也要在本機跑得出來(本機沒有那個預設變數)。
-      //   🔵 本機手跑(兩者皆非)⇒ 當成 dispatch:**要 checksum**, 那是安全的那一邊。
-      const trigger = process.env.DEALER_PRICE_TRIGGER ?? '';
-      if (trigger !== 'schedule') {
-        checksumOk = false;
-        console.error(
-          `🔴 [dealer-price] 觸發方式 [${trigger || '(本機)'}] 非 schedule ⇒ 必須帶 EXPECT_CHECKSUM` +
-            ` ⇒ 不寫新值(走 A1 帶舊值)。請用 dry-run 印的完整 sha256 貼進 workflow_dispatch。`,
-        );
-      } else {
-        console.log('[dealer-price] schedule 觸發且未提供 EXPECT_CHECKSUM ⇒ 日常同步, 照常跟上游');
-      }
-    }
+    const verdict = checksumVerdict({
+      rows: [...upstream.bySku].map(([sku, price_store]) => ({ supplier_slug: SUPPLIER, sku, price_store })),
+      key: process.env.DEALER_PRICE_CHECKSUM_KEY,
+      expect: expectChecksum,
+      trigger: process.env.DEALER_PRICE_TRIGGER ?? '',
+      dryRun: DRY_RUN,
+    });
+    for (const line of verdict.lines) (line.level === 'error' ? console.error : console.log)(line.text);
+    checksumOk = verdict.ok;
+    // 沒設金鑰:A1 本身不算降級 ⇒ 不設退出碼的話 job 是綠的、告警信不寄, 經銷價每天凍住而沒人知道
+    if (verdict.missingKey) process.exitCode = 1;
   }
 
   const missingCount = upstream
