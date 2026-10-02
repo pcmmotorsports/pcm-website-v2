@@ -183,6 +183,13 @@ export function SearchOverlay() {
       setResult(null);
       return;
     }
+    // 2026-10-02 Sean 拍搜尋短字 Q1 甲:整個查詢只有一個英文字母或數字 ⇒ 不發請求, 直接提示「再多打一個字」。
+    //   正式庫單打「a」每次 3 秒逾時回 500。這裡只擋「整串就一個字元」;「a -」這種拆完才剩一個字母的,
+    //   由 `/api/search` 用同一條規則(`isStorefrontQueryTooShort`)回 `tooShort`, 不碰資料庫。中文單字照查。
+    if (/^[A-Za-z0-9]$/.test(q.normalize('NFKC'))) {
+      setResult({ q, items: [], tooShort: true });
+      return;
+    }
     // 🔴 AbortController 不是效能優化:少了它,先發後回的舊請求會蓋掉新請求的結果
     //    ⇒ 客人看到的是**上一個字**的搜尋結果,而畫面上完全正常。
     const ac = new AbortController();
@@ -190,7 +197,7 @@ export function SearchOverlay() {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
         if (!res.ok) throw new Error(`search api ${res.status}`);
-        const data = (await res.json()) as { items: SearchOverlayItem[] } & Partial<SearchFacets> & {
+        const data = (await res.json()) as { items: SearchOverlayItem[]; tooShort?: boolean } & Partial<SearchFacets> & {
           suggestion?: { name: string; slug: string } | null;
           vehicleCapsule?: { href: string; label: string } | null;
         };
@@ -208,6 +215,7 @@ export function SearchOverlay() {
           },
           // 🔵 舊回應沒有這個欄位 ⇒ `null`(部署交錯那幾分鐘會發生, 而它不該把疊層弄壞)。
           suggestion: data.suggestion ?? null,
+          tooShort: data.tooShort === true,
           // 🔵 同上:舊回應沒有這個欄位 ⇒ `null`(部署交錯那幾分鐘)。
           vehicleCapsule: data.vehicleCapsule ?? null,
         });
@@ -360,6 +368,13 @@ export function SearchOverlay() {
           {q !== '' && view.kind === 'pending' && (
             <div className="search-overlay-noresults" role="status">
               <div className="search-overlay-nores-label">搜尋中…</div>
+            </div>
+          )}
+
+          {/* 2026-10-02 Sean 拍搜尋短字 Q1 甲:只打一個英文字母或數字 ⇒ 沒有去查, 請客人再多打一個字。 */}
+          {view.kind === 'tooShort' && (
+            <div className="search-overlay-noresults" role="status">
+              <div className="search-overlay-nores-label">再多打一個字</div>
             </div>
           )}
 

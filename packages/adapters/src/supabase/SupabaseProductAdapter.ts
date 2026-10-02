@@ -26,7 +26,7 @@ import {
   assertPositiveIntegerPoolLimit,
   buildIlikeOrFilter,
   escapeIlikeWildcards,
-  splitSearchTerms,
+  splitStorefrontSearchTerms,
   fetchAllPaginated,
   findSingle,
 } from './helpers/product-query-support';
@@ -825,7 +825,7 @@ export class SupabaseProductAdapter implements IProductRepository {
     //
     // ⚠️ **這裡【不做】相關性排序** —— 下方 `.order('id')` 是**穩定序**(分頁正確性),不是相關序。
     //    ⇒ 本次改動修的是「找不到」,**不是「排得好」**。排序整段在片 B(要新 RPC + migration)。
-    const terms = splitSearchTerms(q);
+    const terms = splitStorefrontSearchTerms(q);
     // 🔴🔴 **零詞 ⇒ 當成空查詢 fail-closed,絕不往下送**(codex 2026-09-03 對抗審查 MF1)。
     //
     // **為什麼上面那道 `q === ''` 短路擋不住它**:`trim()` 走 Unicode White_Space,
@@ -1057,7 +1057,7 @@ export class SupabaseProductAdapter implements IProductRepository {
     limit: number,
     wantCount: boolean,
   ): Promise<{ ids: string[]; total: number | undefined } | null> {
-    const terms = splitSearchTerms(q);
+    const terms = splitStorefrontSearchTerms(q);
     if (terms.length === 0) {
       return null; // 零詞 ⇒ 交回舊路,由它那道 fail-closed 處理
     }

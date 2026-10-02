@@ -10,6 +10,8 @@
 // R4:超長輸入截斷而**不是** 400 —— 貼一段長文不該讓搜尋框整個壞掉。
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+// route 從 @pcm/adapters 匯入 isStorefrontQueryTooShort(2026-10-02 搜尋短字), 那個入口會連帶載入帶 `server-only` 的模組 ⇒ 照本 repo 慣例逐檔 mock。
+vi.mock('server-only', () => ({}));
 
 const searchProducts = vi.fn();
 vi.mock('@/lib/search', () => ({ searchProducts, SEARCH_OVERLAY_LIMIT: 8 }));
@@ -77,6 +79,23 @@ describe('/api/search', () => {
     expect(tryCatalogBrandTaxonomy).not.toHaveBeenCalled();
     expect(tryCategories).not.toHaveBeenCalled();
     expect(tryVehicleTaxonomy).not.toHaveBeenCalled();
+  });
+
+  // 2026-10-02 Sean 拍搜尋短字 Q1 甲:只剩一個英文字母或數字 ⇒ 先不查(正式庫單打「a」每次 3 秒逾時回 500)。
+  it.each(['a', 'R', '2', 'a -'])('R1b 只剩一個英文字母或數字(%j)⇒ 200 tooShort,而且完全不打 DB', async (q) => {
+    const res = await GET(req(q));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ items: [], total: 0, tooShort: true });
+    expect(searchProducts).not.toHaveBeenCalled();
+    expect(tryCatalogBrandTaxonomy).not.toHaveBeenCalled();
+    expect(tryCategories).not.toHaveBeenCalled();
+    expect(tryVehicleTaxonomy).not.toHaveBeenCalled();
+  });
+
+  it('R1c 單一中文字照查(不算太短)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0 });
+    await GET(req('管'));
+    expect(searchProducts).toHaveBeenCalled();
   });
 
   it('R2 撈失敗 ⇒ 503,**不是** 200 空陣列', async () => {

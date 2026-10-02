@@ -41,6 +41,7 @@
 //   🔵 量測由線 `-fc` 交、主視窗轉;**本窗未複量**。
 
 import { NextResponse } from 'next/server';
+import { isStorefrontQueryTooShort } from '@pcm/adapters';
 
 import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomyBase } from '@/lib/products';
 import { parseSearchFacets } from '@/lib/parse-search-facets';
@@ -76,6 +77,12 @@ export async function GET(request: Request) {
   const q = raw.trim();
   if (q === '') {
     return NextResponse.json({ items: [], total: 0 }, { headers: NO_STORE });
+  }
+  // 2026-10-02 Sean 拍搜尋短字 Q1 甲:拆完只剩一個英文字母或數字 ⇒ 先不查, 疊層提示「再多打一個字」。
+  //   正式庫單打「a」每次 3 秒逾時回 500、「R」「2」1.5–2.4 秒, 還會拖慢同時在跑的車款清單。單一中文字照查。
+  //   🔴 早退放在 taxonomy 那三支之前 ⇒ 這種輸入完全不打 DB(同 R1 空 q 的分母)。
+  if (isStorefrontQueryTooShort(q)) {
+    return NextResponse.json({ items: [], total: 0, tooShort: true }, { headers: NO_STORE });
   }
 
   // 🔵 第四個參數 `countTotal: false`(`⟦搜尋-每字全表掃⟧` 2026-09-02)——
