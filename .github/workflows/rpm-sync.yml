@@ -46,7 +46,7 @@
 # plan:docs/specs/2026-06-03-S5-scheduling-plan.md(Sean 拍 Q-S5-platform=A)。
 # V1 matrix(2026-07-05 雙跨模型審查 must-fix、Sean 拍 gbracing+bonamici 上架):每家一個獨立 job
 #   跑「自己完整一輪」(不變式 1 軟下架隔離);fail-fast:false = 一家 gate abort 不拖垮別家;
-#   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。matrix 涵蓋全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech+kspeed 2026-07-24 首灌後補入;🔴 extreme 為靜態一次性 fixture、刻意不列(supplier-config.ts:275-286)。
+#   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。matrix 涵蓋全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech+kspeed 2026-07-24 首灌後補入;🔴 extreme 為靜態一次性 fixture, 2026-10-03 起在 matrix 但只手動跑(sync 每一步的 if 排除它, 見 matrix 那一行的註解)。
 #
 # ⚠️ 已知陷阱:GitHub scheduled workflow 60 天無 repo 活動會被自動 disable(**本 repo 實查為 public、規則適用**)
 #   (無人值守需週期性 repo 活動或定期到 Actions 頁確認仍啟用)。
@@ -229,37 +229,41 @@ jobs:
       #      (它 09-04 抓的是「加了 dbk 而還寫 17」)⇒ 📌 **同型第二次 = 那不是誰不小心, 是這裡缺一道閘。**
       #      而它與實況(10-13 分)仍差兩個數量級;12:30 開跑約 13:40 前結束。
       matrix:
-        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed, dna, gilles, dbk, rizoma, wrs, arrow, ilmberger, ohlins] # 🔴 ohlins 2026-09-28 翻 writeAllowed 的【同一顆 commit】補入(同 ilmberger / arrow 的走法;首灌由誰跑待 Sean 答,這一顆等答了才合);🔴 ilmberger 2026-09-27 圖轉存 R2 後準備首灌、翻 writeAllowed 的【同一顆 commit】補入(同 arrow 的走法);🔴 arrow 2026-09-26 Sean Q15 甲批首灌後【同一顆 commit】補入(同 wrs 的走法);🔴 wrs 2026-09-08 Sean 拍板「開」批首灌後【同一顆 commit】補入(同 dbk / rizoma 的走法:翻 writeAllowed 的那一秒 supplier-config↔matrix 對帳測試當場紅, 就是它提醒補的);⚠️ 而本行加了第 20 家 ⇒ 上面那段時長算式的家數又過期一次, 刻意不改寫、當場重量才算數。全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 刻意不列(supplier-config.ts:275-286 靜態一次性 fixture、不接每日排程;原註寫 :249 是假行號、那裡是 ebc 區 —— R3 F6);samco 14165 變體序列跑較久但各 job ⛔ ~~6h~~ ⇒ **45 分**上限(:72);🔴 dbk 2026-09-04 Sean 逐字「甲 上」批首灌後【同一顆 commit】補入(而那道 supplier-config↔matrix 對帳測試在翻 writeAllowed 的那一秒當場紅, 就是它提醒補的);🔴 rizoma 2026-09-04 Sean 逐字「`q3: 上`」批首灌後【同一顆 commit】補入(同 dbk 的走法:翻 writeAllowed 的那一秒對帳測試會紅);dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照而來源每天更新;病灶=決定寫在 supplier-config.ts 那句「起排入每日班」而沒寫進本檔, 兩支之間零對帳;⚠️ 上面時長實測綁著它自己的 12 家、刻意不改寫成現值, 且 dna/gilles 實際時長未量(理由與數法見該 commit body)
+        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed, dna, gilles, dbk, rizoma, wrs, arrow, ilmberger, ohlins, extreme] # 🔴 ohlins 2026-09-28 翻 writeAllowed 的【同一顆 commit】補入(同 ilmberger / arrow 的走法;首灌由誰跑待 Sean 答,這一顆等答了才合);🔴 ilmberger 2026-09-27 圖轉存 R2 後準備首灌、翻 writeAllowed 的【同一顆 commit】補入(同 arrow 的走法);🔴 arrow 2026-09-26 Sean Q15 甲批首灌後【同一顆 commit】補入(同 wrs 的走法);🔴 wrs 2026-09-08 Sean 拍板「開」批首灌後【同一顆 commit】補入(同 dbk / rizoma 的走法:翻 writeAllowed 的那一秒 supplier-config↔matrix 對帳測試當場紅, 就是它提醒補的);⚠️ 而本行加了第 20 家 ⇒ 上面那段時長算式的家數又過期一次, 刻意不改寫、當場重量才算數。全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 2026-10-03 加入 matrix 但【只手動跑】(sync 每一步的 if 排除它;經銷價補匯第一部分)⇒ ⛔ ~~刻意不列~~(supplier-config.ts 靜態一次性 fixture、不接每日排程;原註寫 :249 是假行號、那裡是 ebc 區 —— R3 F6);samco 14165 變體序列跑較久但各 job ⛔ ~~6h~~ ⇒ **45 分**上限(:72);🔴 dbk 2026-09-04 Sean 逐字「甲 上」批首灌後【同一顆 commit】補入(而那道 supplier-config↔matrix 對帳測試在翻 writeAllowed 的那一秒當場紅, 就是它提醒補的);🔴 rizoma 2026-09-04 Sean 逐字「`q3: 上`」批首灌後【同一顆 commit】補入(同 dbk 的走法:翻 writeAllowed 的那一秒對帳測試會紅);dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照而來源每天更新;病灶=決定寫在 supplier-config.ts 那句「起排入每日班」而沒寫進本檔, 兩支之間零對帳;⚠️ 上面時長實測綁著它自己的 12 家、刻意不改寫成現值, 且 dna/gilles 實際時長未量(理由與數法見該 commit body)
     steps:
       # ⟦手動只跑一家⟧ 每一步同一個條件(job 層 if 看不到 matrix, 只能掛在 step):
+      #   🔴 2026-10-03 extreme 進 matrix 但【只手動跑】(Sean 批 extreme 經銷價補匯第一部分;計畫 ~/pcm-mailbox/計畫-extreme經銷價補匯-20261003.md 第四節):
+      #      後半多一個 `matrix.supplier != 'extreme'` ⇒ 排程、Mac mini 07:45 daily、不填 supplier 的手動都跳過 extreme;
+      #      只有手動填 supplier=extreme 時前半成立才跑。extreme 是靜態一次性來源, 不進每日同步。
+      #      守門:scripts/rpm-sync-workflow.test.ts「extreme 只手動跑」那組(把 if 照語意算一次, 不只比字面)。
       #   排程:supplier/dry_run 都是 null ⇒ `null == slug` 假、`!null && !null` 真 ⇒ 21 家照跑(= 改動前)。
       #   手動不填:'' 與 false ⇒ 後半真 ⇒ 21 家照跑(= 改動前的手動觸發)。
       #   手動填 supplier ⇒ 只有那一家前半真。手動勾 dry_run 而不填 supplier ⇒ 兩半都假 ⇒ 全 skip,由 dispatch-guard 紅。
       - name: Checkout
-        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run && matrix.supplier != 'extreme') }}
         uses: actions/checkout@v6
         with:
           submodules: false # 同步腳本不需 design-reference submodule
 
       - name: Setup pnpm
-        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run && matrix.supplier != 'extreme') }}
         uses: pnpm/action-setup@v6
         with:
           version: 9.15.0
 
       - name: Setup Node
-        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run && matrix.supplier != 'extreme') }}
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
-        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run && matrix.supplier != 'extreme') }}
         run: pnpm install --frozen-lockfile
 
       - name: Run supplier sync (full + S4 reconcile + V1 variant reconcile + S5 W1 gate)
-        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}
+        if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run && matrix.supplier != 'extreme') }}
         # secrets 注入 env;runner 無 .env.local、rpm-import existsSync 守會走此 process.env(S5-pre B1)。
         env:
           QUOTE_SUPABASE_URL: ${{ secrets.QUOTE_SUPABASE_URL }}
