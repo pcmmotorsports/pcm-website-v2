@@ -83,7 +83,7 @@ describe('訂單信文案:一份定義、兩邊各自取用(Sean 2026-09-03 拍�
     //    形狀對齊 `order-hidden-rule.ts` 的立場:副本在【測試】裡 = 絆線;
     //    副本在【production】裡 = 會漂的第二份真相。
     const { readFile } = await import('node:fs/promises');
-    const consumers = ['./paid-email-html.ts', './sweep-email-outbox.ts'];
+    const consumers = ['./paid-email-html.ts', './sweep-email-outbox.ts', './order-email-copy.ts'];
     for (const rel of consumers) {
       const src = await readFile(new URL(rel, import.meta.url), 'utf8');
       // 🛑 只看【非註解】的行 —— 註解裡引用這句話是刻意的(訃聞與說明),那不是副本。
@@ -98,7 +98,8 @@ describe('訂單信文案:一份定義、兩邊各自取用(Sean 2026-09-03 拍�
   it('🟢 正對照:上面那個 0 不是恆 0 —— 定義檔自己【必須】命中', async () => {
     // 🔴 沒有這一格,上面那個 `toHaveLength(0)` 在「尺根本沒讀到檔」時也會過。
     const { readFile } = await import('node:fs/promises');
-    const src = await readFile(new URL('./order-email-copy.ts', import.meta.url), 'utf8');
+    // 2026-10-02 信件文字第 1 片:句子的定義搬到 `email-copy-catalog.ts`(order-email-copy.ts 只轉手)⇒ 定義檔換成清單那支。
+    const src = await readFile(new URL('./email-copy-catalog.ts', import.meta.url), 'utf8');
     const codeLines = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
     const hits = codeLines.filter((l) => l.includes(ORDER_PAID_NEXT_STEP_SENTENCE));
     expect(hits.length, '定義檔裡應該【正好一處】非註解命中').toBe(1);

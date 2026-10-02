@@ -2,7 +2,8 @@ import { CANCEL_REASON_MAX_LEN, PCM_LINE_ID, PCM_LINE_URL } from './order-email-
 import { PAID_EMAIL_PDF_ATTACHED_SENTENCE } from './paid-email-html';
 import { describe, expect, it, vi } from 'vitest';
 import { readDeployCutoff } from './deploy-cutoff';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   PCM_REMITTANCE_BANK_NAME,
@@ -187,9 +188,14 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
   } as OutboxFake;
 }
 
+// 2026-10-02 信件文字第 1 片:本檔每一封經過 senderFake 的信都記下來, 檔尾那一格拿去和逐字快照比
+// (`__golden__/customer-emails.json`)⇒ 把文字搬到清單之後, 寄出的信要和搬之前一字不差。
+const ALL_SENDS: Array<ReturnType<typeof vi.fn>> = [];
+
 function senderFake(results: SendEmailResult[]): IEmailSender & { send: ReturnType<typeof vi.fn> } {
   const send = vi.fn();
   for (const r of results) send.mockResolvedValueOnce(r);
+  ALL_SENDS.push(send);
   return { send };
 }
 
@@ -578,6 +584,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j2 = job({ id: 'outbox-2', dedupKey: 'order-2', orderId: 'order-2' });
     const outbox = outboxFake([j1, j2]);
     const sender = { send: vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({ kind: 'sent', providerMessageId: null }) };
+    ALL_SENDS.push(sender.send); // 檔尾逐字快照也要記到這一封
     const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(res.errors).toBe(1);
     expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-2', 1, null, null);
@@ -4870,5 +4877,41 @@ describe('order_return_received —— 退貨收回通知(Sean 2026-09-27 A3 甲
       expect(sender.send).not.toHaveBeenCalled();
       expect(res.errors).toBe(1);
     }
+  });
+});
+
+// ─────────────── 信件逐字快照(2026-10-02 信件文字第 1 片)───────────────
+// 本檔前面所有測項寄出的信(主旨、純文字、HTML 指紋), 去重後必須【全部】出現在快照裡, 快照裡的每一封也必須還寄得出來。
+// 文字搬到清單、或之後員工改字的預設值, 只要寄出的信多一個字或少一個字, 這一格就紅。
+// 🔴 刻意放在檔尾:vitest 依檔內順序跑, 走到這裡時前面每一格都已經寄過。用 -t 只跑部分測項時這一格不會被選到。
+// 要更新快照(真的要改信件文字時):UPDATE_EMAIL_GOLDEN=1 跑本檔一次, 再看 git diff 確認改的就是想改的那幾句。
+describe('信件逐字快照', () => {
+  it('本檔寄出的每一封信, 與快照逐字相同', () => {
+    const goldenPath = join(__dirname, '__golden__', 'customer-emails.json');
+    const seen = new Set<string>();
+    for (const send of ALL_SENDS) {
+      for (const [input] of send.mock.calls as Array<[{ subject: string; text: string; html?: string }]>) {
+        // HTML 存指紋就好(整份 HTML 會讓快照檔大到 500 KB);多一個字指紋就不同, 一樣抓得到。
+        const htmlSha256 = input.html === undefined ? null : createHash('sha256').update(input.html).digest('hex');
+        seen.add(JSON.stringify({ subject: input.subject, text: input.text, htmlSha256 }));
+      }
+    }
+    const actual = [...seen].sort();
+    expect(actual.length, '一封信都沒記到 ⇒ 這一格量不到東西').toBeGreaterThan(50);
+    if (process.env.UPDATE_EMAIL_GOLDEN === '1') {
+      writeFileSync(goldenPath, JSON.stringify(actual.map((x) => JSON.parse(x)), null, 2) + '\n');
+      return;
+    }
+    const golden = (JSON.parse(readFileSync(goldenPath, 'utf8')) as unknown[]).map((x) => JSON.stringify(x)).sort();
+    // 只印變了的那幾封的純文字(HTML 太長), 讓人一眼看出是哪一句變了。
+    const goldenSet = new Set(golden);
+    const actualSet = new Set(actual);
+    const textOf = (x: string) => (JSON.parse(x) as { text: string }).text;
+    const changed = actual.filter((x) => !goldenSet.has(x)).map(textOf);
+    const missing = golden.filter((x) => !actualSet.has(x)).map(textOf);
+    expect(
+      { 快照裡沒有的信: changed, 快照裡有但沒再寄出的信: missing },
+      '寄出的信和快照不一樣。真的要改字的話:UPDATE_EMAIL_GOLDEN=1 跑本檔, 再看 git diff',
+    ).toEqual({ 快照裡沒有的信: [], 快照裡有但沒再寄出的信: [] });
   });
 });

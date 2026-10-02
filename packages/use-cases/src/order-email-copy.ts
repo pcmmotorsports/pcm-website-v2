@@ -44,15 +44,16 @@
  *    純文字沒有。共用的是這一句,不是整段。
  */
 import { orderTotal } from '@pcm/domain';
+// 2026-10-02 信件文字第 1 片:本檔的固定句子改從 `email-copy-catalog.ts` 取, 匯出的名字與值都不變。
+import { emailCopy } from './email-copy-catalog';
 
-export const ORDER_PAID_NEXT_STEP_SENTENCE =
-  '我們會盡快為您安排出貨，出貨後會再寄一封通知給您。';
+export const ORDER_PAID_NEXT_STEP_SENTENCE = emailCopy('paidNextStep');
 
 /**
  * HTML 那一份在主句**前面**多的那一句(稿有,純文字沒有)。
  * 放在本檔是為了讓「兩份差在哪」有一個看得到的落點,而不是散在兩支檔裡靠人比對。
  */
-export const ORDER_PAID_HTML_LEAD_SENTENCE = '這封信是這筆交易的明細。';
+export const ORDER_PAID_HTML_LEAD_SENTENCE = emailCopy('paidHtmlLead');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 頁尾聯絡資訊(Sean 2026-09-03 勾 A2:純文字那份要補上)
@@ -84,13 +85,13 @@ export const ORDER_PAID_HTML_LEAD_SENTENCE = '這封信是這筆交易的明細�
 // 🛑 **⇒ 而這是「暫時關掉保護而沒有人負責關回去」的鏡像** ——
 //    暫時拿掉一句話, 而**必須有東西記得把它加回來** ⇒ 板列 `⟦b4-REPLYTO1⟧`(態 `parked`)。
 //    🔴 而那一列的判別句**不是**「設定看起來對」, 是**真的寄一封信進 info@ 而收得到**。
-export const ORDER_CONTACT_LEAD = '有任何問題，加入官方 LINE';
+export const ORDER_CONTACT_LEAD = emailCopy('contactLead');
 
 /**
  * 品項缺品名時印的字。**兩份共用** —— 而它原本是**兩支檔各手打一份**(今天逐字相同,
  * 而那靠的是人)。⇒ 收進來之後,改一次兩份一起改。
  */
-export const ORDER_LINE_TITLE_MISSING = '(品名未記錄)';
+export const ORDER_LINE_TITLE_MISSING = emailCopy('lineTitleMissing');
 
 /** 官方 LINE 的短網址(排版那份 `<a href>` 用的就是它)。 */
 export const PCM_LINE_URL = 'https://lin.ee/egsf1Jy';
@@ -119,47 +120,47 @@ export function stripLineInviteForLinePush(text: string): string {
 //    「稅額」那列他拿掉 ⇒ 不印;主旨用草稿那句(他沒改)。改字只改這裡(純文字 + HTML 兩份都從這裡取)。
 // 🔴 他的尾段(會員中心 / LINE / 公司三段)與其他信共用的 standardTail【字面不同】—— 本信照他的, 其他信不動(要不要統一另問)。
 export const ORDER_PARTIALLY_CANCELLED_HEADLINE = (displayId: string, count: number): string =>
-  `您的訂單 ${displayId} 中有 ${count} 件商品已取消，其餘商品將照常為您處理。`;
-export const ORDER_PARTIALLY_CANCELLED_ITEMS_TITLE = '【本次取消商品】';
-export const ORDER_PARTIALLY_CANCELLED_AMOUNTS_TITLE = '【調整後訂單金額】';
-export const ORDER_PARTIALLY_CANCELLED_SUBTOTAL_LABEL = '商品小計';
-export const ORDER_PARTIALLY_CANCELLED_SHIPPING_LABEL = '物流運費';
-export const ORDER_PARTIALLY_CANCELLED_TOTAL_LABEL = '應付總額';
+  emailCopy('partiallyCancelledHeadline', { 訂單編號: displayId, 取消件數: String(count) });
+export const ORDER_PARTIALLY_CANCELLED_ITEMS_TITLE = emailCopy('partiallyCancelledItemsTitle');
+export const ORDER_PARTIALLY_CANCELLED_AMOUNTS_TITLE = emailCopy('partiallyCancelledAmountsTitle');
+export const ORDER_PARTIALLY_CANCELLED_SUBTOTAL_LABEL = emailCopy('partiallyCancelledSubtotalLabel');
+export const ORDER_PARTIALLY_CANCELLED_SHIPPING_LABEL = emailCopy('partiallyCancelledShippingLabel');
+export const ORDER_PARTIALLY_CANCELLED_TOTAL_LABEL = emailCopy('partiallyCancelledTotalLabel');
 /** 分支一:已付款, 需退款(差額 = 已付 − 調整後總額)。 */
 export const orderPartiallyCancelledOverpaidSentence = (amount: string): string =>
-  `您先前支付之款項大於調整後總額，差額 NT$ ${amount} 我們將於 3 個工作天內依原付款管道辦理退款（刷卡將刷退至原信用卡，匯款將退回您的指定帳戶）。退款完成後會再寄發通知信給您。`;
+  emailCopy('partiallyCancelledOverpaid', { 差額: amount });
 /** 分支二:已付款, 金額剛好。 */
-export const ORDER_PARTIALLY_CANCELLED_EXACT_SENTENCE =
-  '您先前支付之款項與調整後總額一致，您無需補繳款項，我們亦無需辦理退款。';
+export const ORDER_PARTIALLY_CANCELLED_EXACT_SENTENCE = emailCopy('partiallyCancelledExact');
 /** 分支三:尚未付款(已付 = 0)。 */
 export const orderPartiallyCancelledUnpaidSentence = (remaining: string): string =>
-  `本筆訂單目前尚未付款，請依調整後的應付總額 NT$ ${remaining} 完成付款即可。`;
+  emailCopy('partiallyCancelledUnpaid', { 應付總額: remaining });
 /**
  * 分支三之二:付了一部分、還差(0 < 已付 < 調整後總額)—— 🔴 Sean 定稿【沒有】這一格(他只給三支);
  * 這句是照他分支三的語氣補的, 待他過目(主視窗已知)。收訂金的匯款單被部分取消會走到這裡。
  */
 export const orderPartiallyCancelledShortSentence = (remaining: string, gap: string): string =>
-  `本筆訂單目前尚有 NT$ ${gap} 未付款，請依調整後的應付總額 NT$ ${remaining} 補足差額即可。`;
+  emailCopy('partiallyCancelledShort', { 應付總額: remaining, 尚欠金額: gap });
 /** Sean 定稿的尾段三句(與 standardTail 字面不同, 只本信用)。 */
-export const ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE = '若您為 PCM 註冊會員，可隨時至會員中心查閱最新訂單明細與備貨進度：';
-export const ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE = '如有任何疑問，歡迎加入官方 LINE 由專人為您服務：@pcmmoto';
+export const ORDER_PARTIALLY_CANCELLED_MEMBER_SENTENCE = emailCopy('partiallyCancelledMember');
+export const ORDER_PARTIALLY_CANCELLED_LINE_SENTENCE = emailCopy('partiallyCancelledLine');
 export const ORDER_PARTIALLY_CANCELLED_COMPANY_LINES: readonly string[] = [
-  'PCM 重機零件販售',
-  '派達有限公司（統一編號：90003020）',
-  '新北市新莊區化成路 736 巷 18 號 1 樓',
+  emailCopy('partiallyCancelledCompanyName'),
+  emailCopy('partiallyCancelledCompanyTaxId'),
+  emailCopy('partiallyCancelledCompanyAddress'),
 ];
 
 // ── 退貨收回通知(2026-09-27;Sean A3 Q3 甲 = 照計畫第二節草稿)──────────────────
 // 不寫商品狀況、不寫金額;草稿最後那句「如有問題，請透過 LINE 官方帳號與我們聯絡」由 standardTail 的 LINE 那一行承接, 不重複印。
-export const ORDER_RETURN_RECEIVED_HEADLINE = '我們已收到您寄回的商品：';
-export const orderReturnReceivedItemLine = (title: string, quantity: number): string => `・${title} ${quantity} 件`;
-export const ORDER_RETURN_RECEIVED_REFUND_SENTENCE = '退款會在確認後盡快處理，完成時會再通知您。';
+export const ORDER_RETURN_RECEIVED_HEADLINE = emailCopy('returnReceivedHeadline');
+export const orderReturnReceivedItemLine = (title: string, quantity: number): string =>
+  emailCopy('returnReceivedItem', { 品名: title, 數量: String(quantity) });
+export const ORDER_RETURN_RECEIVED_REFUND_SENTENCE = emailCopy('returnReceivedRefund');
 
 /** 公司抬頭與統編。⚠️ 中間是**全形空白**(U+3000),不是兩個半形 —— 照排版那份逐字。 */
-export const PCM_COMPANY_LINE = '派達有限公司　統一編號 90003020';
+export const PCM_COMPANY_LINE = emailCopy('companyLine');
 
 /** 公司地址。 */
-export const PCM_COMPANY_ADDRESS = '新北市新莊區化成路736巷18號1樓';
+export const PCM_COMPANY_ADDRESS = emailCopy('companyAddress');
 
 /**
  * 金額格式。**兩份共用** —— 排版那份的 `money()` 也委派到這裡。
@@ -244,8 +245,7 @@ export function formatOrderAmount(n: number): string {
  *    `paid-email-html.ts` 那顆「到會員中心查看訂單」按鈕**帶著同一個限制**,而它是
  *    Sean 2026-09-03 勾 A4 才印的 ⇒ **改它的字面不在「文案工程師改」這句話的射程裡**,已回報。
  */
-export const ORDER_MEMBER_CENTER_SENTENCE =
-  '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。';
+export const ORDER_MEMBER_CENTER_SENTENCE = emailCopy('memberCenter');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 取消通知信(`order_unpaid_cancelled` —— **未付款的單被【員工】取消**)
@@ -273,8 +273,7 @@ export const ORDER_MEMBER_CENTER_SENTENCE =
  * ⚠️ 而它與 `order_cancelled`(刷卡且已全額退款)那條線**互斥** —— 那條線的信要講退款,
  *    而**那封信不歸本檔管**(它的文案沒有稿也沒有拍板,見規格 §10)。
  */
-export const ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE =
-  '這張訂單尚未付款，不會有任何款項產生。';
+export const ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE = emailCopy('unpaidCancelledNoCharge');
 
 /**
  * 🔴🔴 **刷卡且【已全額退款】那條線的錢那一句**(Q10;Sean 2026-09-03 拍甲「補一封信」)。
@@ -288,8 +287,7 @@ export const ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE =
  *    📌 **一句話承諾了一件不由我們決定的事, 而它在紙上讀起來像資訊。**
  *    ✅ ⇒ 只寫**已經發生的事實**:錢退回去了、退到原本那張卡。
  */
-export const ORDER_CANCELLED_REFUNDED_SENTENCE =
-  '您支付的款項已全額退回原付款方式。';
+export const ORDER_CANCELLED_REFUNDED_SENTENCE = emailCopy('cancelledFullRefund');
 
 // ══ 2026-09-12 ⟦auth-PARTIALREFUNDCANCELGAP⟧ 完整版的三句(Sean Q1 拍甲 = 用 plan 的草稿)══
 //   plan `docs/plans/2026-09-12-partialrefundcancelgap-full-plan.md` 第 6 節 Q1。
@@ -297,16 +295,15 @@ export const ORDER_CANCELLED_REFUNDED_SENTENCE =
 
 /** 取消 + 只退了一部分(④)。`amount` 已經格式化過(千分位)。 */
 export function orderCancelledPartialRefundSentence(amount: string): string {
-  return `您支付的款項已退回 NT$ ${amount} 至原付款方式。其餘款項如有疑問,請加入官方 LINE 與我們聯繫。`;
+  return emailCopy('cancelledPartialRefund', { 退款金額: amount });
 }
 
 /** 這一筆退完之後整張單已全數退回、而訂單沒取消(⑤ `order_state = 'fully_refunded'`)。 */
-export const ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE =
-  '這筆退款後,這張訂單的款項已全數退回原付款方式。';
+export const ORDER_REFUND_NOW_FULLY_REFUNDED_SENTENCE = emailCopy('refundNowFullyRefunded');
 
 /** 已取消的單又退回一筆(⑤ `order_state = 'cancelled'`)。 */
 export function orderCancelledExtraRefundHeadline(displayId: string): string {
-  return `您已取消的訂單 ${displayId} 又退回一筆款項。`;
+  return emailCopy('cancelledExtraRefundHeadline', { 訂單編號: displayId });
 }
 
 
@@ -330,10 +327,10 @@ export function orderCancelledExtraRefundHeadline(displayId: string): string {
  */
 /** 取消信的開頭句;`%s` 由呼叫端代入訂單編號(缺編號時走另一句,見 `buildOrderUnpaidCancelledText`)。 */
 export const ORDER_CANCELLED_HEADLINE_WITH_ID = (displayId: string): string =>
-  `您的訂單 ${displayId} 已取消。`;
+  emailCopy('cancelledHeadlineWithId', { 訂單編號: displayId });
 
 /** 缺編號時的退化句 —— 🔴 **不印「undefined」也不印空白**(那會直接寄到客人眼前)。 */
-export const ORDER_CANCELLED_HEADLINE_NO_ID = '您的訂單已取消。';
+export const ORDER_CANCELLED_HEADLINE_NO_ID = emailCopy('cancelledHeadlineNoId');
 
 /**
  * 🔴🔴 **把「員工打的那段字」整理成【一行、有上限、沒有控制字元】的純文字。**
