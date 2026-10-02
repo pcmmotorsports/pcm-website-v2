@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const yml = readFileSync(join(__dirname, '..', '.github', 'workflows', 'rpm-sync.yml'), 'utf-8');
-const STEP_IF = "if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run) }}";
+const STEP_IF = "if: ${{ inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run && matrix.supplier != 'extreme') }}";
 
 function jobBlock(name: string): string {
   const start = yml.indexOf(`\n  ${name}:\n`);
@@ -14,12 +14,72 @@ function jobBlock(name: string): string {
   return next < 0 ? yml.slice(start) : yml.slice(start, start + 1 + next);
 }
 
+// 2026-10-03 extreme 經銷價補匯第一部分(計畫 ~/pcm-mailbox/計畫-extreme經銷價補匯-20261003.md 第四節):
+// extreme 進 matrix 但【只在手動填 supplier=extreme 時才跑】—— 排程、Mac mini 07:45 daily、不填 supplier 的手動都不跑它。
+// 🔴 這一組不比字面, 是把 sync 每一步的 if 拿出來【照 GitHub 的語意算一次】(只認這幾個 token, 認不得就丟錯)。
+const MANUAL_ONLY_SUPPLIERS = ['extreme'];
+
+function matrixList(): string[] {
+  const m = /supplier:\s*\[([^\]]*)\]/.exec(yml);
+  expect(m, '抽不到 matrix.supplier').not.toBeNull();
+  return m![1]!.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function syncStepIfs(): string[] {
+  const sync = jobBlock('sync');
+  return [...sync.matchAll(/\n {8}if: \$\{\{ (.+) \}\}\n/g)].map((x) => x[1]!);
+}
+
+type Trigger = { supplier: string | null; dry_run: boolean | null };
+function runsFor(expr: string, inputs: Trigger, supplier: string): boolean {
+  // 只容許這幾個 token;出現別的(例如新函式)就丟錯, 不讓它被誤算成 true/false。
+  const leftover = expr
+    .replace(/inputs\.supplier|inputs\.dry_run|matrix\.supplier|'[a-z0-9-]*'|==|!=|\|\||&&|!|\(|\)|\s+/g, '');
+  if (leftover !== '') throw new Error(`if 裡有算不了的東西:${leftover}`);
+  const js = expr.replace(/inputs\.(\w+)/g, 'I.$1').replace(/matrix\.supplier/g, 'M');
+  return Boolean(new Function('I', 'M', `return (${js});`)(inputs, supplier));
+}
+
+const SCHEDULE: Trigger = { supplier: null, dry_run: null }; // 排程:inputs 全是 null
+const DAILY: Trigger = { supplier: '', dry_run: false }; // Mac mini 07:45 daily / 不填 supplier 的手動
+
+describe('rpm-sync.yml extreme 只手動跑(2026-10-03)', () => {
+  it('extreme 在 matrix 裡(手動填 supplier=extreme 才有 job 可跑)', () => {
+    for (const s of MANUAL_ONLY_SUPPLIERS) expect(matrixList()).toContain(s);
+  });
+
+  it('🔴 排程與 daily:每一步都會跑其他家, 而 extreme 一步都不跑', () => {
+    const ifs = syncStepIfs();
+    expect(ifs.length).toBeGreaterThan(4);
+    for (const trig of [SCHEDULE, DAILY]) {
+      for (const s of matrixList()) {
+        const want = !MANUAL_ONLY_SUPPLIERS.includes(s);
+        for (const e of ifs) expect(runsFor(e, trig, s), `${JSON.stringify(trig)} supplier=${s}`).toBe(want);
+      }
+    }
+  });
+
+  it('🔴 手動填 supplier=extreme:只有 extreme 那個 job 跑;填別家時 extreme 不跑', () => {
+    for (const e of syncStepIfs()) {
+      for (const s of matrixList()) {
+        expect(runsFor(e, { supplier: 'extreme', dry_run: false }, s), `supplier=extreme matrix=${s}`).toBe(s === 'extreme');
+        expect(runsFor(e, { supplier: 'rpm', dry_run: false }, s), `supplier=rpm matrix=${s}`).toBe(s === 'rpm');
+      }
+    }
+  });
+
+  it('對照:這支算式認得出「全部都跑」—— 拿舊條件餵進去, extreme 在排程會跑', () => {
+    expect(runsFor("inputs.supplier == matrix.supplier || (!inputs.supplier && !inputs.dry_run)", SCHEDULE, 'extreme')).toBe(true);
+    expect(() => runsFor('contains(matrix.supplier, x)', SCHEDULE, 'rpm')).toThrow();
+  });
+});
+
 describe('rpm-sync.yml 手動 supplier / dry_run', () => {
-  it('排程本身沒動:cron 與 matrix 22 家仍在', () => {
+  it('排程本身沒動:cron 與 matrix 23 家仍在(extreme 只手動跑, 見上一組)', () => {
     // 2026-09-24 Sean 批准:每日那一輪改由 Mac mini 07:45 手動觸發(daily), 排程降為備援、表訂台灣 11:17(UTC 03:17)。
     expect(yml).toContain("- cron: '17 3 * * *'");
     const m = /supplier:\s*\[([^\]]*)\]/.exec(yml);
-    expect(m![1]!.split(',').map((s) => s.trim())).toHaveLength(22); // 2026-09-28 ohlins 翻 writeAllowed 時加入;⛔ ~~21~~ 2026-09-27 ilmberger 首灌準備時加入(圖已轉存 R2);⛔ ~~20~~ 2026-09-26 arrow 首灌後加入(Sean Q15 甲)
+    expect(m![1]!.split(',').map((s) => s.trim())).toHaveLength(23); // 2026-10-03 extreme 加入(只手動跑);⛔ ~~22~~ 2026-09-28 ohlins 翻 writeAllowed 時加入;⛔ ~~21~~ 2026-09-27 ilmberger 首灌準備時加入(圖已轉存 R2);⛔ ~~20~~ 2026-09-26 arrow 首灌後加入(Sean Q15 甲)
   });
 
   it('🔴 sync 的每一步都掛同一個 if(少一步 ⇒ 只跑一家時那一步會在 21 個 job 裡都跑)', () => {

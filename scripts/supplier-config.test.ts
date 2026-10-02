@@ -228,17 +228,19 @@ describe('getSupplierConfig', () => {
 // ══════════════════════════════════════════════════════════════════════════
 describe('supplier-config ↔ rpm-sync matrix 對帳', () => {
   /**
-   * 🔴 刻意不進每日 matrix 的家, 與**理由**。
-   * ⚠️ 這不是「白名單」而是【對帳的另一端】—— 下面用【嚴格相等】比,
-   *    所以多一家漏加會紅, **少一家(有人把 extreme 加進 matrix)也會紅**。
-   *    ⇒ 這張表自己不會靜靜過期。
+   * 🔴 在 matrix 裡、但【只在手動填 supplier=<這家> 時才跑】的家, 與**理由**。
+   * ⛔ ~~2026-10-02 以前這張表叫 DELIBERATE_EXCLUSIONS, 意思是「不在 matrix」~~ ⇒ 2026-10-03 extreme 經銷價補匯
+   *    (計畫 ~/pcm-mailbox/計畫-extreme經銷價補匯-20261003.md 第四節)把 extreme 放進 matrix,
+   *    改靠 sync 每一步的 if 排除它 ⇒ 每日同步仍然不跑它, 只多了「手動指定才跑」這條路。
+   * ⚠️ 下面兩個方向都用【嚴格相等】比:這張表多一家或少一家, 與 workflow 裡的 `matrix.supplier != '…'` 對不上就紅。
    */
-  const DELIBERATE_EXCLUSIONS: Record<string, string> = {
-    extreme: '靜態一次性 fixture、無每日更新來源(supplier-config.ts 該筆註解 + rpm-sync.yml 逐字「刻意不列」)',
+  const MANUAL_ONLY: Record<string, string> = {
+    extreme: '靜態一次性 fixture、無每日更新來源;2026-10-03 為經銷價補匯進 matrix, 只手動跑',
   };
 
+  const yml = readFileSync(join(__dirname, '..', '.github', 'workflows', 'rpm-sync.yml'), 'utf-8');
+
   function matrixSuppliers(): string[] {
-    const yml = readFileSync(join(__dirname, '..', '.github', 'workflows', 'rpm-sync.yml'), 'utf-8');
     const m = /supplier:\s*\[([^\]]*)\]/.exec(yml);
     // 自檢:抽不到就是正規式與檔案格式對不上 ⇒ 下面整段會恆真
     expect(m, 'rpm-sync.yml 抽不到 matrix.supplier ⇒ 正規式與檔案格式對不上, 本組會恆真').not.toBeNull();
@@ -253,9 +255,19 @@ describe('supplier-config ↔ rpm-sync matrix 對帳', () => {
     const missing = wa.filter((s) => !mat.has(s)).sort();
     expect(
       missing,
-      `這幾家已開寫而不在每日 matrix ⇒ 顧客站價格會凍在首灌快照。` +
-        `若是刻意不列, 把它加進 DELIBERATE_EXCLUSIONS 並寫理由;否則補進 rpm-sync.yml。`,
-    ).toEqual(Object.keys(DELIBERATE_EXCLUSIONS).sort());
+      `這幾家已開寫而不在 matrix ⇒ 連手動都跑不了。補進 rpm-sync.yml;` +
+        `若不要每日跑, 再把它加進 MANUAL_ONLY 並在 sync 每一步的 if 排除它。`,
+    ).toEqual([]);
+  });
+
+  it('🔴 只手動跑的家:workflow 排除的名單 = MANUAL_ONLY(多一家或少一家都紅)', () => {
+    const excludedInYml = [...new Set([...yml.matchAll(/matrix\.supplier != '([a-z0-9-]+)'/g)].map((x) => x[1]!))].sort();
+    expect(excludedInYml, 'rpm-sync.yml 裡用 matrix.supplier != 排除的家, 要與 MANUAL_ONLY 一致').toEqual(
+      Object.keys(MANUAL_ONLY).sort(),
+    );
+    for (const slug of Object.keys(MANUAL_ONLY)) {
+      expect(matrixSuppliers(), `MANUAL_ONLY 的「${slug}」不在 matrix ⇒ 手動指定也沒有 job 可跑`).toContain(slug);
+    }
   });
 
   it('🔴 matrix 裡的每一家都要 writeAllowed=true(否則那個 job 會【天天紅】)', () => {
@@ -267,7 +279,7 @@ describe('supplier-config ↔ rpm-sync matrix 對帳', () => {
   });
 
   it('🔴 例外表自己不會過期:每個例外都要仍然存在且仍然 writeAllowed=true', () => {
-    for (const [slug, why] of Object.entries(DELIBERATE_EXCLUSIONS)) {
+    for (const [slug, why] of Object.entries(MANUAL_ONLY)) {
       expect(SUPPLIER_CONFIGS[slug], `例外表列了「${slug}」而它已經不在 SUPPLIER_CONFIGS 裡 ⇒ 刪掉這個例外`).toBeDefined();
       expect(
         SUPPLIER_CONFIGS[slug]!.writeAllowed,

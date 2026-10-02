@@ -292,6 +292,8 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     writeAllowed: true,
   },
   // 上架第 15 家(2026-07-24):Extreme Components(義大利改裝件廠、靜態 fixture、不接每日排程)。
+  //   2026-10-03 進 rpm-sync.yml matrix 但【只手動跑】(sync 每一步的 if 排除它, 排程與 daily 都不跑)——
+  //   只為經銷價補匯能手動指定 supplier=extreme;計畫 ~/pcm-mailbox/計畫-extreme經銷價補匯-20261003.md。
   //   值皆 2026-07-24 MCP 實查:brands.slug='extreme'(name=EXTREME COMPONENTS、已有列 0 商品)、
   //   712 列/664 群(65 腳踏→17 群多變體 + 647 單品)、描述 712/712 繁中、圖 712/712 官網 https、
   //   3 大類(引擎部品/操控部品/車殼外觀)。65 腳踏變體 spec 由報價單 fetcher 補 4 軸

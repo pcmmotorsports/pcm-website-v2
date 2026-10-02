@@ -40,15 +40,24 @@ function read(file: string): string {
   return src;
 }
 
-/** `.github/workflows/rpm-sync.yml` 的 matrix 逐字取出(誰**真的**每天跑)。 */
+/**
+ * `.github/workflows/rpm-sync.yml` 的 matrix 逐字取出, 扣掉「只手動跑」的家(誰**真的**每天跑)。
+ * 🔴 2026-10-03 extreme 進 matrix 但 sync 每一步的 if 用 `matrix.supplier != 'extreme'` 排除它
+ *    (經銷價補匯第一部分)⇒ 「在 matrix」不再等於「每天跑」, 要把被排除的扣掉。
+ */
 function dailyMatrix(): string[] {
-  const m = /supplier:\s*\[([^\]]+)\]/.exec(read(WORKFLOW));
+  const yml = read(WORKFLOW);
+  const m = /supplier:\s*\[([^\]]+)\]/.exec(yml);
   const captured = m?.[1];
   // 🔴 前提斷言:regex 真的抓到 matrix。抓不到就回空陣列 ⇒ 下面每一格都恆綠。
   expect({ 'matrix regex 命中': typeof captured === 'string' }).toEqual({
     'matrix regex 命中': true,
   });
-  return (captured as string).split(',').map((x) => x.trim());
+  const manualOnly = new Set([...yml.matchAll(/matrix\.supplier != '([a-z0-9-]+)'/g)].map((x) => x[1]));
+  return (captured as string)
+    .split(',')
+    .map((x) => x.trim())
+    .filter((s) => !manualOnly.has(s));
 }
 
 /** `scripts/supplier-config.ts` 的所有 `supplierSlug` 欄(設定檔說「哪些家存在」)。 */
