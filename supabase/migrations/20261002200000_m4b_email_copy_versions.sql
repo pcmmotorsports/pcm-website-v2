@@ -39,6 +39,7 @@ CREATE TABLE public.email_copy_versions (
   CONSTRAINT email_copy_versions_text_format CHECK (
     text IS NULL OR (
       pg_catalog.char_length(text) BETWEEN 1 AND 300
+      AND pg_catalog.btrim(text) <> ''
       AND text !~ '[\r\n<>]'
     )
   ),
@@ -86,8 +87,8 @@ BEGIN
     'email_copy.save',
     'email_copy:' || p_key,
     pg_catalog.jsonb_build_object('text', CASE WHEN COALESCE(v_had, false) THEN pg_catalog.to_jsonb(v_before) ELSE 'null'::jsonb END,
-                                  'is_default', NOT COALESCE(v_had, false) OR v_before IS NULL),
-    pg_catalog.jsonb_build_object('text', pg_catalog.to_jsonb(p_text), 'is_default', p_text IS NULL),
+                                  'uses_default', NOT COALESCE(v_had, false) OR v_before IS NULL),
+    pg_catalog.jsonb_build_object('text', pg_catalog.to_jsonb(p_text), 'uses_default', p_text IS NULL),
     p_request_id,
     'admin'
   );

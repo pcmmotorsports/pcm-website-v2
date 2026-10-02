@@ -176,6 +176,13 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 2026-10-02 網站B 信件文字第 2 片(`20261002200000_m4b_email_copy_versions.sql`;作者就是我)。
+  //   形狀:text IS NULL OR (char_length(text) BETWEEN 1 AND 300 AND btrim(text) <> '' AND text !~ '[\r\n<>]')。
+  //   🔵 text = NULL 是刻意允許的業務值(= 還原成程式預設), 不是漏洞。
+  //   🔬 拋棄式 PG(09-15 dump + APPLIED + 本支, 非 superuser 貼)壞形狀全紅在本 CHECK:'' · '   ' · E'a\nb' · 'a<b>' · 301 字;
+  //     300 字、NULL 進得去(scripts/20261002200000-verify.sh「格式」那幾格)。
+  //   🔴 NULL 面:text 非 NULL 時括號內每一項都是非 NULL(char_length / btrim / 正則對非 NULL 輸入不回 NULL)⇒ 沒有短路成 NULL 的洞。
+  'email_copy_versions.email_copy_versions_text_format',
   // 2026-10-01 報價單Q1 貼板 262(`20261001170000_m4b_payment_fee_and_card_terminal.sql`;作者就是我)。三條同形:
   //   付款標記 IS NULL OR (標記值 AND 管道 = cash [AND 來源 = 蝦皮])。
   //   🔬 拋棄式 PG(09-15 dump + APPLIED 到 261 + 本支), 同一條運算式建 real(NOT NULL)/ weak(可 NULL)兩張暫存表實塞:

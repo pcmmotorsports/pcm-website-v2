@@ -37,11 +37,12 @@ cell "authenticated 讀不到、叫不到" "$(AS authenticated "select 1 from pu
 echo "── 存檔與操作紀錄 ──"
 AS service_role "select public.admin_save_email_copy('greeting', NULL, 'probe2', 'req-2')" >/dev/null
 cell "兩次存檔 ⇒ 兩列, 最新那列是還原(NULL)" "$(Q "select (select count(*) from public.email_copy_versions where copy_key='greeting') || '|' || coalesce((select text from public.email_copy_versions where copy_key='greeting' order by saved_at desc, id desc limit 1), 'NULL')")" "2|NULL"
-cell "操作紀錄:第一次 改前=預設、改後=新字" "$(Q "select before::text || ' => ' || after::text from public.admin_audit_log where request_id='req-1'")" '{"text": null, "is_default": true} => {"text": "您好呀，", "is_default": false}'
-cell "操作紀錄:第二次 改前=新字、改後=預設" "$(Q "select before::text || ' => ' || after::text from public.admin_audit_log where request_id='req-2'")" '{"text": "您好呀，", "is_default": false} => {"text": null, "is_default": true}'
+cell "操作紀錄:第一次 改前=預設、改後=新字" "$(Q "select before::text || ' => ' || after::text from public.admin_audit_log where request_id='req-1'")" '{"text": null, "uses_default": true} => {"text": "您好呀，", "uses_default": false}'
+cell "操作紀錄:第二次 改前=新字、改後=預設" "$(Q "select before::text || ' => ' || after::text from public.admin_audit_log where request_id='req-2'")" '{"text": "您好呀，", "uses_default": false} => {"text": null, "uses_default": true}'
 cell "操作紀錄的 action / target / actor" "$(Q "select action || '|' || target || '|' || actor from public.admin_audit_log where request_id='req-2'")" "email_copy.save|email_copy:greeting|probe2"
 echo "── 格式(第二道保險)──"
 cell "空字串擋" "$(AS service_role "select public.admin_save_email_copy('greeting', '', 'p', 'r')")" "check"
+cell "全是空白擋" "$(AS service_role "select public.admin_save_email_copy('greeting', '   ', 'p', 'r')")" "check"
 cell "換行擋" "$(AS service_role "select public.admin_save_email_copy('greeting', E'a\nb', 'p', 'r')")" "check"
 cell "< > 擋" "$(AS service_role "select public.admin_save_email_copy('greeting', 'a<b>', 'p', 'r')")" "check"
 cell "301 字擋、300 字可以" "$(AS service_role "select public.admin_save_email_copy('greeting', repeat('字', 301), 'p', 'r')")|$(AS service_role "select public.admin_save_email_copy('greeting', repeat('字', 300), 'p', 'r3')")" "check|ok"
