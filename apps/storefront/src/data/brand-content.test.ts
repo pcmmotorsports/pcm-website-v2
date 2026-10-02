@@ -395,3 +395,10 @@ describe('⟦supply-TEAMCOUNTMISMATCH⟧ WRS 不得印一個會過期的車隊�
     expect(blob.length, 'wrs 那一筆序列化後是空的 ⇒ 上面那個「沒命中」不證明任何事').toBeGreaterThan(500);
   });
 });
+
+describe('Akrapovic 寫法(Sean 2026-10-03 甲:站上一律無撇, 與 651 件商品名稱一致)', () => {
+  it('akrapovic 那一筆的所有文字(說明、影片標題、小標、圖片說明)都沒有 Akrapovič', () => {
+    expect(JSON.stringify(BRAND_BY_SLUG['akrapovic'])).not.toContain('Akrapovič');
+    expect(JSON.stringify(BRAND_BY_SLUG['akrapovic'])).toContain('Akrapovic');
+  });
+});

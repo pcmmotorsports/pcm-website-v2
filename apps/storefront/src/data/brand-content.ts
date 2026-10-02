@@ -92,7 +92,7 @@ export const BRAND_CONTENT: BrandContent[] = [
     "slogan": "聲浪只是結果，<br>材料才是原因。",
     "band": {
       "src": "assets/brands-hero/akrapovic.jpg",
-      "alt": "Akrapovič 廠內馬力機上的測試車",
+      "alt": "Akrapovic 廠內馬力機上的測試車",
       "focus": "center 58%"
     },
     "bandLogo": "assets/brands-dark/akrapovic.png",
@@ -120,25 +120,25 @@ export const BRAND_CONTENT: BrandContent[] = [
       ]
     ],
     "about": {
-      "lead": "<strong>聲浪之前，先有賽道。</strong>1991 年 Akrapovič 自賽車排氣系統起步，1997 年於世界超級摩托車錦標賽奪下首勝，2002 年登上 MotoGP,至 2015 年累計一百座世界冠軍。<br><br>自 2009 年啟用自有鈦合金鑄造廠與冶金實驗室起，從熔煉、成形到最終焊道全程收攏在斯洛維尼亞的自有廠區。您聽見的每一道聲浪，都由這條產線親手決定。",
+      "lead": "<strong>聲浪之前，先有賽道。</strong>1991 年 Akrapovic 自賽車排氣系統起步，1997 年於世界超級摩托車錦標賽奪下首勝，2002 年登上 MotoGP,至 2015 年累計一百座世界冠軍。<br><br>自 2009 年啟用自有鈦合金鑄造廠與冶金實驗室起，從熔煉、成形到最終焊道全程收攏在斯洛維尼亞的自有廠區。您聽見的每一道聲浪，都由這條產線親手決定。",
       "pull": "先有賽事需求，才有市售版本。",
-      "tail": "<strong>選擇 Akrapovič,不只是選擇聲浪。</strong>鈦合金在高溫環境下的強度可達商用純鈦合金的三倍，重量較不鏽鋼輕上四成——排氣是全車溫度最高的段落，這兩項數據在此才有意義。<br><br><strong>性能與法規之間，由我們為您拿捏。</strong>段別與觸媒配置決定這套系統偏向街道或賽道，也牽動驗車；即便同款車型，不同年式的吊架位置仍有差異。歡迎提供您的車型與出廠年份，由我們為您規劃最合適的方案。"
+      "tail": "<strong>選擇 Akrapovic,不只是選擇聲浪。</strong>鈦合金在高溫環境下的強度可達商用純鈦合金的三倍，重量較不鏽鋼輕上四成——排氣是全車溫度最高的段落，這兩項數據在此才有意義。<br><br><strong>性能與法規之間，由我們為您拿捏。</strong>段別與觸媒配置決定這套系統偏向街道或賽道，也牽動驗車；即便同款車型，不同年式的吊架位置仍有差異。歡迎提供您的車型與出廠年份，由我們為您規劃最合適的方案。"
     },
     "aside": {
       "src": "assets/brands-prod/akrapovic/muffler.jpg",
-      "alt": "Akrapovič 排氣尾段出口特寫",
+      "alt": "Akrapovic 排氣尾段出口特寫",
       "title": "鈦合金排氣尾段",
       "note": "雙出尾管的出口特寫。"
     },
     "video": {
       "youtube": "XxcrFUdhAZQ",
       "poster": "assets/brands-prod/akrapovic/company-film-poster.jpg",
-      "title": "Akrapovič Company Film",
+      "title": "Akrapovic Company Film",
       "caption": "官方 Company Film"
     },
     "highlights": {
-      "title": "為什麼是 Akrapovič",
-      "lead": "排氣系統的差異不只在聲浪。Akrapovič 將冶金、材料實驗與賽事驗證整合於自有體系，每一段管路的材料在出廠前皆經內部驗證。",
+      "title": "為什麼是 Akrapovic",
+      "lead": "排氣系統的差異不只在聲浪。Akrapovic 將冶金、材料實驗與賽事驗證整合於自有體系，每一段管路的材料在出廠前皆經內部驗證。",
       "cards": [
         {
           "t": "自熔煉起始的生產鏈",
@@ -146,7 +146,7 @@ export const BRAND_CONTENT: BrandContent[] = [
         },
         {
           "t": "自有配方的鈦合金",
-          "d": "Akrapovič 的鈦合金於<strong>高溫環境下</strong>的強度為商用純鈦合金的三倍，重量較不鏽鋼輕 40%。排氣系統是全車溫度最高的部位，這兩項數據才具實質意義。"
+          "d": "Akrapovic 的鈦合金於<strong>高溫環境下</strong>的強度為商用純鈦合金的三倍，重量較不鏽鋼輕 40%。排氣系統是全車溫度最高的部位，這兩項數據才具實質意義。"
         },
         {
           "t": "以賽事作為驗證場域",
@@ -265,14 +265,14 @@ export const BRAND_CONTENT: BrandContent[] = [
           "step": "01 — Materials & Lab",
           "t": "材料實驗室",
           "img": "assets/brands-prod/akrapovic/story-materials.webp",
-          "alt": "Akrapovič 材料實驗室與碳纖維部件檢測",
+          "alt": "Akrapovic 材料實驗室與碳纖維部件檢測",
           "d": "累積逾 35 年的鈦合金、不鏽鋼、碳纖維與鋁合金加工經驗，並自建材料實驗室與耐久測功機。輕量與強度在此不是形容詞，而是需要實際量測的數據。"
         },
         {
           "step": "02 — Titanium Foundry",
           "t": "自有鈦合金鑄造廠",
           "img": "assets/brands-prod/akrapovic/story-foundry.webp",
-          "alt": "Akrapovič 自有鈦合金鑄造廠澆鑄作業",
+          "alt": "Akrapovic 自有鈦合金鑄造廠澆鑄作業",
           "d": "2009 年起自行熔煉鈦合金。高溫下強度達商用純鈦合金三倍、重量較不鏽鋼輕 40%。排氣系統溫度最高的段落最能反映此一差異，而多數品牌僅能選用市售材料。"
         }
       ]

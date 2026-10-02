@@ -59,7 +59,7 @@ import { SearchOverlayProducts } from '@/components/SearchOverlayProducts';
 import { SEARCH_VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 
 /** 稿 `SearchOverlay.jsx:74` 的熱門搜尋 chips,逐字照搬。 */
-const POPULAR = ['排氣管', '碳纖維', '腳踏', 'Öhlins', 'Akrapovič', 'CBR600RR'];
+const POPULAR = ['排氣管', '碳纖維', '腳踏', 'Öhlins', 'Akrapovic', 'CBR600RR'];
 
 /** 打字停多久才打 API。太短 = 每個字一發請求;太長 = 客人以為壞了。 */
 const DEBOUNCE_MS = 220;
