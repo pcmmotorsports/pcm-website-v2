@@ -268,8 +268,9 @@ export async function searchManualOrderCatalog(
           catalogQuery()
             .in('product_id', rankedProductIds)
             .order('sku', { ascending: true })
-            // ponytail: 一件商品規格很多時只取前 200 個規格再排序;不夠再加大。
-            .limit(200),
+            // ponytail: 這裡照料號字母序截, 不是照相關度 ⇒ 上限要蓋得住「20 件 × 每件最多規格數」。
+            //   正式庫 2026-10-02 單件最多 29 個規格 ⇒ 每件抓 30;哪天出現超過 30 個規格的商品, 改成逐件撈。
+            .limit(MANUAL_ORDER_CATALOG_LIMIT * 30),
           'searchManualOrderCatalog(商品)',
         );
   return rankCatalogHits(needle, skuHits, productHits, rankedProductIds).slice(0, MANUAL_ORDER_CATALOG_LIMIT);
