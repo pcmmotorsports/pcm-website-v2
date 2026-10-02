@@ -43,6 +43,7 @@ import {
 import {
   orderDetailGoodsAxis,
   goodsAxisProgressNote,
+  summaryOrUntouched,
 } from '../../lib/orders/order-status-axes';
 import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import { AtomicFieldValue } from './atomic-field-value';
@@ -263,7 +264,10 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
       </>
     );
   }
-  const note = goodsAxisProgressNote(detail.items);
+  // 2026-10-02(TFJ2B5):沒動過的品項以 0 計(顯示用, `summaryOrUntouched`, 同焦點列);證不出的那項仍印「無法計算」。
+  const note = goodsAxisProgressNote(
+    detail.items.map((i) => ({ ...i, quantitySummary: summaryOrUntouched(i, detail) })),
+  );
   return (
     <>
       {GOODS_AXIS_LABEL[orderDetailGoodsAxis(detail)]}

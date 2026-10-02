@@ -759,7 +759,7 @@ describe('出貨狀態的解釋小字', () => {
    */
   it('🔴 摘要列不存在:印「尚未就緒」,絕不印「已訂 0 件」', async () => {
     const text = await render([{ ...line(3, 0), quantitySummary: null }]);
-    expect(text).toContain('部分品項數量資料尚未就緒');
+    expect(text).toContain('部分品項到貨數量無法計算');
     expect(text).not.toContain('已訂 0 件');
     expect(text).not.toContain('本單 3 件');
   });

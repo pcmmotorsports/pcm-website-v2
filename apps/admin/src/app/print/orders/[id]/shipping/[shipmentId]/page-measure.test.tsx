@@ -252,7 +252,7 @@ function builtCss(): { css: string; files: string[] } {
 
 /**
  * 🔴 `withQuantity` 存在的唯一理由:**`quantitySummary: null` 的揀貨單不是一張可以揀的紙。**
- * 預設的 `null` 會讓每一列都印「數量資料尚未就緒 / 這一項不要揀」、**一個勾選框都沒有**
+ * 預設的 `null` 會讓每一列都印「到貨數量無法計算 / 這一項不要揀」、**一個勾選框都沒有**
  * (`picking-doc.tsx` 的面5)⇒ 那份 fixture 只能當「品項表印得出來」的正向對照。
  *
  * 而 `B` 態(`itemsTruncated`)要看的東西**恰好相反**:它的病是
@@ -555,7 +555,7 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //      sh scripts/pagecount.sh --png <測試印出來的產物目錄>/picking-blocked-cancelled.html <dir>
     //      (產物目錄每次執行不同 ⇒ 搜測試輸出裡的「產物目錄:」那一行)
     // ⚠️ **`picking-normal` 那一份【不是】一張真實的揀貨單**:本檔的 `detail()` 把
-    //    `quantitySummary` 建成 `null` ⇒ 每一列都會印「數量資料尚未就緒 / 這一項不要揀」。
+    //    `quantitySummary` 建成 `null` ⇒ 每一列都會印「到貨數量無法計算 / 這一項不要揀」。
     //    ⇒ 它的用途**只有一個:當上面兩份的正向對照**(證明品項表本來印得出來)。
     //    **不要拿它去驗揀貨單的正常版面。**
     const normal = await emitPicking(3, 'picking-normal');
@@ -639,8 +639,8 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    （codex R2 must-fix 1 的修法把那個 span 整個拿掉, 數量欄改印訂購量）。
     //    📌 **⇒ 我選了一個錨, 然後在同一片的後面把它移除 —— 而兩件事之間隔了六個修正。**
     //    ✅ 換成【現在真的還活著】的錨:頁首 Alert 的字面（當場量:noqty=1 · normal=0）。
-    expect(noQty).toContain('數量資料尚未就緒');
-    expect(normal).not.toContain('數量資料尚未就緒');
+    expect(noQty).toContain('到貨數量無法計算');
+    expect(normal).not.toContain('到貨數量無法計算');
 
     // 🔴🔴 **真尺寸那一份**:`B` 態的觸發條件是**剛好載到 200 筆**
     //    (`ORDER_ITEMS_EMBED_LIMIT = 200`,`packages/adapters/src/supabase/mappers/order.ts:407`,
@@ -1312,14 +1312,14 @@ describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁
       // 🔴 錨的正對照先跑 —— 錨死了的話下面兩道會一半全紅一半全綠。
       expect(assertAnchorsAlive(pages, ANCHORS), `${n} 項:錨還活著嗎`).toEqual([]);
       // 🔴🔴 **世界活錨(`code-reviewer` M6)** —— `emitPicking(..., withQuantity=true)` 是刻意的:
-      //    `withQuantity=false` 那個世界每一列都印「數量資料尚未就緒 / 這一項不要揀」,
+      //    `withQuantity=false` 那個世界每一列都印「到貨數量無法計算 / 這一項不要揀」,
       //    本檔 `:504-507` 逐字說它**只能當正向對照、不要拿去驗版面**。
       //    ⚠️ 而【檔名答不出它是哪一張紙】—— 那正是本檔 doc 那句「不要靠檔名認世界」的病。
       //    ⇒ 每一發都問一次:這一份**不得**是那個 null 世界。
       expect(
         pages.join('\n'),
         `${n} 項:這一發必須站在【有數量】那個世界(withQuantity=true)`,
-      ).not.toContain('數量資料尚未就緒');
+      ).not.toContain('到貨數量無法計算');
       seenP.set(n, {
         pages: pages.length,
         blank: blankPages(pages, ANCHORS),

@@ -1109,7 +1109,7 @@ export function ShippingDoc({
             >
               {outstandingRows.map(({ item, qty }, i) => (
                 /* 🔴 `pd-wait` 是**稿的列語彙**:`tr.pd-wait .pd-state{font-weight:700;color:var(--pd-ink)}`
-                   ⇒ 「數量資料尚未就緒」在紙上是**粗的主色**,不是一行灰字。
+                   ⇒ 「到貨數量無法計算」在紙上是**粗的主色**,不是一行灰字。
                    ⚠️ 改前那句用 `text-amber-800`(琥珀)——**單色雷射印表機上它就是灰的**,
                       而紙面調色盤本來就只有五階灰。⇒ 用「粗 + 主色」表達「這一列要注意」,不靠顏色。 */
                 <tr key={item.id} className={qty === null ? 'border-b pd-wait' : 'border-b'}>
@@ -1123,13 +1123,13 @@ export function ShippingDoc({
                       🔴 這與 R1 抓到的 `.pd-sku` 是**同族、同一輪、同一支檔**,而我只修了一個。
                          **我的量具沒看到它,因為量具用 `querySelector` 只取第一個 section。**
                       ⇒ 現在與另外兩區共用同一組類 `pd-num pd-strong`(有真規則、具體度夠)。
-                      ⚠️ **只有數字那一支給 `pd-strong`** —— 「數量資料尚未就緒」是**警告不是數字**,
+                      ⚠️ **只有數字那一支給 `pd-strong`** —— 「到貨數量無法計算」是**警告不是數字**,
                          給它 10pt 粗會讓一個「不要動這項」的訊息看起來像一個要照做的量。 */}
                   {qty === null ? (
                     <td data-slot='qty' className='pd-num'>
                       {/* 🔴 不知道就明說,**不印下單量、不補 0**(契約見 `outstandingQuantity` docstring)。 */}
                       <span className='pd-state'>
-                        數量資料尚未就緒
+                        到貨數量無法計算
                         <br />
                         這一項不要當成已出貨
                       </span>

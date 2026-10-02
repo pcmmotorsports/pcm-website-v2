@@ -266,14 +266,14 @@ describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
     // 「已取消」是例外不是第四軸 —— 它不在 `.pcm-step` 裡。
     expect(step!.textContent).not.toContain('已取消');
     expect(container.textContent).toContain(`已取消 ${DISTINCT_SUMMARY.cancelledQuantity}`);
-    expect(container.textContent).not.toContain('數量資料尚未就緒');
+    expect(container.textContent).not.toContain('到貨數量無法計算');
   });
 
   it('🔴 摘要為 null = 「不知道」不是「都是 0」:顯示未就緒、不得出現補 0 的數字', async () => {
     mocks.findAdminOrderDetail.mockResolvedValue(detail(null));
     const { getByText, container } = await renderPage();
 
-    expect(getByText('數量資料尚未就緒')).toBeTruthy();
+    expect(getByText('到貨數量無法計算')).toBeTruthy();
     // 🔴 這一行是「有人寫 `?? 0`」的突變證。
     //    ⚠️ **2026-08-19 片5 更新 —— 原本的 `not.toContain('0/4')` 已經恆綠**:
     //       ①值那格已無「訂貨」二字(三個字搬去欄頭)

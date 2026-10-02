@@ -117,6 +117,12 @@ const ALLOWED_IMPORTERS = [
   //      那條路照舊讀 `item.quantitySummary` 的 `| null` 原型、fail-closed;本檔沒有把補過的值傳進去。
   //   ✅ **它不是無條件補 0**:只有「沒採購、沒取消、兩份清單都讀得完整」才補;證不出就回 null 照舊印「尚未就緒」。
   //   ⚠️ 殘餘風險同上方第 ③④ 條:哪天有人把 `shownSummary` / `shownItem` 傳進取消或採購上限 ⇒ 本閘不會紅。
+  'components/orders/item-procurement-section.tsx',
+  // ↑ 🔴 2026-10-02 網站B 加入(TFJ2B5「數量資料尚未就緒」誤報;主視窗派工)。**判斷:**
+  //   用途:採購區那一行「還有 N 件尚未登記來源」改讀 `summaryOrUntouched(item, detail)` —— 與明細表同一支。
+  //   ✅ **純顯示**:那一行只是提示文字, 不擋任何按鈕;採購表單與取消上限不吃它(表單照舊讀 `item`)。
+  //   ✅ 不是無條件補 0:讀不完整 ⇒ 照舊回 null、印「到貨數量無法計算」。
+  //   🔴 哪天有人拿這個數去擋採購表單或算上限 ⇒ 這條判斷作廢, 本閘不會紅(上方第 ③④ 條)。
   'components/orders/order-detail-items-table.tsx',
   'components/orders/order-detail-summary-cards.tsx',
   // 🔴 2026-08-27 線1 加入。**而我先做了上方要求的判斷,判斷寫在這裡,不是只加一行:**
@@ -139,6 +145,13 @@ const ALLOWED_IMPORTERS = [
   //      **我就是那個人。** ⇒ 第二道不是這道閘,是 `code-reviewer` 讀上面這段判斷。
   'components/orders/order-focal-row.tsx',
   'components/orders/orders-table.tsx',
+  'components/print/picking-doc.tsx',
+  // ↑ 🔴 2026-10-02 網站B 加入(同上, TFJ2B5)。**判斷:**
+  //   用途:訂單明細(原揀貨單)那張紙的狀態欄「未到貨 N」、頁首黃框(有幾項無法計算)、合計「N 項未到貨」。
+  //   ⚠️ 它【不是純顯示】—— 紙上的數字會讓人去倉庫做動作。而補出來的摘要 instock = 0、shipped = 0
+  //      ⇒ 可揀量 = 0、未到貨 = 客人買的件數 ⇒ 紙上說的是「還沒到、沒東西可揀」, 那是對的, 而且往保守那邊。
+  //      證不出沒動過(採購 / 取消讀不到或截斷)照舊 null ⇒ 黃框照講。與 `shipment-candidates.ts` 同一個論證。
+  //   🔴 哪天有人讓補出來的摘要帶非 0 的 instock ⇒ 這條判斷作廢, 本閘不會紅。
   // 🔴 2026-08-26 線1 加入。**而我先做了上面那段要求的判斷,判斷寫在這裡,不是只加一行:**
   //   用途:`order-export.ts:101` 只取 `orderStatusView(order).label`,寫進 CSV 的「狀態」欄。
   //   ✅ 它**不餵任何守門/上限/可否取消的判斷** —— 那一欄是一段給人看的文字。

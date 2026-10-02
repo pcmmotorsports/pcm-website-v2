@@ -109,7 +109,7 @@ describe('🔴 拆檔片呼叫端守門:搬進 support 檔的東西,ItemsTable �
         suppliersFailed={false}
       />,
     );
-    expect(container.textContent).toContain('數量資料尚未就緒');
+    expect(container.textContent).toContain('到貨數量無法計算');
     // 三軸各印一個「—」(pcm-pill 裡)。數 pill 不數字面:「—」也出現在別的空欄。
     const pills = [...container.querySelectorAll('.pcm-pill')];
     expect(pills).toHaveLength(3);

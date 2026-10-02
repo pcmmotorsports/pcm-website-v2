@@ -94,7 +94,7 @@ export function ItemAxisValue({
  */
 export function ItemAxisMissingNote({ summary }: { summary: AdminOrderItemQuantitySummary | null }) {
   if (summary) return null;
-  return <div className='text-muted-foreground mt-0.5 text-xs'>數量資料尚未就緒</div>;
+  return <div className='text-muted-foreground mt-0.5 text-xs'>到貨數量無法計算</div>;
 }
 
 /**
