@@ -154,6 +154,25 @@ describe('訂單列表文字複製（甲方案）', () => {
     expect(nav.getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('🔴 商品複製鈕在勾選框正下方, 只印「複」, 滑過與報讀都是「複製商品資料」(Sean 2026-10-02 列表變窄)', () => {
+    const { getByRole } = render(<OrdersTable orders={[order({ lines: [line('l-pos', 1, 12000)] })]} buildOpenHref={panelHref} expanded={{ orderId: 'ord-1', node: <div>展開摘要</div> }} />);
+    const button = getByRole('button', { name: '複製商品資料' });
+    expect(button.closest('td')?.className, '複製鈕不在勾選框那一格').toContain('col-pick');
+    expect(button.textContent).toBe('複');
+    expect(button.getAttribute('title')).toBe('複製商品資料');
+    expect(button.closest('td')?.querySelector('input[type="checkbox"]'), '那一格沒有勾選框').not.toBeNull();
+  });
+
+  it('🔴 單號連結只靠 24px 行高達到最小點擊高度, 上下不再多 5px 內距 ⇒ 每張單第一列矮 10px(Sean 2026-10-02 列表變窄)', () => {
+    const cssPath = join(__dirname, 'order-copy-button.css');
+    const decls = new Map<string, string>();
+    postcss.parse(readFileSync(cssPath, 'utf8'), { from: cssPath }).walkRules((r) => {
+      if (r.selector.replace(/\s+/g, ' ').trim() === '.orders-grid .oid-sub a') r.walkDecls((d) => { decls.set(d.prop, d.value.trim()); });
+    });
+    expect(decls.get('line-height'), '行高低於 24px ⇒ 單號連結太小不好點').toBe('24px');
+    expect(decls.get('padding') ?? '0', '單號連結上下還有內距 ⇒ 第一列被撐高').toBe('0');
+  });
+
   it('缺少車款與品牌時保留空欄，不複製佔位符', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });

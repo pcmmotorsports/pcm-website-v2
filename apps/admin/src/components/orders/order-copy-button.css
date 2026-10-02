@@ -52,8 +52,27 @@
   pointer-events: none;
   font-size: 14px;
 }
-.order-item-copy { display: block; margin-top: 4px; margin-bottom: 4px; }
-.orders-grid .oid-sub a { padding: 5px 0; line-height: 24px; }
+/* 品項複製鈕:勾選框正下方、跟勾選框一樣 16px 見方、只印「複」(Sean 2026-10-02 列表變窄)。
+   可點範圍用 ::after 往左上下各多 4px(右邊是格子邊, 超出會被 td 的 overflow 切掉)。
+   動效跟同日的訂單動作鈕一致:滑過上浮 1px + 框線加深、按下縮 0.95;不加陰影(設計守門禁陰影)。 */
+.order-item-copy { display: block; margin-top: 4px; }
+.order-copy-glyph {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--card);
+  font-size: 10px; line-height: 1; font-weight: 600; color: var(--muted-foreground);
+  transition: transform 150ms, border-color 150ms, background-color 150ms, color 150ms;
+}
+.order-copy-glyph::after { content: ''; position: absolute; inset: -4px 0 -4px -4px; }
+.order-copy-glyph:hover { transform: translateY(-1px); border-color: var(--input); color: var(--foreground); }
+.order-copy-glyph:active { transform: scale(0.95); }
+.order-copy-glyph[data-copied] { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+@media (prefers-reduced-motion: reduce) {
+  .order-copy-glyph { transition: none; }
+  .order-copy-glyph:hover, .order-copy-glyph:active { transform: none; }
+}
+/* 單號連結:24px 行高本身就是最小點擊高度;2026-10-02 拿掉上下 5px 內距, 每張單第一列矮 10px(Sean:列表少浪費空間)。 */
+.orders-grid .oid-sub a { padding: 0; line-height: 24px; }
 .order-date-label::before { content: '▸'; display: inline-block; margin-right: 3px; font-size: 10px; }
 .order-date-label[data-expanded='true']::before { transform: rotate(90deg); }
 .order-recipient-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

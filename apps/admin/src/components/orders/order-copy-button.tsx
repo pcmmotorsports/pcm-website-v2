@@ -4,11 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import './order-copy-button.css';
 
-/** 只接待複製的文字，不接整包訂單、金額或會員等級。 */
-export function OrderCopyButton({ value, label, text = false, className = '' }: {
+/**
+ * 只接待複製的文字，不接整包訂單、金額或會員等級。
+ * `glyph`：按鈕只印這一個字（例如「複」），完整說明放在滑過提示與報讀（Sean 2026-10-02 列表變窄）。
+ */
+export function OrderCopyButton({ value, label, text = false, glyph, className = '' }: {
   value: string;
   label: string;
   text?: boolean;
+  glyph?: string;
   className?: string;
 }) {
   const [message, setMessage] = useState('');
@@ -41,9 +45,11 @@ export function OrderCopyButton({ value, label, text = false, className = '' }: 
     <>
       <button
         type='button'
-        className={`order-copy ${text ? 'order-copy-text' : 'order-copy-action'} ${className}`}
+        className={`order-copy ${text ? 'order-copy-text' : glyph ? 'order-copy-glyph' : 'order-copy-action'} ${className}`}
         data-order-copy={text ? 'text' : 'group'}
+        data-copied={glyph && message === '已複製' ? '' : undefined}
         aria-label={label}
+        title={glyph ? label : undefined}
         disabled={!value}
         onClick={(event) => {
           event.stopPropagation();
@@ -51,7 +57,7 @@ export function OrderCopyButton({ value, label, text = false, className = '' }: 
           void copy();
         }}
       >
-        {text ? value || '未填' : label}
+        {text ? value || '未填' : glyph ?? label}
       </button>
       {message ? createPortal(<div className='order-copy-feedback' role='status'>{message}</div>, document.body) : null}
     </>

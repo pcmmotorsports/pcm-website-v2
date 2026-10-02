@@ -560,6 +560,13 @@ function OrderGroup({
             {line ? (
               <td className={`${TD} ${CELL.pick} relative z-10`}>
                 <OrderItemCheckbox orderId={order.id} itemId={line.id} />
+                {/* 品項複製鈕 2026-10-02 從品名下方搬來勾選框正下方、縮成「複」一字(Sean:列表不要那麼寬、少浪費空間)。
+                    原本那顆 97×32 的鈕把展開時的品名格撐高。 */}
+                {expanded !== null ? (
+                  <span className='order-item-copy'>
+                    <OrderCopyButton glyph='複' label='複製商品資料' value={[vehicleText ?? '', line.brand ?? '', line.variantSku ?? '', line.title ?? ''].join(',')} />
+                  </span>
+                ) : null}
               </td>
             ) : (
               <td className={`${TD} ${CELL.pick}`} />
@@ -832,11 +839,6 @@ function OrderGroup({
               {showArrival && line && lineArrivalNote(line) !== null ? (
                 <span className='text-muted-foreground block text-[11px] leading-[1.3]' data-testid='line-arrival'>
                   {lineArrivalNote(line)}
-                </span>
-              ) : null}
-              {expanded !== null && line ? (
-                <span className='order-item-copy'>
-                  <OrderCopyButton label='複製商品資料' value={[vehicleText ?? '', line.brand ?? '', line.variantSku ?? '', line.title ?? ''].join(',')} />
                 </span>
               ) : null}
             </td>
