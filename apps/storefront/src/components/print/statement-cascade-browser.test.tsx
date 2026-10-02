@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -39,25 +40,77 @@ import { buildStatementHtml, parseFontFaces } from '@/lib/print/statement-html';
 // ⚠️ **射程**:它量的是 CSS 誰贏,**不是紙好不好看** —— 版面美醜、字級順不順眼由肉眼驗。
 
 const REPO = join(__dirname, '../../../../..');
-const CHUNKS = join(REPO, 'apps/storefront/.next/static/chunks');
+const NEXT_DIR = join(REPO, 'apps/storefront/.next');
+const CHUNKS = join(NEXT_DIR, 'static/chunks');
+const SERVER_APP = join(NEXT_DIR, 'server/app');
+const STATEMENT_ROUTE = '/account/orders/[displayId]/statement/page';
 
-/** 從編譯產物裡撈含指定字面的那支 CSS。找不到 ⇒ throw(不 skip)。 */
-function compiledCss(marker: string): string {
-  let files: string[];
-  try {
-    files = readdirSync(CHUNKS).filter((f) => f.endsWith('.css'));
-  } catch {
-    throw new Error(`讀不到 ${CHUNKS} —— 先跑 \`TURBO_FORCE=1 pnpm build\``);
-  }
+/**
+ * 某一頁【自己】載入的 CSS(讀 Next 的 client-reference-manifest 的 entryCSSFiles)。
+ * 🔴 2026-10-02 改:舊版掃整個 `static/chunks/` 取「第一支含那個字面的」——
+ *    09-28 首頁大標(HomeHero)另宣告一份只有 700 的 Noto_Sans_TC ⇒ 有兩支 CSS 都含 `Noto Sans TC Fallback`,
+ *    檔名是雜湊、讀目錄的順序每次 build 不同 ⇒ 挑到首頁那支就紅(而對帳單頁本身兩個字重都在)。
+ *    ⇒ 只看這一頁的 entryCSSFiles。manifest 不在、這一頁不在、清單是空的, 一律 throw(不 skip)。
+ */
+function pageCssFiles(manifestPath: string, route: string): string[] {
+  if (!existsSync(manifestPath))
+    throw new Error(`讀不到 ${manifestPath} —— 先跑 \`TURBO_FORCE=1 pnpm build\``);
+  const sandbox: { __RSC_MANIFEST?: Record<string, { entryCSSFiles?: Record<string, { path?: string }[]> }> } = {};
+  new Function('globalThis', readFileSync(manifestPath, 'utf8'))(sandbox);
+  const m = sandbox.__RSC_MANIFEST?.[route];
+  if (!m) throw new Error(`${manifestPath} 裡沒有 ${route} 這一頁`);
+  const key = Object.keys(m.entryCSSFiles ?? {}).find((k) => k.endsWith(`/src/app${route}`));
+  const files = (key ? (m.entryCSSFiles?.[key] ?? []) : []).map((f) => f.path ?? '').filter((p) => p.endsWith('.css'));
+  if (files.length === 0) throw new Error(`${route} 的 entryCSSFiles 是空的 —— 量不到它自己的 CSS`);
+  return files;
+}
+
+/** 從對帳單頁自己的 CSS 裡撈含指定字面的那支。找不到 ⇒ throw(不 skip)。 */
+function compiledCss(marker: string, route = STATEMENT_ROUTE): string {
+  const manifest = join(SERVER_APP, `${route}_client-reference-manifest.js`);
+  const files = pageCssFiles(manifest, route);
   const hit = files
-    .map((f) => readFileSync(join(CHUNKS, f), 'utf8'))
+    .map((f) => {
+      const p = join(NEXT_DIR, f);
+      if (!existsSync(p)) throw new Error(`entryCSSFiles 指到一個不存在的檔:${f}`);
+      return readFileSync(p, 'utf8');
+    })
     .find((css) => css.includes(marker));
   if (hit === undefined) {
     throw new Error(
-      `編譯產物裡找不到含 \`${marker}\` 的 CSS(掃了 ${files.length} 支)—— 先跑 \`TURBO_FORCE=1 pnpm build\``,
+      `${route} 自己的 CSS 裡找不到含 \`${marker}\` 的那支(掃了 ${files.length} 支)—— 先跑 \`TURBO_FORCE=1 pnpm build\``,
     );
   }
   return hit;
+}
+
+/**
+ * 被標為 Noto Sans TC 的 face 有什麼不對(空陣列 = 沒問題)。② 那格與它的反例共用, 才證得出這把尺分得出好壞。
+ */
+function notoFaceProblems(fontCss: string): string[] {
+  const out: string[] = [];
+  const faces = [...fontCss.matchAll(/@font-face\{(.*?)\}/gs)].map((m) => m[1] ?? '');
+  // 🔴 分母:先證解析器抓得到東西, 否則下面每一條都會在一個空陣列上恆真。
+  if (faces.length <= 50) out.push(`@font-face 只有 ${faces.length} 個`);
+  // 命名:`labelledNoto` 而不是 `noto` —— 它是「被標成那個名字的」, 不是「經過驗證的那個字型」。
+  const labelledNoto = faces.filter((f) => /font-family:Noto Sans TC;/.test(f));
+  // 🔴 這條正規式**刻意帶結尾分號** —— 不帶的話 `Noto Sans TC Fallback` 也會被算進來。
+  const fallbackOnly = faces.filter((f) => /font-family:Noto Sans TC Fallback/.test(f));
+  if (fallbackOnly.length !== 1) out.push(`度量替身有 ${fallbackOnly.length} 個(應為 1)`);
+  if (labelledNoto.length <= 50) out.push(`Noto Sans TC face 只有 ${labelledNoto.length} 個`);
+  if (fallbackOnly[0] !== undefined && labelledNoto.includes(fallbackOnly[0])) out.push('度量替身被算成 Noto');
+  // 兩個字重都要有(`page.tsx` 要的是 400 + 700;紙上有 22 條 font-weight:700)
+  for (const w of ['400', '700']) {
+    const n = labelledNoto.filter((f) => f.includes(`font-weight:${w};`)).length;
+    if (n <= 50) out.push(`字重 ${w} 只有 ${n} 個 face`);
+  }
+  // 每一個 Noto face 的 src 都要是相對的 `../media/…`, 而且那個檔要真的在磁碟上。
+  // 🔴 `../media/` 是**開編譯產物抄的**:`/_next/static/media/` 那個絕對形式只出現在 dev。
+  const urls = labelledNoto.map((f) => /src:url\(([^)]+)\)/.exec(f)?.[1] ?? '');
+  if (!urls.every((u) => u.startsWith('../media/'))) out.push('有 face 的 src 不是 ../media/');
+  if (fontCss.includes('fonts.gstatic.com')) out.push('指到 fonts.gstatic.com');
+  for (const u of urls) if (!existsSync(join(CHUNKS, u))) out.push(`編譯產物指到一個不存在的字型檔:${u}`);
+  return out;
 }
 
 const twd = (n: number) => ({ amount: toMoneyAmount(n), currency: 'TWD' as const });
@@ -315,39 +368,43 @@ describe('片 B:自 host 字型在編譯產物裡(不開瀏覽器)', () => {
     // 🔴 這一格被 codex R4 打回過一次:我第一版只驗「同一支 chunk 裡有相對 URL」——
     //    **那沒有把 URL 綁到 Noto 那個 face 上**(同一支 chunk 裡還住著度量替身),
     //    也沒有驗字重、沒有驗檔案真的存在。⇒ 現在逐個 face 解析。
-    const fontCss = compiledCss('Noto Sans TC Fallback');
-    const faces = [...fontCss.matchAll(/@font-face\{(.*?)\}/gs)].map((m) => m[1] ?? '');
-    // 🔴 分母:先證解析器抓得到東西, 否則下面每一條都會在一個空陣列上恆真。
-    expect(faces.length).toBeGreaterThan(50);
-
-    // 命名:`labelledNoto` 而不是 `noto` —— 它是「被標成那個名字的」, 不是「經過驗證的那個字型」。
-    const labelledNoto = faces.filter((f) => /font-family:Noto Sans TC;/.test(f));
-    // 🔴 這條正規式**刻意帶結尾分號** —— 不帶的話 `Noto Sans TC Fallback` 也會被算進來,
-    //    而那正是本格要排除的那一個。負對照見下面 `fallbackOnly`。
-    const fallbackOnly = faces.filter((f) => /font-family:Noto Sans TC Fallback/.test(f));
-    expect(fallbackOnly.length).toBe(1);
-    expect(labelledNoto.length).toBeGreaterThan(50);
-    expect(labelledNoto).not.toContain(fallbackOnly[0]);
-
-    // 兩個字重都要有(`page.tsx` 要的是 400 + 700;紙上有 22 條 font-weight:700)
-    for (const w of ['400', '700']) {
-      expect(labelledNoto.filter((f) => f.includes(`font-weight:${w};`)).length).toBeGreaterThan(50);
-    }
-
-    // 每一個 Noto face 的 src 都要是相對的 `../media/…`, 而且那個檔要真的在磁碟上。
-    // 🔴 `../media/` 是**開編譯產物抄的**:`/_next/static/media/` 那個絕對形式只出現在 dev
-    //    ——我第一版照 dev 寫 ⇒ 紅 ⇒ 那個紅是我的期望值錯, 不是產品壞了。
-    const urls = labelledNoto.map((f) => /src:url\(([^)]+)\)/.exec(f)?.[1] ?? '');
-    expect(urls.every((u) => u.startsWith('../media/'))).toBe(true);
-    expect(fontCss).not.toContain('fonts.gstatic.com');
-    for (const u of urls) {
-      const onDisk = join(CHUNKS, u);
-      expect(existsSync(onDisk), `編譯產物指到一個不存在的字型檔:${u}`).toBe(true);
-    }
+    expect(notoFaceProblems(compiledCss('Noto Sans TC Fallback'))).toEqual([]);
   });
 
   it('負對照:現造的字串必須查無(證明 compiledCss 不是恆真)', () => {
     expect(() => compiledCss('zzq-not-a-real-marker-9137')).toThrow();
+  });
+
+  it('🔴 反例:故意指到首頁那支只有 700 的 Noto CSS ⇒ ② 那把尺要紅(證明它分得出只有一個字重)', () => {
+    // 首頁大標(HomeHero)只宣告 700;那支 CSS 也含 `Noto Sans TC Fallback` —— 舊版就是誤挑到它。
+    const homeCss = compiledCss('Noto Sans TC Fallback', '/page');
+    expect(homeCss, '前提:首頁那支真的沒有 400(不然這格量不到東西)').not.toContain(
+      'font-family:Noto Sans TC;font-style:normal;font-weight:400',
+    );
+    expect(notoFaceProblems(homeCss)).toContain('字重 400 只有 0 個 face');
+  });
+
+  it('🔴 manifest 不在 / 這一頁不在 / entryCSSFiles 是空的 ⇒ 一律紅, 不跳過', () => {
+    const dir = join(tmpdir(), `stmt-manifest-${process.pid}`);
+    mkdirSync(dir, { recursive: true });
+    expect(() => pageCssFiles(join(dir, 'missing.js'), STATEMENT_ROUTE)).toThrow(/讀不到/);
+    const write = (name: string, body: unknown) => {
+      const p = join(dir, name);
+      writeFileSync(p, `globalThis.__RSC_MANIFEST = globalThis.__RSC_MANIFEST || {};\nglobalThis.__RSC_MANIFEST[${JSON.stringify(STATEMENT_ROUTE)}] = ${JSON.stringify(body)};`);
+      return p;
+    };
+    expect(() => pageCssFiles(write('other.js', {}), '/x/page')).toThrow(/沒有/);
+    expect(() => pageCssFiles(write('empty.js', { entryCSSFiles: {} }), STATEMENT_ROUTE)).toThrow(/空的/);
+    expect(() =>
+      pageCssFiles(write('empty2.js', { entryCSSFiles: { [`[project]/apps/storefront/src/app${STATEMENT_ROUTE}`]: [] } }), STATEMENT_ROUTE),
+    ).toThrow(/空的/);
+    // 該綠對照:有一支就回那一支
+    expect(
+      pageCssFiles(
+        write('ok.js', { entryCSSFiles: { [`[project]/apps/storefront/src/app${STATEMENT_ROUTE}`]: [{ path: 'static/chunks/a.css' }] } }),
+        STATEMENT_ROUTE,
+      ),
+    ).toEqual(['static/chunks/a.css']);
   });
 });
 
