@@ -800,6 +800,22 @@ function OrderGroup({
               {line?.variantSku ? <OrderCopyButton text label='複製料號' value={line.variantSku} /> : '—'}
             </td>
             <td className={`${TD} ${CELL.title}`}>
+              {/* 2026-10-02 Sean:同一張單第二列以後點空白處也要能展開 / 收合(原本只有第一列的箭頭撐滿第一列)。
+                  ⇒ 第二列以後各放一條同目的地的 stretched link。
+                  🔴 `tabIndex=-1` + `aria-hidden`:鍵盤與報讀照舊只有第一列那顆箭頭, 不多出 Tab 停留點。
+                  🔴 放在【沒有定位】的格子(品名格):它的 `after:inset-0` 要對 `<tr>`(列是 `relative`)撐滿, 不是只撐滿這一格。
+                  🔴 按鈕 / 勾選框 / 「複」/ 連結都已經是 `relative z-10`, 浮在它上面 ⇒ 點到它們不會觸發展開。
+                  ⚠️ 卡片模式(≤520)`data-nav='inline'` 由 CSS 藏起來, 整張卡由單號那顆 page 連結負責, 不受影響。 */}
+              {!first && line ? (
+                <Link
+                  href={buildOpenHref(order.id)}
+                  data-nav='inline'
+                  data-row-toggle=''
+                  tabIndex={-1}
+                  aria-hidden='true'
+                  className='after:absolute after:inset-0'
+                />
+              ) : null}
               {line?.title ? <OrderCopyButton text label='複製商品名稱' value={line.title} /> : '—'}
               {showArrival && line && lineArrivalNote(line) !== null ? (
                 <span className='text-muted-foreground block text-[11px] leading-[1.3]' data-testid='line-arrival'>

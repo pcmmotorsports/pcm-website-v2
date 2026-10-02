@@ -2053,7 +2053,11 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     ).toBe('訂單 PCM-0001');
     // 🔴 比對**完整的 href 屬性字面**(含引號):只比 `/orders?open=ord-1` 會連同一格的
     //    取消連結 `/orders?open=ord-1#cancel` 一起數進去 —— 實測就是這樣紅的,不是猜的。
-    expect(times('href="/orders?open=ord-1"'), '展開 / 收合那顆箭頭的 href').toBe(1);
+    // 2026-10-02 Sean:第二列以後點空白處也要能展開 ⇒ 每一列都有同一個 href(第一列箭頭 + 其餘列 `data-row-toggle`)。
+    //    「箭頭只有一顆」改由 aria-expanded 那顆來數(第二列以後那條不帶 aria-expanded、不進 Tab、報讀器不唸)。
+    expect(container.querySelectorAll('a[data-nav="inline"][aria-expanded]').length, '展開 / 收合那顆箭頭').toBe(1);
+    expect(container.querySelectorAll('a[data-row-toggle]').length, '第二、三列各一條整列連結').toBe(lines.length - 1);
+    expect(times('href="/orders?open=ord-1"'), '同一個 href:箭頭 + 其餘每一列').toBe(lines.length);
     expect(times('href="/orders/ord-1"'), '單號那顆:明細頁 href').toBe(1);
   });
 
@@ -3110,5 +3114,40 @@ describe('Q46:收起來的品項裡有沒出貨的 ⇒ 「另有 N 項」那一�
   });
   it('整張單已取消 ⇒ 不印(不在流程裡了)', () => {
     expect(unshippedNote([...shipped3, lineAt('s4', 1, 'none')], { cancelledAt: '2026-10-01T00:00:00.000Z' })).toBeNull();
+  });
+});
+
+// 2026-10-02 Sean:同一張單第二列以後點空白處不能展開 / 收合(只有第一列可以)⇒ 每一列都要能點。
+describe('每一列點空白處都能展開 / 收合那張單', () => {
+  const twoRows = () => order({ lines: [line('l1', 1, 12000), line('l2', 1, 8000)] });
+  const rowsOf = (c: HTMLElement) => [...c.querySelectorAll('tbody.orders-group > tr')].filter((tr) => !tr.classList.contains('orders-expanded'));
+
+  it('🔴 第二列也有一條撐滿整列的展開連結, 指向跟第一列箭頭同一個地方', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[twoRows()]} />);
+    const [first, second] = rowsOf(container);
+    const arrow = first!.querySelector<HTMLAnchorElement>('a[data-nav="inline"][aria-expanded]')!;
+    const toggle = second!.querySelector<HTMLAnchorElement>('a[data-row-toggle]');
+    expect(toggle, '第二列沒有整列連結 ⇒ 點空白處沒反應').not.toBeNull();
+    expect(toggle!.getAttribute('href')).toBe(arrow.getAttribute('href'));
+    expect(toggle!.className).toContain('after:inset-0');
+    expect(toggle!.getAttribute('data-nav')).toBe('inline');
+  });
+
+  it('🔴 鍵盤與報讀照舊:那條連結不進 Tab 順序、報讀器不唸(每張單仍只有箭頭那一顆)', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[twoRows()]} />);
+    const toggle = rowsOf(container)[1]!.querySelector('a[data-row-toggle]')!;
+    expect(toggle.getAttribute('tabindex')).toBe('-1');
+    expect(toggle.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('🔴 那條連結放在沒有定位的格子裡(它的命中區要撐滿 <tr>, 不是只撐滿那一格)', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[twoRows()]} />);
+    const td = rowsOf(container)[1]!.querySelector('a[data-row-toggle]')!.closest('td')!;
+    expect(td.className).not.toMatch(/\brelative\b/);
+  });
+
+  it('第一列不重複加(箭頭本來就撐滿第一列)', () => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[twoRows()]} />);
+    expect(rowsOf(container)[0]!.querySelector('a[data-row-toggle]')).toBeNull();
   });
 });
