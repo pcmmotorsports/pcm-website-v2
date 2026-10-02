@@ -1223,8 +1223,26 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
           });
         }
       });
-      expect(decls.get('width'), '名字沒有固定寬 ⇒ 等級 tag 跟著名字長短跑').toBe('calc(100% - 42px)');
+      expect(decls.get('width'), '名字沒有固定寬 ⇒ 等級 tag 跟著名字長短跑').toBe('calc(100% - 46px)');
       expect(decls.has('max-width')).toBe(false);
+    });
+
+    it('🔴 等級 tag 與發票 tag【同寬、都靠右】⇒ 兩顆左緣排成一條直線(Sean 2026-10-02)', () => {
+      // 兩顆都 42px 且都貼格子右緣 ⇒ 左緣自然同一條線;名字吃 100% − 42 − 4(間距)= 上面那格的 46。
+      const read = (sel: string) => {
+        const d = new Map<string, string>();
+        ROOT2.walkRules((r) => {
+          if (r.selector.replace(/\s+/g, '') === sel) r.walkDecls((x) => { d.set(x.prop, x.value.trim()); });
+        });
+        return d;
+      };
+      const tier = read('.orders-gridtd.col-customer>.cust-tag:not(.inv-tag)');
+      const inv = read('.orders-gridtd.col-customer>.inv-tag:not(.coupon-fail-tag)');
+      expect(tier.get('width'), '等級 tag 沒有固定寬').toBe('42px');
+      expect(inv.get('width'), '發票 tag 跟等級 tag 不同寬 ⇒ 左緣對不齊').toBe('42px');
+      expect(inv.get('margin-left'), '發票 tag 沒有靠右 ⇒ 跟等級 tag 不在同一條線').toBe('auto');
+      expect(tier.get('text-align')).toBe('center');
+      expect(inv.get('text-align')).toBe('center');
     });
 
     it('🔴 狀態格跟數量/單價/金額/下一步一樣【貼頂】⇒ 同一列第一行對齊(Sean 2026-10-02)', () => {

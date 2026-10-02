@@ -2452,9 +2452,11 @@ body {font-size:14.5px;line-height:1.4}
    發票 tag `display:block` 自然掉到下一行。
    🔴 三行變兩行是列高 87 → 52 的關鍵:`--od-row-h:52px` 一直是對的,是內容撐到三行才 87。
    🔴 2026-10-02 Sean:「會員」tag 跟著名字長短跑來跑去 ⇒ 名字改【固定寬】(width,不是 max-width),
-      tag 每一列都在同一個位置 —— 這才是稿 `.w1` 名字 `flex:1` 的效果(舊的 max-width 只做到截斷、沒做到對齊)。 */
+      tag 每一列都在同一個位置 —— 這才是稿 `.w1` 名字 `flex:1` 的效果(舊的 max-width 只做到截斷、沒做到對齊)。
+   🔴 同日再補:等級 tag 與下一行發票 tag 要左緣對齊、同寬 ⇒ 兩顆都 42px(「未開立」10.5px×3 + 內距 10 = 41.5)、
+      都貼格子右緣 ⇒ 名字吃 100% − 42 − 4(間距)。寬度與靠右在本檔客戶格對稿那段。 */
 .orders-grid td.col-customer>.cust-name {
-  display:inline-block;width:calc(100% - 42px);vertical-align:top;line-height:20px;
+  display:inline-block;width:calc(100% - 46px);vertical-align:top;line-height:20px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap
 }
 .orders-grid td.col-customer>.cust-tag:not(.inv-tag) {display:inline-block;vertical-align:top;line-height:20px;margin-left:4px}
@@ -2501,6 +2503,9 @@ body {font-size:14.5px;line-height:1.4}
   margin-left:auto;font-size:10.5px;line-height:18px;min-height:20px;padding:0 5px;border-radius:0
 }
 .orders-grid td.col-customer>.inv-tag--voided {padding:0 4px}
+/* 等級 / 發票兩顆同寬、字置中、都貼右緣 ⇒ 左緣一條直線(Sean 2026-10-02)。券扣抵失敗那顆五個字, 不鎖寬。 */
+.orders-grid td.col-customer>.cust-tag:not(.inv-tag) {width:42px;box-sizing:border-box;text-align:center}
+.orders-grid td.col-customer>.inv-tag:not(.coupon-fail-tag) {width:42px;box-sizing:border-box;text-align:center;margin-left:auto}
 /* 手機(容器 ≤767px)仍走原本的卡片模式,不受上面影響 */
 @container (max-width:520px) {
   .orders-grid table{min-width:0}
