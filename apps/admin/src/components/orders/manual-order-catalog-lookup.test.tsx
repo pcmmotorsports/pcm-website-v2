@@ -39,7 +39,7 @@ const SRC = readFileSync(join(__dirname, 'manual-order-catalog-lookup.tsx'), 'ut
 
 async function searchWith(action: Parameters<typeof ManualOrderCatalogLookup>[0]) {
   render(<ManualOrderCatalogLookup {...action} />);
-  fireEvent.change(screen.getByLabelText('要查的料號'), { target: { value: 'SKU' } });
+  fireEvent.change(screen.getByLabelText('要查的商品'), { target: { value: 'SKU' } });
   fireEvent.click(screen.getByRole('button', { name: '查詢' }));
 }
 
@@ -122,7 +122,7 @@ describe('🔴🔴 稅基標籤 —— 含稅保證今天唯一的持有人', ()
 
   it('🔴 而拋的時候【舊結果不得留在畫面上】—— 否則他以為那是這一次查的', async () => {
     const { rerender } = render(<ManualOrderCatalogLookup searchAction={ok([HIT])} />);
-    fireEvent.change(screen.getByLabelText('要查的料號'), { target: { value: 'SKU' } });
+    fireEvent.change(screen.getByLabelText('要查的商品'), { target: { value: 'SKU' } });
     fireEvent.click(screen.getByRole('button', { name: '查詢' }));
     await screen.findByTestId('catalog-hit-price-store');
     rerender(
@@ -221,7 +221,7 @@ describe('🔴 不回寫的【絆線】(不是證明) —— 丙 的整個前提
     //    ⚠️ 「加成一列」四個字**還在畫面上**(它是那顆大鈕的標籤), 而**不再拿它當這一格的尺** ——
     //      它現在證不到「他知道要點哪裡」:整列都是鈕的時候, 那四個字只是列尾的一個標籤。
     // 🔵 2026-09-14 精簡之後「點那一列」搬進輸入框的 placeholder(主視窗:副句拿掉, 用 placeholder 或結果列表達)。
-    const ph = screen.getByLabelText('要查的料號').getAttribute('placeholder') ?? '';
+    const ph = screen.getByLabelText('要查的商品').getAttribute('placeholder') ?? '';
     expect(ph, '要告訴他【點那一列】, 否則他還在找一顆小鈕').toMatch(/點那一列/);
     expect(hint, '⛔ 不得再教他手抄').not.toMatch(/請自己抄進/);
     // 🔵 原始碼那一層仍然擋方向詞(上面兩格), 兩層各守一半。
