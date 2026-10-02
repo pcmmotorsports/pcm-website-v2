@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
@@ -277,5 +278,44 @@ describe('🛑 運費那半【維持整除才收】—— 而預覽要照著擋'
     );
     // 小計 1,000 + 運費 20 + 稅 round(1020×5%)=51 ⇒ 1,071
     expect(shown()).toContain('1,071');
+  });
+});
+
+// 🔴 2026-10-02 Sean 回報:「查商品 → 加成一列」加第二項, 預覽小計沒更新(仍是第一項 13,600, 應為 15,300)。
+//    加一列 / 刪一列是 React 直接加減 DOM 節點, 不會觸發 input / change ⇒ 原本只聽這兩個事件的預覽停在舊數字。
+function GrowingForm() {
+  const [rows, setRows] = useState([{ qty: '1', price: '13600' }]);
+  return (
+    <form>
+      <InvoiceCheckbox checked={false} />
+      <input name='shipping_fee' defaultValue='100' readOnly />
+      <select name='shipping_fee_tax_basis' defaultValue='untaxed' onChange={() => {}}>
+        <option value='untaxed'>未稅</option>
+      </select>
+      {rows.map((r, i) => (
+        <div key={i}>
+          <input name={`line_qty_${i}`} defaultValue={r.qty} readOnly />
+          <input name={`line_unit_price_${i}`} defaultValue={r.price} readOnly />
+          <select name={`line_tax_basis_${i}`} defaultValue='untaxed' onChange={() => {}}>
+            <option value='untaxed'>未稅</option>
+          </select>
+        </div>
+      ))}
+      <button type='button' onClick={() => setRows((x) => [...x, { qty: '1', price: '1700' }])}>加成一列</button>
+      <button type='button' onClick={() => setRows((x) => x.slice(0, -1))}>刪掉最後一列</button>
+      <ManualOrderTotalPreview />
+    </form>
+  );
+}
+
+describe('🔴 加一列 / 刪一列(沒有 input 事件)預覽也要即時更新', () => {
+  it('加成一列 ⇒ 小計 15,300、總計 15,400;刪掉 ⇒ 回到 13,600 / 13,700', async () => {
+    render(<GrowingForm />);
+    expect(shown()).toContain('13,700');
+    fireEvent.click(screen.getByText('加成一列'));
+    await waitFor(() => expect(shown(), '加了一列預覽沒更新').toContain('15,400'));
+    expect(shown()).toContain('15,300');
+    fireEvent.click(screen.getByText('刪掉最後一列'));
+    await waitFor(() => expect(shown(), '刪了一列預覽沒更新').toContain('13,700'));
   });
 });

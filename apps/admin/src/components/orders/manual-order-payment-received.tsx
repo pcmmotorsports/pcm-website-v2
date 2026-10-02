@@ -12,7 +12,7 @@ import {
   MANUAL_ORDER_SOURCE_FIELD,
 } from '../../lib/orders/manual-order-form';
 import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL, MANUAL_SECTION, MANUAL_SECTION_LEGEND } from './manual-order-field-classes';
-import { readManualOrderPreview } from './manual-order-total-preview';
+import { keepIfSame, readManualOrderPreview, watchManualOrderForm } from './manual-order-total-preview';
 
 // manual-order-payment-received.tsx — 手動建單「收款」區塊(貼板 263;Sean 2026-10-02「建單時登記收款」Q1–Q4 甲)。
 //
@@ -39,19 +39,16 @@ function useFormSnapshot(host: HTMLElement | null): Snapshot {
       const source = form.querySelector(`select[name="${MANUAL_ORDER_SOURCE_FIELD}"]`);
       const channel = form.querySelector(`select[name="${MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}"]`);
       const preview = readManualOrderPreview(form);
-      setSnap({
+      const next: Snapshot = {
         shopee: source instanceof HTMLSelectElement && source.value === 'manual_shopee',
         channel: channel instanceof HTMLSelectElement ? channel.value : null,
         total: preview !== null && preview.kind === 'ok' ? preview.total : null,
-      });
+      };
+      setSnap((prev) => keepIfSame(prev, next));
     };
     sync();
-    form.addEventListener('input', sync);
-    form.addEventListener('change', sync);
-    return () => {
-      form.removeEventListener('input', sync);
-      form.removeEventListener('change', sync);
-    };
+    // 加一列 / 刪一列也要跟著更新總額(同預覽, 2026-10-02)
+    return watchManualOrderForm(form, sync);
   }, [host]);
   return snap;
 }

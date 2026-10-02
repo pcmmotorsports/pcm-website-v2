@@ -129,6 +129,28 @@ export function readManualOrderPreview(form: HTMLFormElement): PreviewState | nu
   });
 }
 
+/**
+ * 表單一有變動就叫 onChange。🔴 2026-10-02 Sean 回報:「查商品 → 加成一列」加第二項, 預覽小計沒更新。
+ *    加一列 / 刪一列是 React 直接加減 DOM 節點, 不會觸發 input / change ⇒ 只聽這兩個事件的讀者會停在舊數字。
+ *    ⇒ 另外看表單裡的節點增減(MutationObserver childList)。預覽與收款區塊共用這一支, 不各寫一份。
+ */
+export function watchManualOrderForm(form: HTMLFormElement, onChange: () => void): () => void {
+  form.addEventListener('input', onChange);
+  form.addEventListener('change', onChange);
+  const observer = new MutationObserver(onChange);
+  observer.observe(form, { childList: true, subtree: true });
+  return () => {
+    form.removeEventListener('input', onChange);
+    form.removeEventListener('change', onChange);
+    observer.disconnect();
+  };
+}
+
+/** 內容一樣就沿用舊物件 ⇒ 不重畫(節點監看也會看到自己重畫, 這一步讓它停下來)。 */
+export function keepIfSame<T>(prev: T, next: T): T {
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+}
+
 const money = (n: number) => `NT$ ${n.toLocaleString()}`;
 
 export function ManualOrderTotalPreview() {
@@ -140,16 +162,12 @@ export function ManualOrderTotalPreview() {
     const form = host.closest('form');
     if (form === null) return;
     const recompute = () => {
-      setState(readManualOrderPreview(form));
+      const next = readManualOrderPreview(form);
+      setState((prev) => keepIfSame(prev, next));
     };
     recompute();
-    // 🔵 `input` 抓打字、`change` 抓下拉與勾選 —— 兩個都要,少一個就有一種操作不會更新。
-    form.addEventListener('input', recompute);
-    form.addEventListener('change', recompute);
-    return () => {
-      form.removeEventListener('input', recompute);
-      form.removeEventListener('change', recompute);
-    };
+    // 🔵 `input` 抓打字、`change` 抓下拉與勾選、節點增減抓加列與刪列 —— 少一個就有一種操作不會更新。
+    return watchManualOrderForm(form, recompute);
   }, [host]);
 
   return (
