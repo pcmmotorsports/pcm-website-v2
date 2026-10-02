@@ -2323,7 +2323,7 @@ body {font-size:14.5px;line-height:1.4}
    ⚠️ **這個數字要真瀏覽器量, 不是估的**(量法同 `col-date` 那條:
       `Range.selectNodeContents()` 取【文字】實寬, 不是量 `td`)。
       量到被裁就加寬, 並把新數字與理由補在這裡。 */
-.orders-grid .col-pay {width:70px}
+.orders-grid .col-pay {width:84px}  /* 2026-10-02 Sean:「尾款 22,759」盡量同一行 ⇒ 70 → 84(1440 實測字寬 69.1 + 內距 14);六位數 76.0 / 七位數 86.7 在空白處換行, 不截。 */
 /* 🎨 稿 v22 `td.pay.warn{color:var(--warn-ink);background:var(--warn-bg);font-weight:600;border-radius:0}` = 「還沒收」整格黃
    (2026-09-14,Sean 線上點名收款欄長得像超連結)。token 與側欄件數徽章同一組。 */
 .orders-grid td.col-pay:not([class*="leading-"]) {font-size:12.5px}  /* 稿 td.pay 12.5;要與 :2187 同特異性 (0,3,1) 且排後面才蓋得過 */

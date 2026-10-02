@@ -1208,6 +1208,9 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
       expect(cont.get('padding-top')).toBe('4px');
       expect(cont.get('padding-bottom')).toBe('4px');
     });
+    it('🔴 收款欄寬放得下五位數「尾款 22,759」一行(1440 實測字寬 69.1 + 內距 14 ⇒ 84;六位數以上才換行)', () => {
+      expect(rootDecls('.orders-grid .col-pay').get('width')).toBe('84px');
+    });
     it('🔴 收款格三行(尾款 / 金額 / 共 X)行距收緊, 不再是第一列最高的那一格', () => {
       expect(rootDecls('.orders-grid td.col-pay').get('line-height')).toBe('16px');
     });
