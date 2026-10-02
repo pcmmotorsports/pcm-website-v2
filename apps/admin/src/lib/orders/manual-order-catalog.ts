@@ -1,4 +1,5 @@
 import 'server-only';
+import { splitSearchTerms } from '@pcm/adapters';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 
 // manual-order-catalog.ts — M12-A3-a:手動建單表單的品項選擇器**唯一讀取端**。
@@ -133,7 +134,7 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  */
 // 2026-10-02 Sean:「同一款不同顏色看起來都一樣」⇒ 多讀規格(spec)與品牌名(products.brands.name)。都是公開商品資訊。
 export const MANUAL_ORDER_CATALOG_COLUMNS =
-  'id, sku, spec, price_general, price_store, sale_price_general, products(title, brands(name))' as const;
+  'id, product_id, sku, spec, price_general, price_store, sale_price_general, products(title, brands(name))' as const;
 
 /**
  * 商品頁乙 P13:客人實際付的一般價 = 一般價與特價取較低;一般價空 ⇒ 空。
@@ -175,6 +176,8 @@ export { MANUAL_ORDER_CATALOG_LIMIT };
 
 export type ManualOrderCatalogHit = {
   variantId: string;
+  /** 所屬商品;S3 用來照商品搜尋的相關度排序。讀取端一定有;選填只為了既有測試資料不用逐筆補。 */
+  productId?: string;
   sku: string;
   /** 商品名。🔴 關聯讀不到時給 `''` 而不是丟掉這一列 —— 見 `unitPrice` 那段的同款理由。 */
   title: string;
@@ -238,18 +241,92 @@ export function specText(spec: unknown): string {
 export async function searchManualOrderCatalog(
   keyword: string,
 ): Promise<ManualOrderCatalogHit[]> {
-  const needle = keyword.trim();
+  // S3(Sean 2026-10-02 Q2 甲):全形轉半形 + 拆詞, 用顧客站同一套商品搜尋(品名、品牌、料號去符號), 含已下架。
+  const needle = keyword.normalize('NFKC').trim();
   if (needle === '') return [];
+  // 只有零寬字之類 ⇒ 切完零詞 ⇒ 不查(送出去會是「沒有條件」= 全部)。
+  const terms = splitSearchTerms(needle);
+  if (terms.length === 0) return [];
 
-  return runCatalogQuery(
-    catalogQuery()
-      // 🔴 `%` 與 `_` 是 `ilike` 的萬用字元 ⇒ 員工打 `%` 會變成「全部」。逃脫掉。
-      //    `\` 本身也要先逃脫,否則 `\%` 會被拆成兩件事。
-      .ilike('sku', `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
-      .order('sku', { ascending: true })
-      .limit(MANUAL_ORDER_CATALOG_LIMIT),
-    'searchManualOrderCatalog',
-  );
+  // 舊的料號部分字比對照留:新搜尋對短料號(例如 3 個字)不一定比得到, 合併後不會比以前少。
+  const [skuHits, rankedProductIds] = await Promise.all([
+    runCatalogQuery(
+      catalogQuery()
+        // 🔴 `%` 與 `_` 是 `ilike` 的萬用字元 ⇒ 員工打 `%` 會變成「全部」。逃脫掉。
+        //    `\` 本身也要先逃脫,否則 `\%` 會被拆成兩件事。
+        .ilike('sku', `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+        .order('sku', { ascending: true })
+        .limit(MANUAL_ORDER_CATALOG_LIMIT),
+      'searchManualOrderCatalog',
+    ),
+    searchProductIds(terms),
+  ]);
+  const productHits =
+    rankedProductIds.length === 0
+      ? []
+      : await runCatalogQuery(
+          catalogQuery()
+            .in('product_id', rankedProductIds)
+            .order('sku', { ascending: true })
+            // ponytail: 這裡照料號字母序截, 不是照相關度 ⇒ 上限要蓋得住「20 件 × 每件最多規格數」。
+            //   正式庫 2026-10-02 單件最多 29 個規格 ⇒ 每件抓 30;哪天出現超過 30 個規格的商品, 改成逐件撈。
+            .limit(MANUAL_ORDER_CATALOG_LIMIT * 30),
+          'searchManualOrderCatalog(商品)',
+        );
+  return rankCatalogHits(needle, skuHits, productHits, rankedProductIds).slice(0, MANUAL_ORDER_CATALOG_LIMIT);
+}
+
+const looseSku = (s: string) => s.normalize('NFKC').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
+/**
+ * 合併兩組結果並排序:料號整串相等(忽略連字號、空白、大小寫)排最前,
+ * 其次照商品搜尋的相關度(函式回傳的順序), 只有舊料號比對才找到的排後面, 同一組內照料號。
+ */
+export function rankCatalogHits(
+  needle: string,
+  skuHits: readonly ManualOrderCatalogHit[],
+  productHits: readonly ManualOrderCatalogHit[],
+  rankedProductIds: readonly string[],
+): ManualOrderCatalogHit[] {
+  const want = looseSku(needle);
+  const rank = new Map(rankedProductIds.map((id, i) => [id, i]));
+  const byId = new Map<string, ManualOrderCatalogHit>();
+  for (const h of [...productHits, ...skuHits]) if (!byId.has(h.variantId)) byId.set(h.variantId, h);
+  const key = (h: ManualOrderCatalogHit) =>
+    [want !== '' && looseSku(h.sku) === want ? 0 : 1, (h.productId === undefined ? undefined : rank.get(h.productId)) ?? rankedProductIds.length] as const;
+  return [...byId.values()].sort((a, b) => {
+    const [a0, a1] = key(a);
+    const [b0, b1] = key(b);
+    return a0 - b0 || a1 - b1 || a.sku.localeCompare(b.sku);
+  });
+}
+
+/**
+ * 後台版商品搜尋(20261002140000, 含已下架), 回排好序的商品 id, 最多 MANUAL_ORDER_CATALOG_LIMIT 件。
+ * 函式還沒貼(PGRST202 / 42883)⇒ 回空, 只剩舊的料號比對, 建單照常;其他錯誤往上丟(查詢失敗不能顯示成查無)。
+ */
+async function searchProductIds(terms: string[]): Promise<string[]> {
+  const sb = createSupabaseServiceClient() as unknown as {
+    rpc: (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => {
+      range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>;
+    };
+  };
+  const { data, error } = await sb
+    .rpc('admin_search_product_ids', { p_terms: terms })
+    .range(0, MANUAL_ORDER_CATALOG_LIMIT - 1);
+  if (error) {
+    if (error.code === 'PGRST202' || error.code === '42883') {
+      console.warn('[searchManualOrderCatalog] admin_search_product_ids 還沒貼板 ⇒ 只用料號比對');
+      return [];
+    }
+    throw new Error(`searchManualOrderCatalog(商品搜尋) 失敗: ${error.message ?? error.code}`);
+  }
+  return (Array.isArray(data) ? data : [])
+    .map((r) => (r as { id?: unknown }).id)
+    .filter((id): id is string => typeof id === 'string');
 }
 
 /**
@@ -277,6 +354,7 @@ async function runCatalogQuery(
 
   return (data ?? []).map((row) => ({
     variantId: row.id,
+    productId: row.product_id,
     sku: row.sku,
     title: readTitle(row.products),
     brand: readBrand(row.products),
