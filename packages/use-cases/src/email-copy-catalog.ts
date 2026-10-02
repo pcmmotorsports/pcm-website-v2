@@ -8,6 +8,7 @@
 // · `text` 是預設文字,就是今天寄出去的字,一個字都不要在這裡「順手潤飾」—— 改字是員工在後台做的事。
 // · 要放訂單資料的地方寫 `{代號}`;`placeholders` 列出這句【必須】有的代號,後台存檔時少一個就擋(第 3 片)。
 // · 金額、品項、單號這些會變的內容不寫在這裡;「什麼情況印哪一句」的判斷也不在這裡,留在組信的程式。
+// · 資料旁邊的短標籤(「箱號:」「追蹤碼:」「訂單金額」「收件人:」)與匯款帳號資訊也不收:它們是系統排的資料列, 不是句子。
 // · 不收:主旨(Sean 10-02 Q6 甲不開放)、取消原因白名單(它要和資料庫的值逐字相同, 是規則不是文案)、
 //   LINE 網址與 ID(推 LINE 時用它們比對要拿掉哪一行, 是規則不是文案)。
 
@@ -19,7 +20,11 @@ export type EmailCopyGroup =
   | 'unpaid_cancelled'
   | 'partially_refunded'
   | 'partially_cancelled'
-  | 'return_received';
+  | 'return_received'
+  | 'bank_order_created'
+  | 'bank_amount_changed'
+  | 'shipped'
+  | 'tracking_corrected';
 
 export type EmailCopyEntry = {
   readonly group: EmailCopyGroup;
@@ -222,6 +227,186 @@ export const EMAIL_COPY = {
     group: 'return_received',
     label: '退貨收回信:退款說明',
     text: '退款會在確認後盡快處理，完成時會再通知您。',
+    placeholders: [],
+  },
+  greeting: {
+    group: 'shared',
+    label: '開頭問候(全形逗號;付款、取消、退款、退貨、部分取消、單號更正信)',
+    text: '您好，',
+    placeholders: [],
+  },
+  greetingHalfwidth: {
+    group: 'shared',
+    label: '開頭問候(半形逗號;匯款單兩封與出貨信, 三封都是 Sean 核過全文的版本, 改成全形前先問他)',
+    text: '您好,',
+    placeholders: [],
+  },
+  bankCreatedHeadline: {
+    group: 'bank_order_created',
+    label: '匯款單成立信開頭',
+    text: '您的訂單 {訂單編號} 已成立,目前尚未付款。',
+    placeholders: ['訂單編號'],
+  },
+  bankCreatedInstruction: {
+    group: 'bank_order_created',
+    label: '匯款單成立信:請轉帳',
+    text: '請依下列資訊完成轉帳,我們收到款項後會再通知您。',
+    placeholders: [],
+  },
+  bankRemittanceTitle: {
+    group: 'shared',
+    label: '匯款資訊標題(匯款單兩封)',
+    text: '匯款資訊',
+    placeholders: [],
+  },
+  bankCreatedLinkLead: {
+    group: 'bank_order_created',
+    label: '匯款單成立信:訂單連結前那句',
+    text: '訂單內容與匯款資訊也可以在這裡查看:',
+    placeholders: [],
+  },
+  bankAmountChangedHeadline: {
+    group: 'bank_amount_changed',
+    label: '匯款金額變更信開頭',
+    text: '您的訂單 {訂單編號} 已完成部分商品取消,應付金額已同步更新。',
+    placeholders: ['訂單編號'],
+  },
+  bankAmountChangedInstruction: {
+    group: 'bank_amount_changed',
+    label: '匯款金額變更信:請轉帳',
+    text: '請依下列最新金額完成轉帳,我們確認款項後將儘速為您處理。',
+    placeholders: [],
+  },
+  bankAmountChangedNoticeTitle: {
+    group: 'bank_amount_changed',
+    label: '匯款金額變更信:提醒標題',
+    text: '※ 特別提醒:',
+    placeholders: [],
+  },
+  bankAmountChangedNotice: {
+    group: 'bank_amount_changed',
+    label: '匯款金額變更信:金額可能增加的說明',
+    text: '部分商品取消後,原訂單套用之優惠折扣可能隨之失效,運費亦將依調整後的金額重新計算;因此最終應付金額可能與您下單時有所不同(或略有增加),敬請見諒。',
+    placeholders: [],
+  },
+  bankAmountChangedPaidOld: {
+    group: 'bank_amount_changed',
+    label: '匯款金額變更信:已照舊金額匯款怎麼辦',
+    text: '若您先前已完成舊金額之匯款,請直接透過 LINE 與我們聯繫,我們將主動協助您辦理差額處理。',
+    placeholders: [],
+  },
+  bankAmountChangedLinkLead: {
+    group: 'bank_amount_changed',
+    label: '匯款金額變更信:訂單連結前那句',
+    text: '完整訂單明細與匯款資訊亦可點擊此處查閱:',
+    placeholders: [],
+  },
+  paidHeadlineWithId: {
+    group: 'paid',
+    label: '付款成功信開頭(有訂單編號時)',
+    text: '您的訂單 {訂單編號} 已付款成功。',
+    placeholders: ['訂單編號'],
+  },
+  paidHeadlineNoId: {
+    group: 'paid',
+    label: '付款成功信開頭(讀不到訂單編號時)',
+    text: '您的訂單已付款成功。',
+    placeholders: [],
+  },
+  paidDetailTitle: {
+    group: 'paid',
+    label: '付款成功信:明細標題',
+    text: '訂單明細',
+    placeholders: [],
+  },
+  paidLinesTruncated: {
+    group: 'paid',
+    label: '付款成功信:品項太多只列部分時',
+    text: '(品項過多，此處僅列出部分)',
+    placeholders: [],
+  },
+  partialRefundHeadline: {
+    group: 'partially_refunded',
+    label: '部分退款信開頭(訂單還在時)',
+    text: '您的訂單 {訂單編號} 已退回一筆款項。',
+    placeholders: ['訂單編號'],
+  },
+  partialRefundToCard: {
+    group: 'partially_refunded',
+    label: '部分退款信:刷卡退回(只有刷卡才印)',
+    text: '款項將退回您原本付款的信用卡。',
+    placeholders: [],
+  },
+  partialRefundOrderActive: {
+    group: 'partially_refunded',
+    label: '部分退款信:其餘照常出貨(訂單還在時)',
+    text: '這筆退款不影響訂單其他項目，未退款的部分仍會照常出貨。',
+    placeholders: [],
+  },
+  shippedHeadline: {
+    group: 'shipped',
+    label: '出貨信開頭',
+    text: '您的訂單 {訂單編號} 有一批商品已出貨。',
+    placeholders: ['訂單編號'],
+  },
+  shippedNoTracking: {
+    group: 'shipped',
+    label: '出貨信:自取／自送沒有追蹤碼',
+    text: '本批為自取／自送,無追蹤碼。',
+    placeholders: [],
+  },
+  shippedTrackingLookupLead: {
+    group: 'shipped',
+    label: '出貨信:查詢配送進度那句',
+    text: '查詢配送進度(請輸入上面的追蹤碼):',
+    placeholders: [],
+  },
+  shippedContentsTitle: {
+    group: 'shipped',
+    label: '出貨信:出貨內容標題',
+    text: '本批出貨內容:',
+    placeholders: [],
+  },
+  shippedTitleMissing: {
+    group: 'shipped',
+    label: '出貨信:品項沒有品名時顯示',
+    text: '(品名從缺)',
+    placeholders: [],
+  },
+  shippedRecipientTitle: {
+    group: 'shipped',
+    label: '出貨信:收件資訊標題',
+    text: '收件資訊:',
+    placeholders: [],
+  },
+  shippedSplitNotice: {
+    group: 'shipped',
+    label: '出貨信:還有商品沒出(分批出貨)',
+    text: '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
+    placeholders: [],
+  },
+  trackingCorrectedHeadlineWithId: {
+    group: 'tracking_corrected',
+    label: '單號更正信開頭(有訂單編號時)',
+    text: '您的訂單 {訂單編號} 先前那封出貨通知上的貨運單號有誤。',
+    placeholders: ['訂單編號'],
+  },
+  trackingCorrectedHeadlineNoId: {
+    group: 'tracking_corrected',
+    label: '單號更正信開頭(讀不到訂單編號時)',
+    text: '您先前那封出貨通知上的貨運單號有誤。',
+    placeholders: [],
+  },
+  trackingCorrectedLookupLead: {
+    group: 'tracking_corrected',
+    label: '單號更正信:查詢配送進度那句',
+    text: '查詢配送進度(請輸入上面的貨運單號):',
+    placeholders: [],
+  },
+  trackingCorrectedNote: {
+    group: 'tracking_corrected',
+    label: '單號更正信:以這一封為準',
+    text: '請以這一封為準;先前那個號碼查不到是正常的。',
     placeholders: [],
   },
 } as const satisfies Record<string, EmailCopyEntry>;

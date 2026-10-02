@@ -35,3 +35,15 @@ describe('EMAIL_COPY 清單', () => {
     }
   });
 });
+
+describe('快照涵蓋不到的兩句(寄信測試走不到那個分支)', () => {
+  // 檔尾快照只收得到「有測項寄出」的信;這兩句所在的分支沒有任何寄信測試走得到
+  // (品項過多那句, sweep-email-outbox.ts 自己註明今天走不到)⇒ 直接釘住字面, 證明搬家時一字未改。
+  it('付款信「品項過多」那句', () => {
+    expect(EMAIL_COPY.paidLinesTruncated.text).toBe('(品項過多，此處僅列出部分)');
+  });
+  it('單號更正信讀不到訂單編號時的開頭', () => {
+    expect(EMAIL_COPY.trackingCorrectedHeadlineNoId.text).toBe('您先前那封出貨通知上的貨運單號有誤。');
+  });
+});
+
