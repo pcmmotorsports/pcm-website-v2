@@ -5,7 +5,7 @@ import {
   MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD,
   MANUAL_ORDER_SHIPPING_METHOD_FIELD,
 } from '@/lib/orders/manual-order-form';
-import { ManualOrderPaymentMethod, ManualOrderShopeePayout } from './manual-order-payment-method';
+import { ManualOrderPaymentMethod } from './manual-order-payment-method';
 import { ManualOrderTierSelect } from './manual-order-tier-select';
 import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL, MANUAL_SECTION, MANUAL_SECTION_LEGEND } from './manual-order-field-classes';
 
@@ -13,8 +13,8 @@ import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL, MANUAL_SECTION, MANUAL_SECTION_
 //   Sean 建單簡化 Q1 甲, 計畫 ~/pcm-mailbox/計畫-建單畫面簡化-20261001.md S3)。
 //   第一排:會員等級 / 付款方式 / 取貨方式;第二排:運費 / 運費稅別。
 // 🔴 只搬位置:每一格的 name 與 defaultValue 與搬家前逐字相同(付款方式 = 匯款、取貨方式 = 宅配、運費 '0'、運費稅別 = 未稅)。
-// 🔵 報價單Q1(貼板 262):付款方式加「刷卡」;來源蝦皮 ⇒ 付款方式只剩「蝦皮」並出現蝦皮進帳金額(manual-order-payment-method.tsx)。
-//    進帳日期不放(主視窗轉 Sean:撥款日不知道, 進帳時間記建單當下)。
+// 🔵 報價單Q1(貼板 262):付款方式加「刷卡」;來源蝦皮 ⇒ 付款方式只剩「蝦皮」(manual-order-payment-method.tsx)。
+//    貼板 263:蝦皮進帳金額搬到總額預覽下面的「收款」區塊(manual-order-payment-received.tsx)。
 //    本檔目前沒有 state, 不需要 'use client';會員等級那格自己是 client 元件。
 
 const GRID_3 = 'my-[6px] grid grid-cols-3 gap-x-2 gap-y-[6px]';
@@ -36,7 +36,6 @@ export function ManualOrderPaymentFields() {
           </select>
         </label>
       </div>
-      <ManualOrderShopeePayout />
       <div className={GRID_2}>
         <label className={MANUAL_FIELD_LABEL}>
           運費

@@ -207,6 +207,8 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
         // 🔴 ⟦b4-PURCHTAX1⟧ 2026-09-06 新增的稅基那一格。
         //    🔵 **這一格會紅是它在做事** —— 這張清單是窮舉的, 新欄位出現就會被它抓到。
         'line_tax_basis_0',
+        // 貼板 263(Sean 2026-10-02 建單時登記收款):收款區塊的勾選框。沒勾之前其他四格(全額 / 金額 / 單號 / 備註)不在畫面上。
+        'paid_at_create',
       ].sort(),
     );
     expect(names.some((n) => n?.includes('actor') || n?.includes('staff'))).toBe(false);

@@ -17,6 +17,7 @@ import { ManualOrderPaymentFields } from './manual-order-payment-fields';
 import { ManualOrderNotificationEmail } from './manual-order-notification-email';
 import { ManualOrderVehicleField } from './manual-order-vehicle-field';
 import { ManualOrderTotalPreview } from './manual-order-total-preview';
+import { ManualOrderPaymentReceived } from './manual-order-payment-received';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
 import { ManualOrderShipTo } from './manual-order-ship-to';
@@ -228,6 +229,10 @@ export function ManualOrderFormBody({
               🔴 **位置在品項【之後】、送出鈕【之前】** —— 那是他填完最後一格、
                  手要移到送出鈕的路上,**數字正好在那條路上**。 */}
           <ManualOrderTotalPreview />
+
+          {/* 貼板 263(Sean 2026-10-02):收款區塊放在總額下面 —— 已收全額帶的就是上面那個總額。
+              蝦皮進帳也在這裡(原本在付款方式下面, 他找不到)。 */}
+          <ManualOrderPaymentReceived />
 
           {/* 🔴 送出鈕是一支 client component:**沒選客人時它是灰的**。
               理由與「原生 required 只擋得住其中一半」寫在 `manual-order-submit.tsx` 檔頭。 */}

@@ -80,6 +80,7 @@ export const MANUAL_ORDER_SENT_CODES = Object.freeze([
   'rejected',
   'shopee_taken',
   'shopee_payout_over_total',
+  'paid_over_total',
   'bug',
   'error',
 ] as const);

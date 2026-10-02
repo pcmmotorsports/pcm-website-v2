@@ -45,6 +45,7 @@ export type ManualOrderSentCode =
   | 'rejected'
   | 'shopee_taken'
   | 'shopee_payout_over_total'
+  | 'paid_over_total'
   | 'bug'
   | 'error';
 
@@ -77,6 +78,16 @@ export type CreateManualOrderOutcome =
       logMessage: string;
     };
 
+/** 貼板 263:建單時登記收款 ⇒ RPC 第 18–21 參。全額不送金額(由 RPC 用它自己算的總額);沒填的單號 / 備註不送。 */
+function paymentAtCreateParams(p: ManualOrderValues['paymentAtCreate']): Record<string, unknown> {
+  if (p === null) return {};
+  return {
+    ...(p.amount === 'full' ? { p_paid_full: true } : { p_paid_amount: p.amount }),
+    ...(p.bankReference !== null ? { p_bank_reference: p.bankReference } : {}),
+    ...(p.note !== null ? { p_payer_note: p.note } : {}),
+  };
+}
+
 /**
  * SQLSTATE → 失敗碼。
  *
@@ -103,6 +114,8 @@ const SQLSTATE_CLASSIFICATION = new Map<string, ManualOrderSentCode>([
   ['P2S03', 'rejected'],
   // 貼板 262(報價單Q1):P2S04 = 蝦皮進帳金額大於訂單總額(總額含稅, 表單層算不出來, 只能由 DB 擋)。
   ['P2S04', 'shopee_payout_over_total'],
+  // 貼板 263:P2S05 = 建單時登記的收款金額大於訂單總額(同 P2S04 的理由, 只能由 DB 擋)。
+  ['P2S05', 'paid_over_total'],
 ]);
 
 /**
@@ -340,6 +353,8 @@ export async function createManualOrder(
       //   ⇒ 碼比板先上線時, 只有「刷卡單」與「填了進帳的蝦皮單」建不出來。
       ...(values.paymentInstrument === 'card_terminal' ? { p_payment_instrument: 'card_terminal' } : {}),
       ...(values.shopeePayout !== null ? { p_shopee_payout: values.shopeePayout } : {}),
+      // 貼板 263:第 18–21 參, 同上只在需要時送 ⇒ 碼比板先上線時, 只有「建單時登記收款」的單建不出來。
+      ...paymentAtCreateParams(values.paymentAtCreate),
       p_lines: resolved.lines,
     }));
   } catch (thrown) {

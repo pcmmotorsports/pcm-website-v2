@@ -172,6 +172,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
     text: '訂單尚未建立。蝦皮進帳金額不能大於訂單總額（含運費與稅），請對照畫面上的訂單總額與蝦皮頁面的「預估訂單進帳」修正；不確定可以留白，之後到收款明細登記。',
     tone: 'warn',
   },
+  // 貼板 263:建單時登記的收款金額大於訂單總額 ⇒ 單沒建。
+  [manualOrderResultCode('paid_over_total')]: {
+    text: '訂單尚未建立。收款金額不能大於訂單總額（含運費與稅）。收全額請勾「已收全額」；客人多付的部分，請建單後到訂單頁登記。',
+    tone: 'warn',
+  },
   [manualOrderResultCode('error')]: {
     text: '尚未確認訂單是否建立成功。請先到訂單列表查詢該客戶的新訂單；若已存在，請勿再次送出。確認不存在後，可在目前表單再次送出，系統會沿用同一編號以避免重複建單。',
     tone: 'error',
