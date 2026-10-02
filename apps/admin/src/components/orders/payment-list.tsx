@@ -170,7 +170,8 @@ function SummaryLine({
       </span>
       {summary.kind === 'settled' && !nothingCollected && (
         <span className='inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800'>
-          已收足
+          {/* 2026-10-02 Sean 拍 Q47:「已收足」→「已結清」(旁邊就是「已收 X」, 列表的「已收」放這裡會重複)。 */}
+          已結清
         </span>
       )}
       {summary.kind === 'short' && !cancelled && (
@@ -312,7 +313,7 @@ export function PaymentList({
           ? ` · 尾款 NT$${summary.gap.toLocaleString('zh-TW')}`
           : summary.kind === 'over'
             ? ` · 多收 ${summary.excess.toLocaleString('zh-TW')}`
-            : ' · 已收足';
+            : ' · 已結清'; // 2026-10-02 Sean 拍 Q47:同卡頂標籤
       receivedNote =
         rows.length === 0
           ? cancelledUnknown ? '還沒登過 · 取消狀態讀不到,尾款先不算' : cancelled ? '還沒登過 · 已取消' : `還沒登過 · 尾款 NT$${summary.due.toLocaleString('zh-TW')}`

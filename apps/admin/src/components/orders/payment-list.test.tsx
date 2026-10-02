@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// 2026-10-02 Sean 拍 Q47:明細頁收款卡頂的「已收足」標籤與「累計收 X · 已收足」改成「已結清」(列表與提示照舊是「已收」), 本檔期望字面跟著改。
 // 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
@@ -254,9 +255,9 @@ describe('#437 ② 每筆列精簡單行 + 細節收合', () => {
 });
 
 describe('#437 ④ 卡頂彙總三態', () => {
-  it('已收足:應收=已收 ⇒ 徽章,且不出現「尾款」「溢收」', () => {
+  it('已結清:應收=已收 ⇒ 徽章,且不出現「尾款」「溢收」', () => {
     const t = text({ status: 'ok', rows: [{ ...ROW, amount: 6800 }] }, 6800);
-    expect(t).toContain('已收足');
+    expect(t).toContain('已結清');
     expect(t).not.toContain('尾款');
     expect(t).not.toContain('溢收');
   });
@@ -264,14 +265,14 @@ describe('#437 ④ 卡頂彙總三態', () => {
   it('少收:差額算得出來且逐字「尾款」(Sean 補「少收也要注意」)', () => {
     const t = text({ status: 'ok', rows: [{ ...ROW, amount: 6800 }] }, 10000);
     expect(t).toContain('尾款 3,200 元');
-    expect(t).not.toContain('已收足');
+    expect(t).not.toContain('已結清');
     expect(t).not.toContain('溢收');
   });
 
   it('溢收:超收金額標出來,且**不擋**(Q-溢收=A 只標不擋)', () => {
     const t = text({ status: 'ok', rows: [{ ...ROW, amount: 6800 }] }, 5000);
     expect(t).toContain('溢收 1,800 元');
-    expect(t).not.toContain('已收足');
+    expect(t).not.toContain('已結清');
     expect(t).not.toContain('尾款');
   });
 
@@ -314,19 +315,19 @@ describe('#437 ④ 卡頂彙總三態', () => {
     expect(t).not.toContain('尾款');
   });
 
-  it('⟦Q1 甲⟧ 退完 ⇒「已收足」,待退款結清後那一行消失;讀不到待退款(null)也不印', () => {
+  it('⟦Q1 甲⟧ 退完 ⇒「已結清」,待退款結清後那一行消失;讀不到待退款(null)也不印', () => {
     const t = cancelView({ refunded: 5080, pending: 0 });
     expect(t).toContain('應收 9,220 元 / 已收 9,220 元');
-    expect(t).toContain('已收足');
+    expect(t).toContain('已結清');
     expect(t).not.toContain('待退');
     expect(cancelView({ refunded: 0, pending: null })).not.toContain('待退款');
   });
 
-  it('⟦Q1 甲⟧ 整單取消:收過錢退完 ⇒ 已收足;一毛沒收過 ⇒ 不印「已收足」', () => {
-    expect(cancelView({ refunded: 14300, pending: 0, cancelled: true, due: 0 })).toContain('已收足');
+  it('⟦Q1 甲⟧ 整單取消:收過錢退完 ⇒ 已結清;一毛沒收過 ⇒ 不印「已結清」', () => {
+    expect(cancelView({ refunded: 14300, pending: 0, cancelled: true, due: 0 })).toContain('已結清');
     const unpaid = cancelView({ refunded: 0, pending: 0, cancelled: true, due: 0, paid: 0 });
     expect(unpaid).toContain('應收 0 元 / 已收 0 元');
-    expect(unpaid).not.toContain('已收足');
+    expect(unpaid).not.toContain('已結清');
   });
 
   it('🔴 沖銷列要算進已收(SUM(amount),不可濾掉沖銷列再加)', () => {
@@ -340,7 +341,7 @@ describe('#437 ④ 卡頂彙總三態', () => {
       6800,
     );
     expect(t).toContain('尾款 6,800 元');
-    expect(t).not.toContain('已收足');
+    expect(t).not.toContain('已結清');
   });
 
   it('🔴 讀不到明細時**不得**畫出任何三態(那會是一句他分不出真假的催款訊息)', () => {
@@ -351,7 +352,7 @@ describe('#437 ④ 卡頂彙總三態', () => {
       expect(t).toContain('未知');
       expect(t).not.toContain('尾款');
       expect(t).not.toContain('溢收');
-      expect(t).not.toContain('已收足');
+      expect(t).not.toContain('已結清');
     }
   });
 });
@@ -550,7 +551,7 @@ describe('🔴 溢收 → 沖掉之後翻回正確態(R2 nit4:Sean 肉眼驗走�
     // 🔴 這條分支既有格子沒走過(既有的只走「已收足 → 還差」)。
     expect(after).toContain('尾款 5,000 元');
     expect(after).not.toContain('溢收');
-    expect(after).not.toContain('已收足');
+    expect(after).not.toContain('已結清');
   });
 });
 
@@ -659,7 +660,7 @@ describe('B17 dialog 版面:確認勾下面那行狀態摘要', () => {
     // receivedAtShort 對匯款(帶時分)印「MM/DD HH:mm」,只驗日期那半
     const n = note(rows, 1100)!;  // 一次 render(同格 render 兩次會撞同一個 testid)
     expect(n).toMatch(/^最近 09\/12/);
-    expect(n).toContain('累計收 1,100 · 已收足');
+    expect(n).toContain('累計收 1,100 · 已結清');
   });
   // 🔵 **本格 2026-09-16 收回 helper** —— 它原本是整段手寫的 `render`,因為當時的 helper
   //    沒有 `cancelledUnknown` 那個參數。那就是上面註解講的「收據」:牆還在,只是有人繞過去了。
@@ -693,7 +694,7 @@ describe('B17 dialog 版面:確認勾下面那行狀態摘要', () => {
       expect(fillable([], 1000)).toBe('1000');
     });
 
-    it('🔵 已收足 ⇒ 不畫(帶入 0 沒有意義)', () => {
+    it('🔵 已結清 ⇒ 不畫(帶入 0 沒有意義)', () => {
       expect(fillable(one(1000), 1000)).toBe('null');
     });
 

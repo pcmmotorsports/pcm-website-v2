@@ -1,3 +1,4 @@
+// 2026-10-02 Sean 拍 Q47:明細頁收款卡頂的「已收足」標籤與「累計收 X · 已收足」改成「已結清」(列表與提示照舊是「已收」), 本檔期望字面跟著改。
 // 2026-10-02 Sean:收款字面改成「還沒收→未收、還差 X→尾款 X、已收足→已收」(明細頁卡頂那顆「已收足」先不動, 待他拍), 本檔期望字面跟著改。
 
 // 🔴🔴 **2026-08-27:本檔的期望字串改了,而那【不是放寬】—— 是版面換了(OD FIX-01,Sean 拍乙)。**
@@ -972,7 +973,7 @@ describe('訂單明細頭條數字', () => {
    *   ⛔ ~~兩個都對、而錢不在~~ **不成立**(codex R3 must-fix):在 Sean 拍的**淨額語意**底下,
    *   那兩處**都是錯的** —— 它們只是**彼此一致地**沿用了未扣退款的舊口徑。
    */
-  it('🔴 X5F8WG ④:收 1,200 全退 ⇒ 頭條與付款卡都印淨額 0, 而「已收足」不得出現', async () => {
+  it('🔴 X5F8WG ④:收 1,200 全退 ⇒ 頭條與付款卡都印淨額 0, 而「已結清」不得出現', async () => {
     const row = (id: string, amount: number, receivedAt: string) => ({
       id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
       bankReference: null, recTradeId: null, payerNote: null,
@@ -991,7 +992,7 @@ describe('訂單明細頭條數字', () => {
     // 付款卡(同一頁、同一個詞)。
     expect(text).toContain('已收 0 元');
     // 🔴 **這一句才是 ④**:`kind` 沒跟著換口徑的話,這裡會同時印出「已收 0」與「已收足」。
-    expect(text).not.toContain('已收足');
+    expect(text).not.toContain('已結清');
     // 🔴 **頭條【尾款】那一格也要釘**(codex 對抗審查 2026-09-08 must-fix ④-1):
     //    尾款吃 `kind`/`gap`;誤吃未扣退款的 gross ⇒ 它是 `settled` ⇒ **印 0**,
     //    而上面那三句【全部照樣綠】(它們一個都沒問尾款)。
@@ -1008,7 +1009,7 @@ describe('訂單明細頭條數字', () => {
    * 🟢 **正對照:一毛都沒退的單, 兩處仍印原本的已收、且「已收足」照舊會出現。**
    * 沒有這一格,一個「永遠印 0 / 永遠不印已收足」的實作會讓上面那格全綠。
    */
-  it('🟢 正對照:沒退過款的單, 收滿 1,200 ⇒ 兩處都印 1,200 且「已收足」在', async () => {
+  it('🟢 正對照:沒退過款的單, 收滿 1,200 ⇒ 兩處都印 1,200 且「已結清」在', async () => {
     const row = (id: string, amount: number, receivedAt: string) => ({
       id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
       bankReference: null, recTradeId: null, payerNote: null,
@@ -1023,7 +1024,7 @@ describe('訂單明細頭條數字', () => {
 
     expect(text).toContain('總額 / 已收 1,200 / 1,200');
     expect(text).toContain('已收 1,200 元');
-    expect(text).toContain('已收足');
+    expect(text).toContain('已結清');
   });
 
   /**
@@ -1170,7 +1171,7 @@ describe('訂單明細頭條數字', () => {
     return { row };
   };
 
-  it('🔴 已取消 + 全額退款 ⇒ 頭條沒有「尾款」那格, 付款卡沒有「尾款」而印「已收足」', async () => {
+  it('🔴 已取消 + 全額退款 ⇒ 頭條沒有「尾款」那格, 付款卡沒有「尾款」而印「已結清」', async () => {
     await cancelledFull();
     const text = await render({
       total: { amount: 1200, currency: 'TWD' },
@@ -1191,7 +1192,7 @@ describe('訂單明細頭條數字', () => {
     expect(text).not.toContain('尾款');
     // ⟦Sean 09-16 Q1 甲⟧「退完顯示『已收足』」:應收 0、淨額 0 ⇒ 付款卡印「已收足」。
     expect(text).toContain('應收 0 元 / 已收 0 元');
-    expect(text).toContain('已收足');
+    expect(text).toContain('已結清');
   });
 
   it('🟢 正對照:同一張單【沒取消】⇒ 尾款與尾款都要在(否則「永遠不印」的實作也會綠)', async () => {
