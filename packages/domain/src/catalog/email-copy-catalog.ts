@@ -238,7 +238,8 @@ export const EMAIL_COPY = {
   },
   greetingHalfwidth: {
     group: 'shared',
-    label: '開頭問候(半形逗號;匯款單兩封與出貨信, 三封都是 Sean 核過全文的版本, 改成全形前先問他)',
+    // 為什麼鎖:三封都是 Sean 核過全文的版本, 改成全形前先問他(畫面上的說明在 admin email-copy-view.ts)。
+    label: '開頭問候(半形逗號;匯款單成立信、匯款金額變更信、出貨信)',
     text: '您好,',
     placeholders: [],
   },

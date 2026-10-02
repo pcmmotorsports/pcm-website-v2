@@ -690,6 +690,20 @@ function customerEmail(
   };
 }
 
+/**
+ * 信件文字第 3 片:後台預覽用。與寄信同一支組信程式(不另寫一份), 預覽看到的就是客人收到的。
+ * 呼叫端要自己包 withEmailCopyOverrides(員工的草稿字)。
+ */
+export function buildEmailContentForPreview(
+  job: ClaimedEmailJob,
+  shipped: ShippedEmailContext | null,
+  paid: PaidEmailContext | null,
+  siteUrl: string | undefined,
+  correctedTrackingPageUrl: string | null = null,
+): EmailContent {
+  return buildEmailContent(job, shipped, paid, siteUrl, correctedTrackingPageUrl);
+}
+
 function buildEmailContent(
   job: ClaimedEmailJob,
   shipped: ShippedEmailContext | null,
