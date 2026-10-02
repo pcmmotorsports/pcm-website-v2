@@ -59,13 +59,15 @@ run_cells() {
   cell "「0912 - 345」⇒ 王小明(中間的 - 不算一個詞)" "$(S '0912 - 345')" "a"
   cell "「王 example」⇒ 王小明、王大明(姓名 + Email)" "$(S '王 example')" "a,b"
   cell "「王 煞車」⇒ 沒有" "$(S '王 煞車')" "-"
+  cell "「小明 小明」⇒ 只剩一個詞, 比「小明」" "$(S '小明 小明')" "a,c"
+  cell "「王小明 ,」⇒ 標點不算, 比「王小明」" "$(S '王小明 ,')" "a"
   cell "全形電話「０９２２」⇒ 王大明" "$(S '０９２２')" "b"
   cell "「王 小華」⇒ 已停用的那位只在 all 出現" "$(S '王 小華')|$(S '王 小華' all)" "-|d"
 }
 echo "── 貼前(先紅)──"
 OB="$(run_cells 2>/dev/null)"; printf '%s\n' "$OB" | sed 's/^/  [貼前] /'
 # 「小明 0912」「0912 - 345」上一版靠整串抽數字比電話本來就對得到, 不算改善。
-cell "貼前紅的正好是:王 小明 / 林 0912 / 王 example / 全形電話 / 王 小華" "$(printf '%s\n' "$OB" | grep FAIL | grep -c '王 小明\|林 0912\|王 example\|全形電話\|王 小華')/$(printf '%s\n' "$OB" | grep -c FAIL)" "5/5"
+cell "貼前紅的正好是:王 小明 / 林 0912 / 王 example / 全形電話 / 王 小華 / 小明 小明 / 王小明 ," "$(printf '%s\n' "$OB" | grep FAIL | grep -c '王 小明\|林 0912\|王 example\|全形電話\|王 小華\|小明 小明\|王小明 ,')/$(printf '%s\n' "$OB" | grep -c FAIL)" "7/7"
 P -q -c "CREATE ROLE zz_paster LOGIN NOSUPERUSER; GRANT postgres TO zz_paster;" >/dev/null
 PN -f "$MIG" >/dev/null || { echo "🔴 migration 用非 superuser 貼不上"; exit 1; }
 echo "── 貼後 ──"

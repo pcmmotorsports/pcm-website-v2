@@ -76,7 +76,9 @@ BEGIN
   -- ponytail: 改成一個 JOIN 而不是上一版的三段 UNION, 用不到各軸索引;正式庫 2026-10-02 只有 27 位客人, 上千位再拆回 UNION。
   -- 電話那一軸照舊包 lower(), 表達式和 idx_customers_phone_trgm 一樣。
   WITH needles AS (
-    SELECT 0::bigint AS ord, v_txt AS txt
+    -- 去重 / 丟標點後只剩一個詞(「小明 小明」「王小明 ,」)⇒ 比那個詞;一個像樣的詞都沒有 ⇒ 比整串(= 上一版)。
+    SELECT 0::bigint AS ord,
+           CASE WHEN pg_catalog.cardinality(v_terms) = 1 THEN v_terms[1] ELSE v_txt END AS txt
      WHERE COALESCE(pg_catalog.cardinality(v_terms), 0) <= 1
     UNION ALL
     SELECT u.ord, u.term
