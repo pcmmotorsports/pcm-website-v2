@@ -99,7 +99,8 @@ describe('訂單信文案:一份定義、兩邊各自取用(Sean 2026-09-03 拍�
     // 🔴 沒有這一格,上面那個 `toHaveLength(0)` 在「尺根本沒讀到檔」時也會過。
     const { readFile } = await import('node:fs/promises');
     // 2026-10-02 信件文字第 1 片:句子的定義搬到 `email-copy-catalog.ts`(order-email-copy.ts 只轉手)⇒ 定義檔換成清單那支。
-    const src = await readFile(new URL('./email-copy-catalog.ts', import.meta.url), 'utf8');
+    // 2026-10-02 第 2 片:清單本體搬到 @pcm/domain, use-cases 那支只轉出。
+    const src = await readFile(new URL('../../domain/src/catalog/email-copy-catalog.ts', import.meta.url), 'utf8');
     const codeLines = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
     const hits = codeLines.filter((l) => l.includes(ORDER_PAID_NEXT_STEP_SENTENCE));
     expect(hits.length, '定義檔裡應該【正好一處】非註解命中').toBe(1);
@@ -439,3 +440,12 @@ describe('stripLineInviteForLinePush(主視窗 2026-09-14 裁:LINE 推播不帶�
     expect(stripLineInviteForLinePush(paid)).toBe(['您好，', '', '訂單金額  NT$ 1', '', 'PCM重機零件販售', PCM_COMPANY_LINE].join('\n'));
   });
 });
+
+describe('信件文字第 2 片:LINE 那段字與拿掉整行的依據相同', () => {
+  it('LINE_INVITE_MARKER === `加入官方 LINE ${PCM_LINE_ID}`', async () => {
+    const { LINE_INVITE_MARKER } = await import('./email-copy-catalog');
+    const { PCM_LINE_ID } = await import('./order-email-copy');
+    expect(LINE_INVITE_MARKER).toBe(`加入官方 LINE ${PCM_LINE_ID}`);
+  });
+});
+

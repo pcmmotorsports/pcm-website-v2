@@ -474,7 +474,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     expect(outbox.markFailed).not.toHaveBeenCalled();
     expect(res).toEqual({
       reclaimed: 0, claimed: 1, sent: 1, failed: 0, budgetExhaustedBeforeClaim: 0,
-      deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, quotaFailed: 0,
+      deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, copyTableUnreadable: 0, quotaFailed: 0,
       skippedShipmentVoided: 0,
       skippedTrackingSuperseded: 0,
       skippedNotCleared: 0,
@@ -904,6 +904,7 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
     expect(Object.keys(res).sort()).toEqual([
       'budgetExhaustedBeforeClaim',
       'claimed',
+      'copyTableUnreadable',
       'deferred',
       'eligibilityUnknown',
       'errors',
@@ -3800,7 +3801,9 @@ describe('甲-7 —— 送信前失敗的列放回 failed(不是留在 sending �
     //    取自當場印出來的那一個(「expected 21 to be 20」)。
     // 🔵 **21 ⇒ 22**(2026-09-15 P0-1 片 4a:`skipNotCleared` 那一格 —— `markSkippedNotCleared` 自己失敗同慣例計 error,
     //    不是 prepare-failure, 不走 helper)。取自當場印出來的那一個(「expected 22 to be 21」)。
-    expect(plain).toBe(22);
+    // 🔵 **22 ⇒ 23**(2026-10-02 信件文字第 2 片:讀不到 email_copy_versions 那一格 —— 一輪只記一次, 不是逐封的
+    //    prepare-failure, 不走 helper)。取自當場印出來的那一個(「expected 23 to be 22」)。
+    expect(plain).toBe(23);
 
     // 🛑 **這一格證不到什麼**(codex `gpt-6-astra` 2026-09-07 nit, 照實寫):
     //    它守的是**兩個總數**。把一處【沒被行為測蓋到的】A 堆呼叫,

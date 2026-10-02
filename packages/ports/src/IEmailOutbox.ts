@@ -879,6 +879,12 @@ export type ClaimedEmailJob = {
    *    (`attempts` 是退避的依據, 不是「送過沒有」的載體 —— 那不是 bug, 是兩件事。)
    */
   handedToProviderAt: string | null;
+  /**
+   * 這一列排進佇列的時間(`email_outbox.created_at`, DB now(), 建立後不會被改)。
+   * 信件文字第 2 片用它挑「排隊那一刻生效」的員工文字 ⇒ 同一封信重試時文字不變。
+   * 選填只為了既有測試的假資料不用逐筆補;缺了 ⇒ 這封信只用程式預設文字。
+   */
+  createdAt?: string;
 };
 
 export interface IEmailOutbox {

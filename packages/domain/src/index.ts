@@ -80,6 +80,19 @@ export { resolveEnd, matchFitmentYear, isYearUnrestricted } from './catalog/year
 export { normalizeVehicleQuery, looseVehicleKey, filterVehicleOptions, uniqueExactMatch, vehicleLabel } from './catalog/vehicle-match';
 export { foldSearchTerm, foldEquals, foldStartsWith, foldIncludes } from './catalog/search-terms-fold';
 export { SEARCH_SYNONYMS, synonymFor } from './catalog/search-synonyms';
+export {
+  EMAIL_COPY,
+  EMAIL_COPY_LOCKED,
+  EMAIL_COPY_MAX_LENGTH,
+  LINE_INVITE_MARKER,
+  emailCopy,
+  fillEmailCopy,
+  isEmailCopyKey,
+  resolveEmailCopyOverrides,
+  validateEmailCopyText,
+  withEmailCopyOverrides,
+} from './catalog/email-copy-catalog';
+export type { EmailCopyEntry, EmailCopyGroup, EmailCopyKey, EmailCopyVersion } from './catalog/email-copy-catalog';
 export type { SearchSynonym, SynonymKind } from './catalog/search-synonyms';
 export { FITMENT_EXCLUSIONS, findFitmentExclusion, reconcileFitmentExclusions, formatExclusionViolation } from './catalog/fitment-exclusions';
 export type { FitmentExclusion, ExclusionSourceProduct, ExclusionReconcileViolation } from './catalog/fitment-exclusions';

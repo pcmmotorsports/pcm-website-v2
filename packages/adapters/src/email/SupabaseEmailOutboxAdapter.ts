@@ -175,7 +175,8 @@ const LEASE_RECLAIMED_ERROR_CODE = 'lease_reclaimed';
 
 /** 表投射(對齊 migration 16 欄中寄送所需子集;不取 created_at/sent_at/last_error_code)。 */
 const JOB_SELECT =
-  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel';
+  'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel, created_at';
+// 信件文字第 2 片:多取 created_at(排隊時間)⇒ 寄信用「排隊那一刻生效」的員工文字, 重試時文字不變。
 // ⟦line-PUSH⟧ 🔴 `channel` **無條件在 select 裡**(與 `handed_to_provider_at` 同一種形狀、同一條部署順序):
 //    B 窗 S1 `20260914040000` **要先貼、本碼才能部署** —— 沒貼就部署 = PostgREST 400 = 整輪一封都不認領。
 //    ⛔ ~~我第一版用「env 未設 = 不讀這欄」的 legacy 態~~ ⇒ codex 2026-09-14 R1 must-fix 3:
@@ -198,6 +199,8 @@ type OutboxJobRow = {
   max_attempts: number;
   request_id: string | null;
   handed_to_provider_at: string | null;
+  /** 信件文字第 2 片:排隊時間。 */
+  created_at?: string | null;
   /** ⟦line-PUSH⟧ 在 `JOB_SELECT` 裡(無條件);型別留可缺是給 fake / 舊列回 `undefined` 時對映成 `'email'`。 */
   channel?: string | null;
 };
@@ -300,6 +303,7 @@ function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
     // 🔵 `?? null` 不是防禦性程式碼:`JOB_SELECT` 是字串, 漏欄時這裡拿到的是 `undefined`
     //    而型別上宣告的是 `string | null` ⇒ **不收斂的話那個 undefined 會一路流到判斷式**。
     handedToProviderAt: row.handed_to_provider_at ?? null,
+    ...(typeof row.created_at === 'string' ? { createdAt: row.created_at } : {}),
     // ⟦line-PUSH⟧ 🔴 **只有字面 `'line'` 才是 line**;其餘(含 `undefined` / typo)一律 `'email'` ——
     //    一個 typo 的值寧可當 email 走既有路,也不要當 line 推到一個不存在的 userId。
     channel: row.channel === 'line' ? 'line' : 'email',

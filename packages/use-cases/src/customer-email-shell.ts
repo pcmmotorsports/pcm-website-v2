@@ -15,12 +15,11 @@
  */
 
 import {
-  ORDER_CONTACT_LEAD,
-  PCM_COMPANY_ADDRESS,
-  PCM_COMPANY_LINE,
   PCM_LINE_ID,
   PCM_LINE_URL,
 } from './order-email-copy';
+// 2026-10-02 信件文字第 2 片:句子在寄信當下才取, 員工改的字才會生效。
+import { emailCopy } from './email-copy-catalog';
 
 /** 每封信 LOGO 連過去的網址。Sean 09-12 指定,**寫死 www**(與 LOGO 圖同一個理由:它屬於站,不屬於環境)。 */
 export const PCM_WEBSITE_URL = 'https://www.pcmmotorsports.com/';
@@ -175,12 +174,12 @@ ${bodyHtml}
       <tr><td class="px hair" style="padding:24px 28px 30px;">
         <div style="border-top:1px solid #dde3ea;padding-top:16px;">
           <div class="sub" style="font-family:${SANS};font-size:12px;line-height:1.85;color:#5c6b7a;">
-            ${ORDER_CONTACT_LEAD}
+            ${esc(emailCopy('contactLead'))}
             <a href="${PCM_LINE_URL}" style="color:#2d5f8f;text-decoration:underline;">${PCM_LINE_ID}</a>${contactTail}
           </div>
           <div class="sub" style="font-family:${SANS};font-size:11px;line-height:1.8;color:#647079;padding-top:12px;">
-            ${PCM_COMPANY_LINE}<br>
-            ${PCM_COMPANY_ADDRESS}
+            ${esc(emailCopy('companyLine'))}<br>
+            ${esc(emailCopy('companyAddress'))}
           </div>
         </div>
       </td></tr>

@@ -992,7 +992,7 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
 describe('claimDue 的 select 欄位清單(字面鎖)', () => {
   // ⟦line-PUSH⟧ 2026-09-14:11 → 12 欄(`channel`,無條件讀;S1 要先貼 —— 理由在 adapter `JOB_SELECT` 旁)。
   const EXPECTED_JOB_SELECT =
-    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel';
+    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel, created_at';
 
   it('🔴 送出去的 select 字串逐字 = 那 12 欄(少一欄 ⇒ 這格紅)', async () => {
     const b = makeBuilder({ data: [], error: null });
@@ -1557,7 +1557,7 @@ describe('⟦auth-MANUALORDERLIMITBURN⟧ enqueueManualNoRecipient(手動單刻�
  */
 describe('claimDue / promote — ⟦line-PUSH⟧ channel', () => {
   const SELECT =
-    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel';
+    'id, event_type, order_id, dedup_key, recipient_email, subject, payload, attempts, max_attempts, request_id, handed_to_provider_at, channel, created_at';
 
   it("🔴 未給 lineChannel ⇒ 與 'exclude' 同:neq('channel','line');列上沒 channel ⇒ job.channel email", async () => {
     const dueB = makeBuilder({ data: [JOB_ROW], error: null });
