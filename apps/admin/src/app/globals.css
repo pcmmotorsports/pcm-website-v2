@@ -2517,6 +2517,9 @@ body {font-size:14.5px;line-height:1.4}
     white-space:normal!important;overflow:visible;text-overflow:clip;
     width:auto!important;min-width:0!important
   }
+  /* 名字的固定寬(上面 10-02 那條)是給表格對齊用的;卡片的客戶格不是固定寬, 照舊「最多這麼寬」,
+     否則會員 tag 被擠到名字下一行(2026-10-02 430 實測)。 */
+  .orders-grid td.col-customer>.cust-name{width:auto;max-width:calc(100% - 46px)}
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

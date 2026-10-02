@@ -1236,7 +1236,8 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
       // 舊寫法 `max-width:calc(100% - 42px)` ⇒ 名字多長 tag 就跟到哪, 長短不同的名字讓 tag 跑來跑去。
       const decls = new Map<string, string>();
       ROOT2.walkRules((r) => {
-        if (r.selector.replace(/\s+/g, '') === '.orders-gridtd.col-customer>.cust-name') {
+        // 只看表格模式(最外層)的規則;卡片模式另有一條, 在下面那格守。
+        if (r.parent?.type === 'root' && r.selector.replace(/\s+/g, '') === '.orders-gridtd.col-customer>.cust-name') {
           r.walkDecls(/^(width|max-width)$/, (d) => {
             decls.set(d.prop, d.value.trim());
           });
@@ -1244,6 +1245,18 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
       });
       expect(decls.get('width'), '名字沒有固定寬 ⇒ 等級 tag 跟著名字長短跑').toBe('calc(100% - 46px)');
       expect(decls.has('max-width')).toBe(false);
+    });
+
+    it('🔴 手機卡片:名字的固定寬只給表格用, 卡片裡退回「最多這麼寬」⇒ 等級 tag 還在名字旁邊, 不會掉到下一行', () => {
+      const inCard = new Map<string, string>();
+      ROOT2.walkAtRules('container', (at) => {
+        if (!/max-width:\s*520px/.test(at.params)) return;
+        at.walkRules((r) => {
+          if (r.selector.replace(/\s+/g, '') === '.orders-gridtd.col-customer>.cust-name') r.walkDecls((d) => { inCard.set(d.prop, d.value.trim()); });
+        });
+      });
+      expect(inCard.get('width'), '卡片裡名字還是固定寬 ⇒ 會員 tag 被擠到名字下面').toBe('auto');
+      expect(inCard.get('max-width')).toBe('calc(100% - 46px)');
     });
 
     it('🔴 等級 tag 與發票 tag【同寬、都靠右】⇒ 兩顆左緣排成一條直線(Sean 2026-10-02)', () => {
