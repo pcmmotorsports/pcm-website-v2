@@ -83,7 +83,9 @@ import { OrderBossToggle } from '../../components/orders/order-boss-toggle';
 import { CostEditProvider, CostUnsavedBar, CostsBulkDialog } from '../../components/orders/item-costs-cells';
 import { isActiveManager } from '../../lib/staff';
 import { loadOrderItemCostCells, type OrderItemCostCells } from '../../lib/orders/order-item-boss-cells';
-import { COST_CURRENCY_CODES } from '../../lib/orders/item-costs-view';
+import { COST_CURRENCY_CODES, formatCostRatesField } from '../../lib/orders/item-costs-view';
+import { listFxRateRows } from '../../lib/fx/fx-rate-repository';
+import { currentFxRates } from '../../lib/fx/fx-rate-view';
 import { TruncationReveal } from '../../components/orders/truncation-reveal';
 import { OrderExportButton } from '../../components/orders/order-export-button';
 import { OrderExportAllLink } from '../../components/orders/order-export-all-link';
@@ -310,12 +312,19 @@ export default async function OrdersPage({
   /* 🆕 A1:成本第二發**只在老闆模式**(= manager 且 `?boss=1`)才發;`null` = 一般模式(表格不畫六欄)。
      🔴 讀失敗 ⇒ `'unreadable'`(六格印「讀不到」),**不讓整頁 500** —— 列表本體已經讀到了, 成本讀不到不該把它拖下水。 */
   let costCells: OrderItemCostCells | null = null;
+  // 各幣別現行匯率(輸入中試算用);讀不到 ⇒ 空字串 ⇒ 外幣列試算印「未設匯率 / —」,存檔照常走 RPC。
+  let costRates = '';
   if (display.boss) {
     try {
       costCells = await loadOrderItemCostCells(orders);
     } catch (e) {
       console.error('[admin/orders] 成本欄載入失敗', e);
       costCells = 'unreadable';
+    }
+    try {
+      costRates = formatCostRatesField(currentFxRates(await listFxRateRows(), new Date()));
+    } catch (e) {
+      console.error('[admin/orders] 匯率載入失敗', e);
     }
   }
 
@@ -1078,6 +1087,7 @@ export default async function OrdersPage({
               /* 🆕 A1:`null` = 一般模式;Map / 'unreadable' = 老闆模式(藏四欄、畫六欄)。 */
               costCells={costCells}
               editCosts={display.boss && costCells !== 'unreadable'}
+              costRates={costRates}
               /* 🆕 P-b:點【已展開】的那一列 ⇒ 收合(連結不帶 open);點別列 ⇒ 展開那一張。
                  Sean 拍過「不要 ✕ 關閉鈕」⇒ 再點一次那一列就收(規格 §3-d)。 */
               buildOpenHref={(orderId) =>

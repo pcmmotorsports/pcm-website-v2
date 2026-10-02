@@ -12,6 +12,8 @@ export type CostDraft = {
   /** 從 server 拿到的當下值(還沒設過 ⇒ 金額 ''、幣別 '')。 */
   baseline: CostDraftValues;
   current: CostDraftValues;
+  /** 輸入中試算用(列表就地改才有;批次彈窗不帶):數量、該列售價(整數元)、各幣別現行匯率字串,全是純量字串。 */
+  calc?: { quantity: string; lineTotal: string; rates: string };
 };
 
 export const COST_FIELD_LABEL: Record<keyof CostDraftValues, string> = {

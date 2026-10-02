@@ -41,8 +41,13 @@ function Harness({ price = '10', currency = 'EUR' }: { price?: string; currency?
               costTax='1.5'
               currency={currency}
               fxRate='35.2'
-              currencies='EUR,USD,TWD'
+              currencies='EUR,USD,TWD,JPY'
               tdClass='boss-cell'
+              quantity='2'
+              lineTotal='5000'
+              totalTwd='458'
+              profitTwd='4,542'
+              rates='EUR:35.2,USD:31.5,TWD:1'
             />
           </tr>
         </tbody>
@@ -60,12 +65,15 @@ describe('就地改 → 浮條 → 確認框 → 隱形表單', () => {
     expect(queryByTestId('costs-unsaved-bar')!.textContent).toContain('已改 1 格');
     expect(price.closest('td')!.className).toContain('costs-dirty');
     // 🔴 四格都要浮在整列 stretched link 上面(`relative z-10`),不然滑鼠點不到 input(Sean 09-14 線上「打字沒反應」)。
-    for (const td of [...price.closest('tr')!.querySelectorAll('td')]) expect(td.className).toContain('relative z-10');
+    //    (總計 / 利潤兩格是純顯示,不浮上來 ⇒ 點它們照舊打開那張單;這裡只量有輸入框的四格。)
+    const inputTds = [...price.closest('tr')!.querySelectorAll('td')].filter((td) => td.querySelector('input,select') !== null);
+    expect(inputTds).toHaveLength(4);
+    for (const td of inputTds) expect(td.className).toContain('relative z-10');
     fireEvent.click(getByText('取消變更'));
     expect(queryByTestId('costs-unsaved-bar')).toBeNull();
     expect(price.value).toBe('10');
   });
-  it('確認全部 ⇒ 確認框列出 單 / 商品 / 欄 / 舊 → 新,隱形表單帶 JSON 列 + return_to', () => {
+  it('確認全部 ⇒ 確認框每個商品一列(單號 / 商品 / 改後原價+幣值+匯率 / 總計 / 利潤),隱形表單帶 JSON 列 + return_to', () => {
     const { getByLabelText, getByText, container } = render(<Harness />);
     fireEvent.change(getByLabelText('油杯蓋 原價'), { target: { value: '12' } });
     fireEvent.change(getByLabelText('油杯蓋 幣值'), { target: { value: 'USD' } });
@@ -73,15 +81,22 @@ describe('就地改 → 浮條 → 確認框 → 隱形表單', () => {
     (dlg as HTMLDialogElement).showModal = vi.fn();
     fireEvent.click(getByText('確認全部'));
     expect((dlg as HTMLDialogElement).showModal).toHaveBeenCalled();
-    expect(dlg.textContent).toContain('ABC123');
-    expect(dlg.textContent).toContain('油杯蓋');
-    expect(dlg.textContent).toContain('原價');
-    expect(dlg.textContent).toContain('10 → 12');
-    expect(dlg.textContent).toContain('EUR → USD');
+    // 改了兩格(原價、幣值)仍然只有一列
+    expect(dlg.querySelectorAll('tbody tr')).toHaveLength(1);
+    const row = dlg.querySelector('tbody tr')!.textContent!;
+    expect(row).toContain('ABC123');
+    expect(row).toContain('油杯蓋');
+    expect(row).toContain('12 USD');
+    expect(row).toContain('×31.5');
+    // (12 + 0 + 1.5×2) × 31.5 = 472.5 ⇒ 473;利潤 5000 − 473 = 4,527
+    expect(row).toContain('473');
+    expect(row).toContain('4,527');
+    expect(dlg.querySelectorAll('p')).toHaveLength(1);
     const rows = JSON.parse((dlg.querySelector('input[name="cost_rows"]') as HTMLInputElement).value);
     expect(rows).toEqual([{ orderItemId: '11111111-2222-4333-8444-555555555555', costPrice: '12', costShipping: '0', costTax: '1.5', currency: 'USD' }]);
     expect((dlg.querySelector('input[name="return_to"]') as HTMLInputElement).value).toBe('/orders?boss=1');
-    expect(getByText('確認(2 格)')).toBeTruthy();
+    expect(getByText('確認儲存')).toBeTruthy();
+    expect(getByText('回去修改')).toBeTruthy();
   });
   it('🔴 幣別沒選就按確認全部 ⇒ 不開框、浮條講人話', () => {
     const { getByLabelText, getByText, container, queryByTestId } = render(<Harness price='' currency='' />);
@@ -92,12 +107,35 @@ describe('就地改 → 浮條 → 確認框 → 隱形表單', () => {
     expect(dlg.showModal).not.toHaveBeenCalled();
     expect(queryByTestId('costs-unsaved-bar')!.textContent).toContain('還沒選幣別');
   });
-  it('幣別改了 ⇒ 匯率那格改印「存檔時帶」(存的匯率是那個幣別的抄本,不能沿用)', () => {
+  it('沒改 ⇒ 總計 / 利潤印存檔的值;一打字 ⇒ 同一列馬上算出來(淡色 = 尚未儲存)', () => {
     const { getByLabelText, container } = render(<Harness />);
-    expect(container.textContent).toContain('×35.2');
+    const total = () => container.querySelector('td.boss-total')!;
+    const profit = () => container.querySelector('td.boss-profit')!;
+    expect(total().textContent).toBe('458');
+    expect(profit().textContent).toBe('4,542');
+    expect(total().querySelector('.costs-pending')).toBeNull();
+    fireEvent.change(getByLabelText('油杯蓋 原價'), { target: { value: '12' } });
+    // (12 + 0 + 1.5×2) × 35.2 = 528;利潤 5000 − 528 = 4,472
+    expect(total().textContent).toBe('528');
+    expect(profit().textContent).toBe('4,472');
+    expect(total().querySelector('.costs-pending')).not.toBeNull();
+    expect(profit().querySelector('.costs-pending')).not.toBeNull();
+  });
+  it('幣別改了 ⇒ 匯率那格印新幣別現在的匯率(存檔時抄的就是它),不再是「匯…」', () => {
+    const { getByLabelText, container } = render(<Harness />);
+    expect(container.querySelector('td.boss-fx')!.textContent).toContain('×35.2');
     fireEvent.change(getByLabelText('油杯蓋 幣值'), { target: { value: 'USD' } });
-    expect(container.textContent).not.toContain('×35.2');
-    expect(container.textContent).toContain('匯率存檔時帶');
+    expect(container.querySelector('td.boss-fx')!.textContent).toContain('×31.5');
+    expect(container.textContent).not.toContain('匯率存檔時帶');
+    // (10 + 0 + 1.5×2) × 31.5 = 409.5 ⇒ 410
+    expect(container.querySelector('td.boss-total')!.textContent).toBe('410');
+  });
+  it('幣別還沒設匯率 ⇒ 匯率格說「未設匯率」、總計 / 利潤印 —', () => {
+    const { getByLabelText, container } = render(<Harness />);
+    fireEvent.change(getByLabelText('油杯蓋 幣值'), { target: { value: 'JPY' } });
+    expect(container.querySelector('td.boss-fx')!.textContent).toContain('未設匯率');
+    expect(container.querySelector('td.boss-total')!.textContent).toBe('—');
+    expect(container.querySelector('td.boss-profit')!.textContent).toBe('—');
   });
 });
 
