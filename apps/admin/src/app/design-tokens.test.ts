@@ -796,9 +796,71 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
     // 🔴 R2 之後自查出的第 6 種形狀:`:not(.foo)` 的 class 是【反錨】不是錨 ——
     //    模型元素沒有 .foo ⇒ :not(.foo) 反而【命中】它。⇒ 判「錨在別的 class」之前,
     //    先把 :not/:is/:where/:has 的參數剝掉;class 只活在函式型偽類裡 ⇒ 不算錨, 落 outofmodel(被釘住)
-    const anchor = subject.replace(/:(not|is|where|has)\([^)]*\)/gi, ':$1()');
+    // 🔴 2026-10-02:剝參數改成【數括號】。舊版 `\([^)]*\)` 遇到巢狀(`:where(:not(:disabled, .x))`)
+    //    只剝到第一個 `)`, 剩下的 `, .x))` 被當成錨 ⇒ 把「反錨」誤判成「錨在別的 class」= 'miss'(放行方向)。
+    const anchor = stripFnArgs(subject, ['not', 'is', 'where', 'has']);
     if (/\.[A-Za-z_\\-]/.test(anchor)) return 'miss'; // 錨在別的 class 字面(函式型偽類外)
     if (/#[A-Za-z_-]/.test(anchor)) return 'miss'; // 錨在 id
+    return 'outofmodel';
+  };
+
+  /** 把 `:name(…)` 的參數(數括號, 含巢狀)剝成 `:name()`。names 小寫。 */
+  function stripFnArgs(s: string, names: string[]): string {
+    let out = '';
+    for (let i = 0; i < s.length; ) {
+      const m = /^:([a-z-]+)\(/i.exec(s.slice(i));
+      if (m && names.includes(m[1]!.toLowerCase())) {
+        let depth = 0;
+        let j = i + m[0].length - 1;
+        for (; j < s.length; j++) {
+          if (s[j] === '(') depth++;
+          else if (s[j] === ')' && --depth === 0) break;
+        }
+        if (depth !== 0) throw new Error(`選擇器括號不平衡:\`${s.slice(0, 60)}\` —— 解析器不猜`);
+        out += `:${m[1]}()`;
+        i = j + 1;
+      } else out += s[i++];
+    }
+    return out;
+  }
+  /** 所有 `:not(…)` 的參數字串(含巢狀在 :where 裡的)。 */
+  function notArgs(s: string): string[] {
+    const out: string[] = [];
+    const re = /:not\(/gi;
+    for (let m = re.exec(s); m; m = re.exec(s)) {
+      let depth = 1;
+      let j = m.index + m[0].length;
+      for (; j < s.length && depth > 0; j++) {
+        if (s[j] === '(') depth++;
+        else if (s[j] === ')') depth--;
+      }
+      out.push(s.slice(m.index + m[0].length, j - 1));
+    }
+    return out;
+  }
+  /**
+   * 🔴 2026-10-02(後台全站按鈕回饋;主視窗決定擴充解析器而不是改寫選擇器):
+   *   `classifySel` 判 'complex' 的選擇器裡, 有一種其實【只】是因為 `[class…]` 住在 `:not(…)` 裡 ——
+   *   `:not([class*="x"])` 是【排除】條件:模型元素(只帶目標 class)沒有 x ⇒ 它恆成立, 不構成「以 class 形狀命中」。
+   *   ⇒ 這種落 'outofmodel'(由下方「模型外集合」那格具名釘住), 其餘照舊 'complex'(宣告查詢屬性就 throw)。
+   *   🔴 收窄三條, 缺一條就維持 'complex':
+   *     ① 選擇器裡沒有目標 class 字面;② 剝掉所有 `:not(…)` 之後, 正向部分沒有任何 `[class…]`;
+   *     ③ 沒有雙重否定(`:not(:not([class*=…]))` = 正向命中)。
+   *   🔴 方向:只會把 'complex' 改成 'outofmodel'(仍被具名釘住、新增就紅), 【永遠不升級成 'miss'】——
+   *      原本會吵的, 改完最多變成「要人逐條登記」, 不會變成靜默放行。
+   *   ⚠️ `classifySel` 本身不動:`.text-xs:not([class*="leading-"])` 仍回 'complex'(R2 F4 口徑照舊)。
+   */
+  const classifyRefined = (sel: string, target: string): ReturnType<typeof classifySel> => {
+    const c = classifySel(sel, target);
+    if (c !== 'complex') return c;
+    // 🔴 Fable R1 必修 1:只放寬【class 目標】。`:root` 自訂屬性查詢維持舊口徑 ——
+    //    `html:not([class*="dark"]){--card:…}` 在真瀏覽器特異度高於 `:root`, 而模型外集合不數 `--*` ⇒ 放過去就是靜默。
+    if (!target.startsWith('.')) return c;
+    const esc = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`${esc}(?![A-Za-z0-9_-])`).test(sel)) return 'complex'; // ①
+    const subject = subjectOf(sel);
+    if (notArgs(subject).some((a) => /:not\(/i.test(a))) return 'complex'; // ③
+    if (/\[\s*class/i.test(stripFnArgs(subject, ['not']))) return 'complex'; // ②
     return 'outofmodel';
   };
 
@@ -816,7 +878,7 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
           );
     const cands: Decl[] = [];
     for (const r of rules) {
-      const vs = r.selectors.map((s) => classifySel(s, targetSel));
+      const vs = r.selectors.map((s) => classifyRefined(s, targetSel));
       if (!vs.includes('hit') && !vs.includes('complex')) continue; // miss / outofmodel(後者有具名守門釘住)
       const decls = parseDecls(r.body, r.order);
       const hitProps = decls.filter((d) => props.includes(d.prop));
@@ -1115,6 +1177,31 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
     //    不准判 miss;落 outofmodel(合成層刻意不吵, 真檔防線=條數釘住那格)
     expect(classifySel(':not(.foo)', '.a')).toBe('outofmodel');
     expect(classifySel('.text-xs:not([class*="leading-"])', '.a')).toBe('complex'); // [class 檢查優先, 行為不變(R2 F4 口徑照舊)
+    // ── 2026-10-02 classifyRefined(後台全站按鈕回饋)—— 擴充只准把 complex 改成【具名釘住】, 原本會吵的一格都不准變安靜 ──
+    // 🔴 故意蓋狀態膠囊底色的 :where 規則:寫出膠囊 class ⇒ 照吵(真檔 + 這一條, 級聯當場 throw)
+    expect(() =>
+      winningValueIn(P(`${CSS_CODE}\n:where(.cap-n){background:#ffffff!important}`), 'cap-n', 'background'),
+    ).toThrow(/不猜/);
+    expect(() =>
+      winningValueIn(P(`${CSS_CODE}\n:where(a):where(:not([class*="zz"])).cap-n{background:#ffffff}`), 'cap-n', 'background'),
+    ).toThrow(/不猜/);
+    // 🔴 以 class 形狀【正向】命中膠囊(不寫出 class 名)⇒ 照吵
+    expect(() =>
+      winningValueIn(P(`${CSS_CODE}\n:where([class*="cap-"]){background:#ffffff}`), 'cap-n', 'background'),
+    ).toThrow(/不猜/);
+    // 🔴 雙重否定 = 正向:`:not(:not([class*="cap-"]))` 就是「有 cap-」⇒ 照吵
+    expect(classifyRefined(':where(:not(:not([class*="cap-"])))', '.cap-n')).toBe('complex');
+    expect(() =>
+      winningValueIn(P(`${CSS_CODE}\n:where(:not(:not([class*="cap-"]))){background:#ffffff}`), 'cap-n', 'background'),
+    ).toThrow(/不猜/);
+    // 只有 :not 裡的 [class…](排除條件)⇒ 不吵, 但落 'outofmodel' ⇒ 被下方「模型外集合」那格具名釘住(新增就紅), 不是 'miss'
+    expect(classifyRefined(':where(span):where(:not([class*="zz"]))', '.cap-n')).toBe('outofmodel');
+    expect(classifyRefined('.text-xs:not([class*="leading-"])', '.a')).toBe('outofmodel'); // 有別的 class 錨也【不】升成 miss
+    // 數括號:巢狀參數裡的 class 是反錨, 舊版剝到第一個 `)` 會把 `.b` 當錨 ⇒ 誤判 'miss'
+    expect(classifySel(':where(:not(.a), .b)', '.cap-n')).toBe('outofmodel');
+    // 🔴 Fable R1 必修 1:`:root` 自訂屬性查詢不放寬(模型外集合不數 `--*`, 放過去就是靜默)
+    expect(classifyRefined('html:not([class*="dark"])', ':root')).toBe('complex');
+    expect(classifyRefined(':where(html):where(:not([class*="dark"]))', ':root')).toBe('complex');
   });
 
   it('🔴🔴 模型外的規則是【具名集合】,不是靜默出口 —— 新增同形狀就紅(R1 must-fix 1 第二半)', () => {
@@ -1139,7 +1226,7 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       if (!counted(r)) continue;
       for (const s of r.selectors) {
         // canary class:不存在於檔內 ⇒ 'hit'/'complex' 不會誤觸, 量的就是形狀分類本身
-        if (classifySel(s, '.cap-canary') === 'outofmodel')
+        if (classifyRefined(s, '.cap-canary') === 'outofmodel')
           outOfModel.set(s, (outOfModel.get(s) ?? 0) + 1);
       }
     }
@@ -1184,6 +1271,20 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       "[data-od-panel='money'] summary:has(h2.text-destructive)": 1,
       "[data-od-panel='money'] summary:has(h2:not(.text-destructive))": 1,
       body: 1, // 同上:@apply bg-background text-foreground
+      // 🔴 2026-10-02 後台全站按鈕回饋(globals.css 檔尾那一段;**由我歸類,不是靜默通過**):8 條宣告了底色 / 框線色的按鈕規則。
+      //    形狀落 outofmodel 的原因:選擇器打在 `button` / `a` / `[role=button]` **標籤與角色**上, 外加 :where 包住的 class 清單。
+      //    **今天不打膠囊的理由**:① 每一條都要求元素是 button / a / [role=button];狀態膠囊(`.cap*`、`.pcm-pill`、`[data-st]`)
+      //    在原始碼與本機後台實查都是 `<span>` / `<div>`(2026-10-02 量過訂單、商品、客戶、新增訂單彈窗、展開的訂單明細, 命中 0);
+      //    ② 而且還要帶按鈕 class(`border` / `bg-primary` / `bg-destructive` / `data-slot=button` / 後台自訂鈕), 膠囊都沒有。
+      //    ⚠️ 哪天有人把膠囊做成可以點的 <a class="border …">, 這幾條就會蓋到它的底色 —— 真相只有真瀏覽器知道, 與本清單其他條目同一個射程。
+      ":where(button, a, [role='button']):where(.border, [data-slot='button'], .fchip, .refx-pill, .costs-btn, .costs-bar-btn, .pcm-more-btn):where( :not(:disabled, [aria-disabled='true'], [data-disabled], .bg-primary, .bg-destructive, .text-destructive, [aria-current='true'], [aria-pressed='true'], [data-state='on'], [data-state='active'], [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'], [class*='hover:-translate'], #nav-rail *)):where(:hover)": 1,
+      ":where(button, a, [role='button']):where(.border, [data-slot='button'], .fchip, .refx-pill, .costs-btn, .costs-bar-btn, .pcm-more-btn):where( :not(:disabled, [aria-disabled='true'], [data-disabled], .bg-primary, .bg-destructive, .text-destructive, [aria-current='true'], [aria-pressed='true'], [data-state='on'], [data-state='active'], [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'], [class*='hover:-translate'], #nav-rail *)):where(:active)": 1,
+      ":where(button, a, [role='button']):where(.border.text-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:hover)": 1,
+      ":where(button, a, [role='button']):where(.border.text-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:active)": 1,
+      ":where(button, a, [role='button']):where(.bg-primary, .pcm-btn-p):where(:not(:disabled, [aria-disabled='true'], [data-disabled], .pcm-btn--off)):where(:hover)": 1,
+      ":where(button, a, [role='button']):where(.bg-primary, .pcm-btn-p):where(:not(:disabled, [aria-disabled='true'], [data-disabled], .pcm-btn--off)):where(:active)": 1,
+      ":where(button, a, [role='button']):where(.bg-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:hover)": 1,
+      ":where(button, a, [role='button']):where(.bg-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:active)": 1,
     });
     // 對照組:集合不是空的 —— 「零新增」不是因為尺沒在量
     expect(outOfModel.size).toBeGreaterThan(0);
