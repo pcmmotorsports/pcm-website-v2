@@ -1227,6 +1227,20 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
       expect(decls.has('max-width')).toBe(false);
     });
 
+    it('🔴 狀態格跟數量/單價/金額/下一步一樣【貼頂】⇒ 同一列第一行對齊(Sean 2026-10-02)', () => {
+      // 舊的 `td.col-status{vertical-align:middle}` 是為了救往外長的紅框(09-13 已隨 `.cap-unpaid` 移除),
+      // 留著它 ⇒ 多品項的單狀態膠囊掉到整列中間, 比同一列的金額低。
+      const aligns: string[] = [];
+      ROOT2.walkRules((r) => {
+        if (r.selector.replace(/\s+/g, '').split(',').includes('.orders-gridtd.col-status')) {
+          r.walkDecls('vertical-align', (d) => {
+            aligns.push(d.value.trim());
+          });
+        }
+      });
+      expect(aligns, '狀態格還在垂直置中 ⇒ 比同一列的金額低').not.toContain('middle');
+    });
+
     it('🔴 三態各有自己的底色規則，而且是三條不同的', () => {
       // 少了這一條，三顆 tag 全變同一色（或某一態根本沒規則）都不會有人叫。
       const byState = new Map<string, string>();
@@ -1836,26 +1850,11 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       }
     });
 
-    // 🏁 **L3 片6:狀態膠囊的紅框被 `overflow: hidden` 切掉**(Sean 2026-08-14 回報「狀態圖標卡到」)。
-    //
-    // 🔴 **這一格守的是「那一行還在」,不是「膠囊沒被切」** —— 誠實邊界,不要讀成別的:
-    //    postcss 看不到 `box-shadow` 往外溢出幾 px。真正證明它好了的是瀏覽器實測
-    //    (三檔各 15 顆膠囊、逐顆量**膠囊元素本身**、`clipped 0/15`、最小餘裕 4.1px > 紅框 3px;
-    //     數字在 `~/pcm-mailbox/E-504-STOP.md`)。
-    // 🔴 **那為什麼還要這一格**:症狀是「未收款膠囊的紅框上緣少 2px」——
-    //    肉眼幾乎看不出來、截圖也看不出來 ⇒ 誰把這一行刪了或改回 `top`,**不會有任何人發現**。
-    //    這一格讓「刪掉它」變成紅的。
-    // ⚠️ `insideCard` 必須是 **false**:置中是**桌機**的修法;卡片模式那段自己把列高改成 `auto`,
-    //    寫進 media 內等於桌機吃不到 = 修了跟沒修一樣,而三綠照樣全綠。
-    it('🔴 片6 — 狀態格 `vertical-align: middle` 還在,且**不在**卡片化 media 內', () => {
-      const last = lastDecl('.orders-grid td.col-status', 'vertical-align');
-      expect(
-        last,
-        '狀態格沒有 vertical-align ⇒ 回到元件的 `align-top`,未收款膠囊的 3px 紅框會被 overflow:hidden 切掉',
-      ).not.toBeNull();
-      expect(last!.value, '值不是 middle ⇒ 膠囊不再置中,上緣餘裕回到 0.5~1px < 紅框的 3px').toBe('middle');
-      expect(last!.insideCard, '寫進卡片化 media 內 ⇒ 桌機吃不到,而桌機才是出問題的那一邊').toBe(false);
-    });
+    // ⛔ **L3 片6 那一格(狀態格必須 `vertical-align: middle`)2026-10-02 移除。**
+    //    它守的是「未收款膠囊往外長的 3px 紅框被 overflow:hidden 切掉」—— 而會往外長的兩種框都已退場:
+    //    `PAY_MARK` 09-13 隨 Sean 拍 Q1 甲移除、`cap-risk` 的 `ring` 在片3b 拿掉(`order-status-axes.ts`)。
+    //    Sean 10-02 要狀態跟同一列金額對齊 ⇒ 改守相反方向,見 P5 那組「狀態格跟數量…【貼頂】」。
+    //    瀏覽器實測(貼頂後膠囊有沒有被切)數字在 `~/pcm-mailbox/後台按鈕動效-20261002/`。舊量法留在 git。
 
     it('🔴🔴 整卡可點的定位脈絡:兩條成對,且 `tr` 的 position **只准存在於 media 內**', () => {
       // M4 那個真功能損失的唯一守門(桌機看不到、截圖也看不到)。
