@@ -988,7 +988,8 @@ function OrderGroup({
                          padding:3px 9px;font-size:12px;min-height:24px`。圓角走 token(`rounded-lg` = 8;7 不是 token,守門禁裸值)。
                         🔴 內距取稿的另一版 `padding:3px 8px`:`col-next` 內容盒 90(104 − 7×2),六字鈕 72+16+2 = 90 剛好;
                            9px 會多 2px ⇒ td 的 `text-overflow:ellipsis` 在鈕右邊畫出一顆「.」(1440 真瀏覽器撞到)。
-                        字面照 `規格-下一步欄-v1.md` 不動;仍是 `<Link>`、零 client。 */}
+                        字面照 `規格-下一步欄-v1.md` 不動;仍是 `<Link>`、零 client。
+                        2026-10-02 Sean:加滑過(浮起、框線加深)與按下(縮一點)的回饋;尺寸不動 —— 這一欄寬度是算剛好的(見上)。 */}
                     {/* 2026-09-27 出貨流程甲:「叫車」帶到出貨清單(goto);結果不確定的那兩種用橘色(tone warn)。 */}
                     <Link
                       href={next.kind === 'goto' ? next.href : buildNextHref(order.id, next.do)}
@@ -996,7 +997,7 @@ function OrderGroup({
                         next.kind === 'action' && next.tone === 'warn'
                           ? 'border-orange-400 bg-orange-50 font-medium text-orange-800'
                           : 'border-border bg-card text-(--fg-2)'
-                      } relative z-10`}
+                      } relative z-10 transition-[transform,border-color] duration-150 hover:-translate-y-px hover:border-(--input) active:translate-y-0 active:scale-95 motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100`}
                       data-next-do={next.kind === 'goto' ? 'goto' : next.do}
                     >
                       {/* 2026-09-30 部分到貨「出貨（已到 N 樣）」一行比這一欄寬(1440 實測鈕 114 > 欄 111, 右緣被切)

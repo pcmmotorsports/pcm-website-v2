@@ -33,7 +33,6 @@
 
 .order-inline-head .oih-line { display: flex; align-items: center; gap: 8px; padding: 2px 0; min-width: 0; white-space: nowrap; }
 .order-inline-head .oih-line.oih-notel { padding-top: 0; }
-.order-inline-head .oih-line.oih-acts2 { margin-top: 4px; }
 .order-inline-head .oih-line.oih-wrap { flex-wrap: wrap; white-space: normal; }
 .order-inline-head .oih-recipient > .order-copy-text { white-space: normal; overflow-wrap: anywhere; }
 .order-inline-head .oih-k { color: var(--muted-foreground); font-size: 12.5px; margin-left: 10px; }
@@ -45,14 +44,60 @@
 .order-inline-head .oih-bad { color: var(--destructive); font-weight: 600; }
 .order-inline-head .oih-trk { font-family: var(--font-mono); font-size: 13px; user-select: text; }
 .order-inline-head .oih-tier { display: inline-flex; padding: 0 5px; font-size: 11.5px; font-weight: 600; background: var(--muted); color: var(--foreground); margin-left: 4px; vertical-align: middle; }
-.order-inline-head .oih-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
-.order-inline-head .oih-acts a {
-  display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); background: var(--card);
-  border-radius: 7px; padding: 3px 10px; color: var(--foreground); font-size: 12.5px; line-height: 1.4; text-decoration: none;
+/* ── 2026-10-02 Sean:左右兩塊 + 動作按鈕放大、有滑過與按下的回饋 ─────────────────────────
+   🔴 偏離稿 v22 `.acts button{radius 7;padding 3 10;12.5px}`:Sean 要「放大、加寬、點起來不用太小心」(主視窗轉述),
+      尺寸照他的要求加在稿之上(同 0913 工具列凍結那種「稿上沒畫、Sean 加的」);顏色只用既有 token,不另開。
+   版面:≥900px 左資訊、右按鈕(3 欄 × 2 排,從頂端排、跟左邊資訊同高);<900px 按鈕整塊掉到資訊下面、自動換行。 */
+/* 🔴 訂單表在 ≥640 是一張會橫向捲動的寬表(實測 1308px,捲動框 712~892px),展開列跟著表一樣寬
+   ⇒ 按鈕若排在表的右端, 員工要先橫捲才看得到(舊版也是)。
+   ⇒ 捲動框當容器、本塊寬度 = 捲動框看得到的寬(100cqi),並黏在左邊(sticky)——橫捲時它不跟著跑。 */
+.orders-grid:has(.order-inline-head) { container: orders-grid / inline-size; }
+.order-inline-head .oih-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 20px; align-items: start;
+  position: sticky; left: 12px; max-width: calc(100cqi - 26px);
 }
-.order-inline-head .oih-acts .oih-p { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.order-inline-head .oih-info { min-width: 0; }
+.order-inline-head .oih-acts { display: grid; grid-template-columns: repeat(3, minmax(7.5rem, auto)); gap: 8px; padding-top: 2px; }
+.order-inline-head .oih-acts a {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 38px; padding: 7px 16px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--card); color: var(--foreground);
+  font-size: 14px; font-weight: 500; line-height: 1.3; white-space: nowrap; text-decoration: none;
+  transition: transform 160ms cubic-bezier(.2, .6, .3, 1), background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+/* 🔴 全站無陰影(Sean 2026-08-16「BMW M」;design-tokens.test.ts 守著)⇒ 回饋只靠框線、底色與位移。
+   滑過:框線加深、淡藍底、浮起 1px —— 一看就知道「游標在這顆上」 */
+.order-inline-head .oih-acts a:hover {
+  border-color: var(--input); transform: translateY(-1px);
+  background: color-mix(in srgb, var(--primary) 6%, var(--card));
+}
+/* 按下:壓回去、縮一點、底色再深一級 —— 一看就知道「點到了」 */
+.order-inline-head .oih-acts a:active {
+  transform: translateY(0) scale(.97);
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+}
+/* 新增收款:維持主要按鈕的藍;滑過與按下逐級加深 */
+.order-inline-head .oih-acts .oih-p { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+.order-inline-head .oih-acts .oih-p:hover { background: color-mix(in srgb, var(--primary) 86%, black); border-color: color-mix(in srgb, var(--primary) 86%, black); }
+.order-inline-head .oih-acts .oih-p:active { background: color-mix(in srgb, var(--primary) 74%, black); border-color: color-mix(in srgb, var(--primary) 74%, black); }
+/* 退款 / 取消:維持紅字;滑過淡紅底、紅框 */
 .order-inline-head .oih-acts .oih-d { color: var(--destructive); }
-.order-inline-head .oih-acts .oih-l4 { font-family: var(--font-mono); opacity: .75; }
+.order-inline-head .oih-acts .oih-d:hover { border-color: color-mix(in srgb, var(--destructive) 55%, var(--card)); background: color-mix(in srgb, var(--destructive) 6%, var(--card)); }
+.order-inline-head .oih-acts .oih-d:active { background: color-mix(in srgb, var(--destructive) 12%, var(--card)); }
+.order-inline-head .oih-acts .oih-l4 { font-family: var(--font-mono); font-size: 12.5px; opacity: .75; }
+/* 鍵盤焦點:全域 :focus-visible 已有外框(globals.css :1840);這裡只把外框推離按鈕一點,浮起時不會被切到 */
+.order-inline-head .oih-acts a:focus-visible { outline-offset: 2px; }
+/* 系統設定「減少動態效果」:不浮起、不縮放、不漸變,只留顏色與框線的變化 */
+@media (prefers-reduced-motion: reduce) {
+  .order-inline-head .oih-acts a { transition: none; }
+  .order-inline-head .oih-acts a:hover, .order-inline-head .oih-acts a:active { transform: none; }
+}
+/* 窄:看得到的寬不到 900px ⇒ 按鈕整塊掉到資訊下面, 寬度不夠就自動換行(每顆至少 9rem, 不會擠成一字一行)。
+   看的是捲動框的寬(容器查詢), 不是視窗 —— 視窗寬而表格更寬時, 判斷的依據要是員工真的看得到的那一段。 */
+@container orders-grid (max-width: 900px) {
+  .order-inline-head .oih-body { grid-template-columns: minmax(0, 1fr); row-gap: 10px; }
+  .order-inline-head .oih-acts { grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); }
+}
 .order-inline-head .cap-n, .order-inline-head .cap-y { margin-left: 2px; }
 /* 編輯模式那張單的列:白底(稿 `tr.edit td{background:#fff}`),蓋掉 globals `[data-selected] td` 的淡藍;
    左緣 3px 藍槓也讓位給框線(那條藍槓是「選中」的語彙,編輯模式的語彙是框)。特異性 (0,4,3) > (0,2,1)。 */
