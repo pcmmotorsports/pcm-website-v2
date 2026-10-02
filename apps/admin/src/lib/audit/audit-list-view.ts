@@ -48,6 +48,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'dealer.account.create': '後台建立經銷帳號',
   'customer.password_reset.claimed': '準備寄重設密碼信',
   'customer.password_reset.sent': '寄重設密碼信',
+  // 信件文字第 2 片(20261002200000)
+  'email_copy.save': '修改信件文字',
   'dealer.brand_discount.change': '調整經銷品牌折扣',
   'customer.wallet.adjust': '調整儲值金',
   'order.cancel': '取消訂單',
