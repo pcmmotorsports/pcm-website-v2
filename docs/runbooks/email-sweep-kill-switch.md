@@ -22,6 +22,16 @@ SELECT cron.unschedule('pcm-email-sweep');
 🔬 那個名字**逐字**來自 `supabase/migrations/20260819160000_m4a_e2b_email_sweep_pgcron.sql:213`
 (`cron.schedule('pcm-email-sweep', '*/5 * * * *', …)`)。**不要憑印象打**,名字錯了它會回錯而不是停錯。
 
+**停完確認真的停了**(2026-10-03 補,對稱「開回來」那段的 `active` 提醒):
+
+```sql
+SELECT jobname, active FROM cron.job WHERE jobname = 'pcm-email-sweep';
+```
+應該回 **0 列**。還有一列就是沒停成,回頭重跑上面那句。
+
+⚠️ **關掉 `CRON_SWEEPER_ENABLED` 不會停寄信。** 那個環境變數只管對帳排程(`settle-sweep`),
+寄信那條路不讀它(`email-sweep/route.ts` 唯一讀的環境變數是 `CRON_SECRET`)。要停信只能用上面這一句。
+
 ## 開回來(一句)
 
 ```sql
