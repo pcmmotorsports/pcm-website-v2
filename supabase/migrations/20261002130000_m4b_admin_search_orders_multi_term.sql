@@ -15,6 +15,9 @@
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
+-- 先載入 pg_trgm 的程式庫:貼板角色不是 superuser, 程式庫沒載入時不能在函式上 SET pg_trgm.word_similarity_threshold
+-- (265 第一次貼就是死在這裡:permission denied to set parameter)。叫一次 pg_trgm 的函式就會載入。
+DO $load$ BEGIN PERFORM extensions.similarity('a', 'a'); END $load$;
 
 DO $pre$
 BEGIN

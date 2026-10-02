@@ -1,6 +1,9 @@
 -- 回滾 20261002130000(S2 訂單搜尋拆詞):admin_search_orders 換回第 3 代(md5 c3cdaf1b…), DROP 內部函式。先退程式(本片程式不用改)再跑。
 BEGIN;
 SET LOCAL lock_timeout = '5s';
+-- 先載入 pg_trgm 的程式庫:貼板角色不是 superuser, 程式庫沒載入時不能在函式上 SET pg_trgm.word_similarity_threshold
+-- (265 第一次貼就是死在這裡:permission denied to set parameter)。叫一次 pg_trgm 的函式就會載入。
+DO $load$ BEGIN PERFORM extensions.similarity('a', 'a'); END $load$;
 CREATE OR REPLACE FUNCTION public.admin_search_orders(p_query text, p_limit integer DEFAULT 100, p_from timestamp with time zone DEFAULT NULL::timestamp with time zone, p_to timestamp with time zone DEFAULT NULL::timestamp with time zone)
  RETURNS jsonb
  LANGUAGE plpgsql

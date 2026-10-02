@@ -16,6 +16,8 @@ cleanup() { pg_ctl -D "$D/data" -m immediate stop >/dev/null 2>&1; rm -rf "$D"; 
 trap cleanup EXIT
 P() { psql -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=1 "$@"; }
 Q() { P -tA -c "$1"; }
+# 貼板角色:正式庫的 postgres 不是 superuser ⇒ 這裡用一個 NOSUPERUSER、身為 postgres 成員的角色來貼(265 第一次貼失敗後補)。
+PN() { psql -h 127.0.0.1 -p "$PORT" -U zz_paster -d postgres -X -q -v ON_ERROR_STOP=1 "$@"; }
 FAIL=0; N=0
 cell() { N=$((N+1)); if [ "$2" = "$3" ]; then printf '  PASS %-58s (%s)\n' "$1" "$2"; else printf '  🔴 FAIL %-55s 實得 [%s] 期望 [%s]\n' "$1" "$2" "$3"; FAIL=1; fi; }
 while IFS= read -r v; do f="$(ls "$REPO"/supabase/migrations/"${v}"_*.sql 2>/dev/null | head -1)"; [ -n "$f" ] && { P -f "$f" >/dev/null 2>&1 || true; }; done < <(awk -F'\t' '$1 ~ /^2026/ && $1 > "20260915100000" && $1 < "20261002130000" {print $1}' "$REPO/supabase/APPLIED.tsv" | sort -u)
@@ -64,15 +66,19 @@ OB="$(run_cells 2>/dev/null)"; printf '%s\n' "$OB" | sed 's/^/  [貼前] /'
 RED="$(printf '%s\n' "$OB" | grep -c FAIL)"
 # 「排氣管 r6」第 3 代的模糊比對(word_similarity)本來就對得到(所以這格改用 y6r5, 真的要兩維各對一個詞)。下面只核這四格貼前一定是紅的。
 cell "貼前紅的正好是:王 小明 / 明 台中 / 全形電話 / 全形料號" "$(printf '%s\n' "$OB" | grep FAIL | grep -c '王 小明\|明 台中\|全形電話\|全形料號')" "4"
-P -f "$MIG" >/dev/null || { echo "🔴 migration 套不上"; exit 1; }
+P -q -c "CREATE ROLE zz_paster LOGIN NOSUPERUSER; GRANT postgres TO zz_paster;" >/dev/null
+NOLOAD="$(mktemp)"; grep -v 'PERFORM extensions.similarity' "$MIG" > "$NOLOAD"
+cell "先紅:拿掉載入那行、用非 superuser 貼 ⇒ 擋在設定參數" "$(PN -f "$NOLOAD" 2>&1 | grep -c 'permission denied to set parameter')" "1"
+rm -f "$NOLOAD"
+PN -f "$MIG" >/dev/null || { echo "🔴 migration 用非 superuser 貼不上"; exit 1; }
 echo "── 貼後 ──"
 run_cells
 for q in "${SINGLE[@]}"; do cell "一個詞「$q」結果與第 3 代逐筆相同" "$(Q "select (res = public.admin_search_orders('$q'))::text from public.zz_before where q = '$q'")" "true"; done
 cell "空白 / 超過 120 字 ⇒ 空" "$(Q "select (public.admin_search_orders('   ') ->> 'ids') || (public.admin_search_orders(repeat('a', 121)) ->> 'ids')")" "[][]"
 cell "權限:內部函式 service_role 不可、主函式可" "$(Q "select has_function_privilege('service_role','public.pcm_admin_search_order_term_hits(text,timestamptz,timestamptz)','EXECUTE')::text || has_function_privilege('service_role','public.admin_search_orders(text,integer,timestamptz,timestamptz)','EXECUTE')::text")" "falsetrue"
-cell "已貼過再貼 ⇒ 前置閘擋" "$(P -f "$MIG" 2>&1 | grep -c 'S2 前置閘')" "1"
-P -f "$DOWN" >/dev/null || { echo "🔴 回滾失敗"; FAIL=1; }
+cell "已貼過再貼 ⇒ 前置閘擋" "$(PN -f "$MIG" 2>&1 | grep -c 'S2 前置閘')" "1"
+PN -f "$DOWN" >/dev/null || { echo "🔴 回滾失敗(非 superuser)"; FAIL=1; }
 cell "回滾後 = 第 3 代、內部函式不在" "$(Q "select md5(prosrc) from pg_proc where proname='admin_search_orders'")|$(Q "select count(*) from pg_proc where proname='pcm_admin_search_order_term_hits'")" "c3cdaf1bf1294ae283362dbdaa7cf78e|0"
-P -f "$MIG" >/dev/null || { echo "🔴 回滾後再套一次失敗"; FAIL=1; }
+PN -f "$MIG" >/dev/null || { echo "🔴 回滾後再套一次失敗"; FAIL=1; }
 cell "回滾後可以再套一次" "$(S '王 小明')" "a"
 if [ "$FAIL" = 0 ]; then echo "全部 $N 格通過"; exit 0; else echo "🔴 有格子失敗(共 $N 格)"; exit 1; fi
