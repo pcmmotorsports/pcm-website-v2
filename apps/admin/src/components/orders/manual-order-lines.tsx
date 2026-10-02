@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ManualOrderLinePriceCheck } from './manual-order-line-price-check';
 import {
   MANUAL_ORDER_LINE_SEED_EVENT,
+  lineMetaText,
   type ManualOrderLineSeed,
 } from '../../lib/orders/manual-order-line-seed';
 import {
@@ -259,6 +260,14 @@ export function ManualOrderLines({ initialRows = 1, lookup }: ManualOrderLinesPr
               </button>
             )}
           </div>
+
+          {/* 2026-10-02 Sean:「加成一列」的那一列下方印品牌與規格, 送出前核對選對了沒(同款不同色只差這一行)。
+              只給人看:不是 input、沒有 name, 不進任何送出的值。手打的列沒有 ⇒ 不印。 */}
+          {lineMetaText(row) !== null && (
+            <p data-testid='manual-order-line-meta' className='text-(--fg-2) -mt-1 text-xs sm:col-span-12'>
+              {lineMetaText(row)}
+            </p>
+          )}
 
           {/* 🔴 ⟦b4-PURCHTAX1⟧ 甲案:比對型錄的權威含稅價。**它問一句, 不擋送出、不回寫欄位。**
               🛑 **刻意做成獨立元件** —— 本檔有一條不變式(送出的值不由 client state 產生或回寫)

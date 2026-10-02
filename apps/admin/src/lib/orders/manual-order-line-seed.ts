@@ -49,7 +49,16 @@ export type ManualOrderLineSeed = {
    *    不是「沒問題」。要收它得改 RPC 的錯誤訊息或改成跳過那一列, 那是另一片。
    */
   variantId: string;
+  /** 2026-10-02:品牌與規格【只給人看】(加成的那一列下方核對用),不進任何送出的欄位。 */
+  brand?: string;
+  spec?: string;
 };
+
+/** 那一列下方要印的核對字(品牌 · 規格);手打的列或兩個都沒有 ⇒ `null`(不印)。 */
+export function lineMetaText(row: { seed?: ManualOrderLineSeed }): string | null {
+  const parts = [row.seed?.brand, row.seed?.spec].filter((x): x is string => typeof x === 'string' && x.trim() !== '');
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
 
 /** 從查詢結果丟出去。🔵 `window` 上派發 —— 兩支元件是兄弟, 沒有共同父層。 */
 export function emitManualOrderLineSeed(seed: ManualOrderLineSeed): void {

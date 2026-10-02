@@ -69,6 +69,8 @@ function toSeed(h: ManualOrderCatalogHit): ManualOrderLineSeed {
     qty: '1',
     unitPrice: h.dealerPriceUntaxed === null ? '' : String(h.dealerPriceUntaxed),
     variantId: h.variantId,
+    brand: h.brand,
+    spec: h.spec,
   };
 }
 
@@ -191,10 +193,30 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
                   if (sel && sel.toString() !== '' && sel.anchorNode && e.currentTarget.contains(sel.anchorNode)) return;
                   emitManualOrderLineSeed(toSeed(h));
                 }}
-                className='block w-full rounded-md border px-2 py-1 text-left text-sm'
+                className='bg-card grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 rounded-md border px-3 py-2 text-left text-sm transition-[transform,background-color,border-color] duration-150 hover:border-(--input) hover:bg-accent active:scale-98 motion-reduce:transition-none motion-reduce:active:scale-100'
               >
-              <span className='font-mono'>{h.sku}</span> · {h.title === '' ? '(無品名)' : h.title}
-              {' · '}
+              {/* 2026-10-02 Sean:「同一款不同顏色看起來都一樣」⇒ 每一列分三塊:
+                  左:品牌(小字粗體)+ 品名,下一行規格標籤 + 料號(等寬);中:價格靠右、數字對齊;右:加成一列。
+                  顏色只用既有 token、無陰影(design-tokens.test.ts)。 */}
+              <span className='min-w-0'>
+                <span className='flex min-w-0 items-baseline gap-2'>
+                  {h.brand !== '' && (
+                    <span data-testid='catalog-hit-brand' className='shrink-0 text-xs font-semibold tracking-wide text-(--fg-2)'>
+                      {h.brand}
+                    </span>
+                  )}
+                  <span className='truncate font-medium'>{h.title === '' ? '(無品名)' : h.title}</span>
+                </span>
+                <span className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
+                  {h.spec !== '' && (
+                    <span data-testid='catalog-hit-spec' className='text-foreground rounded-md border px-1.5 font-medium'>
+                      {h.spec}
+                    </span>
+                  )}
+                  <span className='text-muted-foreground font-mono'>{h.sku}</span>
+                </span>
+              </span>
+              <span className='flex flex-col items-end gap-0.5 text-right text-xs tabular-nums'>
               {/* 🔴🔴 **稅基標籤與數字在【同一個 <span> 裡】—— 那是刻意的, 不是排版**:
                   員工的動作是【選取數字複製】, 而他選取時眼睛在數字上。
                   標籤若放到別行 / 別的灰字區, 他不會在複製的那一刻看到它。
@@ -207,22 +229,22 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
                   ? `售價 ${money(h.unitPrice)}(含稅)`
                   : `特價 ${money(h.unitPrice)}(含稅,原價 ${money(h.listUnitPrice)})`}
               </span>
-              {' / '}
-              <span data-testid='catalog-hit-price-store'>
+              <span data-testid='catalog-hit-price-store' className='text-(--fg-2)'>
                 經銷 {money(h.dealerPriceUntaxed)}(未稅)
               </span>
               {/* 🔴 **這顆鈕只丟事件, 不碰表單**(⟦b4-建單加成一列⟧ 2026-09-06)——
                   index 只有 `ManualOrderLines` 一個持有者;這裡自己算 index 兩邊必撞,
                   而解析器 `manual-order-form.ts:339-347` 要求 `_0.._n` 連號 ⇒ 撞了整張表單被拒。
                   🔵 樣式**逐字沿用同頁那顆「查詢」鈕**(`:112-118`), 不自創(plan §3)。 */}
-              <span className='ml-2 rounded-md border px-3 py-1 text-sm'>加成一列</span>
               {/* 🛑 **沒有經銷價就要說出來, 不能安靜地種 0** ——
                   0 是一個合法的價格, 它會變成一張零元的單而沒有東西會叫。 */}
               {h.dealerPriceUntaxed === null && (
-                <span className='ml-2 text-sm text-amber-700 dark:text-amber-500'>
+                <span className='text-amber-700 dark:text-amber-500'>
                   沒有經銷價,單價要自己填
                 </span>
               )}
+              </span>
+              <span className='rounded-md border px-3 py-1 text-sm whitespace-nowrap'>加成一列</span>
               </button>
             </li>
           ))}

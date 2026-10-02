@@ -69,7 +69,8 @@ describe('🔴🔴 防洩漏:select 逐欄指名,零經銷價 / 成本 / metadat
     // 🔵 2026-09-28 商品頁乙 P13:再加 sale_price_general —— 該進:手動建單要帶入客人實際付的一般價(含特價),
     //    建單函式不重新查價(20260829140000:273),帶錯員工沒注意就用錯價。
     expect(MANUAL_ORDER_CATALOG_COLUMNS).toBe(
-      'id, sku, price_general, price_store, sale_price_general, products(title)',
+      // 2026-10-02 Sean:查商品要看得出品牌與規格 ⇒ 多讀 spec 與 products.brands(name)(都是公開商品資訊, 不是價或成本)
+      'id, sku, spec, price_general, price_store, sale_price_general, products(title, brands(name))',
     );
   });
 
@@ -169,6 +170,8 @@ describe('翻譯回來的形狀', () => {
         variantId: '11111111-1111-4111-8111-111111111111',
         sku: 'PCM-001',
         title: '排氣管',
+        brand: '',
+        spec: '',
         unitPrice: 12000,
         listUnitPrice: null,
       },
@@ -230,5 +233,30 @@ describe('🔴 查詢失敗【不得】回空陣列 —— 那會把「壞掉」
   it('🔴 error 有值而 data 也有值 ⇒ 仍然丟(不得因為「有資料」就當成功)', async () => {
     stubClient({ data: [row()], error: { message: 'partial' } });
     await expect(searchManualOrderCatalog('PCM')).rejects.toThrow(/partial/);
+  });
+});
+
+
+describe('2026-10-02 Sean:同款不同色要分得出來 —— 帶品牌與規格', () => {
+  it('🔴 品牌讀 products.brands.name;規格讀 spec 的值(不印英文鍵)', async () => {
+    stubClient({
+      data: [row({ sku: 'YAM-58-BU', spec: { color: '經典-海軍藍' }, products: { title: '防爆水管 6件組', brands: { name: 'SAMCO' } } })],
+      error: null,
+    });
+    const [hit] = await searchManualOrderCatalog('YAM-58');
+    expect(hit).toMatchObject({ brand: 'SAMCO', spec: '經典-海軍藍', title: '防爆水管 6件組' });
+  });
+
+  it('規格空物件或讀不到 ⇒ 空字串;多個值用「 · 」接;非字串值不印', async () => {
+    stubClient({
+      data: [
+        row({ sku: 'A', spec: {} }),
+        row({ sku: 'B', spec: null, products: { title: 'x', brands: null } }),
+        row({ sku: 'C', spec: { color: '黑', version: 'W 版可折式', n: 3 } }),
+      ],
+      error: null,
+    });
+    const out = await searchManualOrderCatalog('x');
+    expect(out.map((h) => [h.sku, h.brand, h.spec])).toEqual([['A', '', ''], ['B', '', ''], ['C', '', '黑 · W 版可折式']]);
   });
 });

@@ -33,6 +33,8 @@ const hit = (over: Record<string, unknown> = {}) => ({
   variantId: 'v-1',
   sku: 'SKU-A',
   title: '測試品',
+  brand: '',
+  spec: '',
   unitPrice: 1050,
   dealerPriceUntaxed: 900,
   ...over,
