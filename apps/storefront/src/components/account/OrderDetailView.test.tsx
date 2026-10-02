@@ -702,6 +702,74 @@ describe('OrderDetailView', () => {
       ).toBe(shouldTick);
     });
 
+    // ⟦ship-REFUNDEDPAIDSTEP⟧ Sean 2026-10-03 定(推翻 09-04 的一部分):退款單「多一站」寫退款結果,
+    //   插在「付款完成」之後;「付款完成」照舊打勾並保留日期。退款那一站用 is-refund(不是 is-done)、不印日期。
+    it.each([
+      ['refunded', '已退款'],
+      ['partiallyRefunded', '已退部分'],
+    ] as const)('🔴 %s 的單 ⇒ 進度軸多一站「%s」, 在「付款完成」之後、且不是完成站的樣式', (status, label) => {
+      const { container } = render(
+        <OrderDetailView order={{ ...ORDER, paymentStatus: status, paidAt: '2099-04-20T00:00:00Z' }} />,
+      );
+      const steps = Array.from(container.querySelector('[data-od-id="order-steps"]')!.children);
+      const titles = steps.map((el) => el.querySelector('.od-step-t')?.textContent);
+      expect(titles, '退款站沒有插進來').toEqual(['訂單成立', '付款完成', label, '已出貨', '已送達']);
+      const paidStep = steps[1]!;
+      expect(paidStep.querySelector('.od-step-t')?.textContent, '付款完成那半要保留').toBe('付款完成');
+      expect(paidStep.className.includes('is-done'), '付款完成照舊打勾(他確實付過)').toBe(true);
+      expect(paidStep.querySelector('.od-step-d')?.textContent, '付款日保留').toBe('2099-04-20');
+      const refundStep = steps[2]!;
+      expect(refundStep.className, '退款站要用 is-refund、不用完成站的 is-done').toContain('is-refund');
+      expect(refundStep.className.includes('is-done'), '退款站不得畫成完成站').toBe(false);
+      expect(refundStep.querySelector('.od-step-d')?.textContent, '退款站不印日期(讀不到退款日期)').toBe('');
+    });
+
+    it('🔴 未出貨的退款單 ⇒ is-now 落在退款站(現在在這一站)', () => {
+      const { container } = render(
+        <OrderDetailView order={{ ...ORDER, paymentStatus: 'refunded', paidAt: '2099-04-20T00:00:00Z', shippedAt: null }} />,
+      );
+      const steps = Array.from(container.querySelector('[data-od-id="order-steps"]')!.children);
+      const now = steps.findIndex((el) => el.className.includes('is-now'));
+      expect(steps[now]?.querySelector('.od-step-t')?.textContent, 'is-now 應該落在退款站').toBe('已退款');
+    });
+
+    it('🔴 出貨後才退款的單 ⇒ 退款站排在「付款完成」之後、「已出貨」之前, is-now 落在已出貨', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...ORDER, paymentStatus: 'refunded', paidAt: '2099-04-20T00:00:00Z', shippedAt: '2099-04-25T00:00:00Z' }}
+        />,
+      );
+      const titles = Array.from(container.querySelector('[data-od-id="order-steps"]')!.children).map(
+        (el) => el.querySelector('.od-step-t')?.textContent,
+      );
+      expect(titles, '退款站一律放付款完成之後(客人投影讀不到退款發生在哪一站後)').toEqual([
+        '訂單成立', '付款完成', '已退款', '已出貨', '已送達',
+      ]);
+      const steps = Array.from(container.querySelector('[data-od-id="order-steps"]')!.children);
+      const now = steps.findIndex((el) => el.className.includes('is-now'));
+      expect(steps[now]?.querySelector('.od-step-t')?.textContent, '出貨後退款 ⇒ is-now 在已出貨').toBe('已出貨');
+    });
+
+    it('🔵 負對照:paid 的單不多出退款站(四格)', () => {
+      const { container } = render(<OrderDetailView order={ORDER} />);
+      const titles = Array.from(container.querySelector('[data-od-id="order-steps"]')!.children).map(
+        (el) => el.querySelector('.od-step-t')?.textContent,
+      );
+      expect(titles).toEqual(['訂單成立', '付款完成', '已出貨', '已送達']);
+    });
+
+    it('🔴 已取消的退款單走取消軸、不多出退款站(退款站只給沒取消的單)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...ORDER, paymentStatus: 'refunded', paidAt: '2099-04-20T00:00:00Z', cancelledAt: '2099-05-01T00:00:00Z', cancelKind: 'cancelled' }}
+        />,
+      );
+      const titles = Array.from(container.querySelector('[data-od-id="order-steps"]')!.children).map(
+        (el) => el.querySelector('.od-step-t')?.textContent,
+      );
+      expect(titles, '取消的退款單不應該多出退款站').not.toContain('已退款');
+    });
+
     it('🔵 正對照:沒取消的單 ⇒ 進度軸四格【逐字不變】', () => {
       const { container } = render(<OrderDetailView order={ORDER} />);
       const steps = container.querySelector('[data-od-id="order-steps"]');

@@ -236,7 +236,9 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
    *    「**他確實付過, 那是發生過的事實**」;而端他的理由是 ——
    *    那條軸講的是**發生過什麼**, 不是現在的狀態(「訂單成立」也不會因為取消了就變灰);
    *    而維持灰的代價是:**客人剛收到退款, 而畫面說我們沒收到錢 ⇒ 兩個訊息打架。**
-   * 🛑 **丙(打勾 + 多一格「已退款」)他沒選** ⇒ 不做:那是多一個狀態、多一份文案、多一個形狀。
+   * 🛑 ~~丙(打勾 + 多一格「已退款」)他沒選~~ ⇒ 🔵 **2026-10-03 Sean 看截圖後改判, 就是選了丙**:
+   *    「付款完成」照舊打勾並保留日期(上面這半不變), 另外多一站寫「已退款」/「已退部分」插在它之後
+   *    (下面 `refundTimelineLabel` 那段)。稿上沒有這一站, 是 Sean 拍板。
    *
    * 🔵 **而 `partiallyRefunded` 是我加的, 不是他拍的** —— 理由要寫出來讓它可被推翻:
    *    它的定義是「**退了一部分**、訂單仍有保留品項」(`types.ts:34-35`)⇒ **它蘊含之前已全額付款**
@@ -279,7 +281,19 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
    */
   const unpaidButShipped = !cancelled && order.shippedAt !== null && !paymentCompleted;
   // 稿的四階進度軸。前兩階有來源;後兩階在第 1 批一律未完成(見檔頭)。
-  const steps = [
+  // ⟦ship-REFUNDEDPAIDSTEP⟧ Sean 2026-10-03 定(推翻 2026-09-04 甲的一部分):已退款 / 已退部分的單,
+  //   進度軸「多一站」寫退款結果, 插在「付款完成」之後。「付款完成」照舊打勾並保留付款日(他確實付過那半保留)。
+  //   退款那一站的標記與完成站可區分(is-refund, 不用完成站的深色實心點), 沒有日期(客人投影讀不到退款日期)。
+  //   🔵 只對【沒有取消】的單套用:取消的單走取消軸、維持原本顯示。
+  //   🔴 出貨後才退款的單(今天 0 張, 但程式支援):客人訂單投影【讀不到退款發生在哪一站之後】,
+  //      所以一律放在「付款完成」之後(回報已說明)。
+  const refundTimelineLabel =
+    !cancelled && order.paymentStatus === 'refunded'
+      ? '已退款'
+      : !cancelled && order.paymentStatus === 'partiallyRefunded'
+        ? '已退部分'
+        : null;
+  const steps: { t: string; d: string; ok: boolean; refund?: boolean }[] = [
     { t: '訂單成立', d: formatOrderDate(order.createdAt), ok: true },
     // 🔴 日期只能用 `paidAt`(codex 關卡2 must-fix):延後付款或重試成功時,下單日與付款日
     //    可以差好幾天 ⇒ 拿 `createdAt` 冒充等於**印一個我們自己編的付款日**,而客人沒有第二個來源可以對。
@@ -298,6 +312,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             : '',
       ok: paymentCompleted,
     },
+    ...(refundTimelineLabel ? [{ t: refundTimelineLabel, d: '', ok: true, refund: true }] : []),
     /**
      * ⟦b9-SHIPUI⟧ **這一階從包裹真相點亮**(Sean 2026-09-02 拍丙)。
      *
@@ -501,7 +516,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         {shownSteps.map((s, i) => (
           <div
             key={s.t}
-            className={`od-step${s.ok ? ' is-done' : ''}${i === nowIdx ? ' is-now' : ''}`}
+            className={`od-step${s.refund ? ' is-refund' : s.ok ? ' is-done' : ''}${i === nowIdx ? ' is-now' : ''}`}
           >
             <div className="od-step-t">{s.t}</div>
             <div className="od-step-d">{s.d}</div>
