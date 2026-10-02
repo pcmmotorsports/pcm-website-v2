@@ -26,7 +26,8 @@
 import { hasNoRealImage } from '@pcm/domain';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MockProduct, UIVariant } from '@/data/mock-products';
+import { brandToSlug, type MockProduct, type UIVariant } from '@/data/mock-products';
+import { brandLogoSrc } from '@/lib/brand-logo';
 import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
 
 // 🔴 2026-08-22:這裡原本有 `PRODUCT_IMG_POOL`(15 個 Unsplash photo id)+ `productGallery(seed)`
@@ -98,6 +99,12 @@ export function ProductGallery({ product, selectedVariant, saleOrigPrice }: Prod
   // 🔴 2026-08-22:相依陣列拿掉了 product.id —— 它唯一的用途是餵 productGallery(product.id)
   //   去挑 Unsplash 示意圖, 而那整段已經刪掉。留著會被 react-hooks/exhaustive-deps 判為多餘。
   }, [selectedVariant?.images, product.variants, product.images, product.image]);
+  // Sean 2026-10-03 Q4 甲:沒有照片 ⇒ 跟卡片一樣顯示品牌標誌 + 「商品圖片準備中」(卡片那一側見 ProductImage.tsx)。
+  //   品牌代號的取法與卡片同一句(ProductCard.tsx 的 brandSlug ?? brandToSlug(brand));沒有標誌的品牌(今天只有 pcm)
+  //   或標誌載不到 ⇒ 照舊用站內佔位圖。
+  const logoSrc = brandLogoSrc(product.brandSlug?.trim() || brandToSlug(product.brand));
+  const [logoFailed, setLogoFailed] = useState(false);
+  const showBrandLogo = gallery.length === 1 && gallery[0] === PLACEHOLDER_IMAGE && !!logoSrc && !logoFailed;
   const [activeImg, setActiveImg] = useState(0);
   const [lightbox, setLightbox] = useState(false);
   // 載不到的圖片網址。key 用【解析後的 src】而不是 gallery 的索引 ——
@@ -170,6 +177,22 @@ export function ProductGallery({ product, selectedVariant, saleOrigPrice }: Prod
   // V-2g:換圖/開關 lightbox 重置縮放(避免上一張縮放殘留;resetZoom 走 stable refs)。
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { lbSwipe.resetZoom(); }, [activeImg, lightbox]);
+
+  if (showBrandLogo) {
+    // 只有一個標誌 ⇒ 不給縮圖列、張數、左右鈕與放大(沒有東西可以翻或放大)
+    return (
+      <div className="pd-gallery">
+        <div className="pd-hero-img pd-hero-nophoto">
+          <div className="pd-hero-nophoto-inner">
+            <img src={logoSrc!} alt={product.name} loading="eager" onError={() => setLogoFailed(true)} />
+            <span>商品圖片準備中</span>
+          </div>
+          {hasDiscount && <div className="pd-hero-badge">−{discountPct}%</div>}
+          {product.isNew && !product.isSale && <div className="pd-hero-badge pd-hero-badge-new">NEW</div>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

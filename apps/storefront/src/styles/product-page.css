@@ -177,6 +177,29 @@
   user-select: none;
   -webkit-user-select: none;
 }
+/* 沒有照片 ⇒ 品牌標誌 + 「商品圖片準備中」(Sean 2026-10-03 Q4 甲;與卡片 ProductImage.tsx 同一個樣子:標誌約半寬、0.72 透明、底下一行小字) */
+.pd-hero-nophoto { cursor: default; }
+.pd-hero-nophoto-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.pd-hero-nophoto-inner img {
+  max-width: 52%;
+  max-height: 34%;
+  object-fit: contain;
+  opacity: 0.72;
+}
+.pd-hero-nophoto-inner span {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--c-text-3);
+}
 .pd-hero-track {
   position: absolute;
   inset: 0;
