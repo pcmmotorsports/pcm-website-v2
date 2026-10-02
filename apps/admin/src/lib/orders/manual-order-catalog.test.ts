@@ -11,7 +11,9 @@ import { stripComments } from '../test-support/strip-comments';
 import {
   MANUAL_ORDER_CATALOG_COLUMNS,
   MANUAL_ORDER_CATALOG_LIMIT,
+  rankCatalogHits,
   searchManualOrderCatalog,
+  type ManualOrderCatalogHit,
 } from './manual-order-catalog';
 
 // M12-A3-a:品項選擇器讀取端。
@@ -24,13 +26,18 @@ const SRC_FILE = join(__dirname, 'manual-order-catalog.ts');
 function stubClient(result: { data: unknown; error: unknown }) {
   const calls: Array<[string, unknown[]]> = [];
   const chain: Record<string, unknown> = {};
-  for (const m of ['from', 'select', 'ilike', 'order', 'limit']) {
+  for (const m of ['from', 'select', 'ilike', 'in', 'order', 'limit']) {
     chain[m] = (...args: unknown[]) => {
       calls.push([m, args]);
       // `limit` 是鏈尾 ⇒ 回 thenable, 讓 `await` 拿到結果
       return m === 'limit' ? Promise.resolve(result) : chain;
     };
   }
+  // S3:商品搜尋(admin_search_product_ids)預設回空 ⇒ 下面的格子照舊只驗料號比對那一條。
+  chain.rpc = (...args: unknown[]) => {
+    calls.push(['rpc', args]);
+    return { range: () => Promise.resolve({ data: [], error: null }) };
+  };
   mocks.createClient.mockReturnValue(chain);
   return calls;
 }
@@ -70,7 +77,8 @@ describe('🔴🔴 防洩漏:select 逐欄指名,零經銷價 / 成本 / metadat
     //    建單函式不重新查價(20260829140000:273),帶錯員工沒注意就用錯價。
     expect(MANUAL_ORDER_CATALOG_COLUMNS).toBe(
       // 2026-10-02 Sean:查商品要看得出品牌與規格 ⇒ 多讀 spec 與 products.brands(name)(都是公開商品資訊, 不是價或成本)
-      'id, sku, spec, price_general, price_store, sale_price_general, products(title, brands(name))',
+      // 2026-10-02 S3:多讀 product_id(商品 id, 用來照商品搜尋的相關度排序;不是價或成本)
+      'id, product_id, sku, spec, price_general, price_store, sale_price_general, products(title, brands(name))',
     );
   });
 
@@ -250,13 +258,86 @@ describe('2026-10-02 Sean:同款不同色要分得出來 —— 帶品牌與規�
   it('規格空物件或讀不到 ⇒ 空字串;多個值用「 · 」接;非字串值不印', async () => {
     stubClient({
       data: [
-        row({ sku: 'A', spec: {} }),
-        row({ sku: 'B', spec: null, products: { title: 'x', brands: null } }),
-        row({ sku: 'C', spec: { color: '黑', version: 'W 版可折式', n: 3 } }),
+        row({ id: 'v-a', sku: 'A', spec: {} }),
+        row({ id: 'v-b', sku: 'B', spec: null, products: { title: 'x', brands: null } }),
+        row({ id: 'v-c', sku: 'C', spec: { color: '黑', version: 'W 版可折式', n: 3 } }),
       ],
       error: null,
     });
+    // S3 起結果會依規格 id 去重 ⇒ 三列要給不同 id(真的資料一定不同)。
     const out = await searchManualOrderCatalog('x');
     expect(out.map((h) => [h.sku, h.brand, h.spec])).toEqual([['A', '', ''], ['B', '', ''], ['C', '', '黑 · W 版可折式']]);
+  });
+});
+
+// S3(Sean 2026-10-02 Q2 甲):建單查商品用顧客站同一套商品搜尋(品名、品牌、料號去符號、拆詞), 含已下架。
+describe('S3 商品搜尋接線', () => {
+  it('全形轉半形後拆詞, 送給 admin_search_product_ids', async () => {
+    const calls = stubClient({ data: [], error: null });
+    await searchManualOrderCatalog('ＰＥＤ　GP evo');
+    expect(arg(calls, 'rpc')).toEqual(['admin_search_product_ids', { p_terms: ['PED', 'GP', 'evo'] }]);
+    // 料號比對那條也用轉好的字
+    expect(arg(calls, 'ilike')).toEqual(['sku', '%PED GP evo%']);
+  });
+
+  it('只有零寬字 ⇒ 切完零詞 ⇒ 不查(送出去會是沒有條件 = 全部)', async () => {
+    const calls = stubClient({ data: [], error: null });
+    expect(await searchManualOrderCatalog('\u200B')).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('函式還沒貼(PGRST202)⇒ 不報錯, 只剩料號比對的結果', async () => {
+    const calls = stubClient({ data: [row({ sku: 'PED-1' })], error: null });
+    mocks.createClient().rpc = () => ({
+      range: () => Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'not found' } }),
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const out = await searchManualOrderCatalog('PED');
+    expect(out.map((h) => h.sku)).toEqual(['PED-1']);
+    expect(calls.some(([m]) => m === 'in')).toBe(false);
+  });
+
+  it('其他錯誤 ⇒ 往上丟(查詢失敗不能顯示成查無)', async () => {
+    stubClient({ data: [], error: null });
+    mocks.createClient().rpc = () => ({
+      range: () => Promise.resolve({ data: null, error: { code: '57014', message: 'canceling statement' } }),
+    });
+    await expect(searchManualOrderCatalog('PED')).rejects.toThrow(/商品搜尋.*canceling statement/);
+  });
+
+  it('有商品命中 ⇒ 用 product_id 撈那幾件的規格', async () => {
+    const calls = stubClient({ data: [], error: null });
+    mocks.createClient().rpc = () => ({
+      range: () => Promise.resolve({ data: [{ id: 'p-2' }, { id: 'p-1' }], error: null }),
+    });
+    await searchManualOrderCatalog('排氣管');
+    expect(arg(calls, 'in')).toEqual(['product_id', ['p-2', 'p-1']]);
+  });
+});
+
+describe('rankCatalogHits(合併與排序)', () => {
+  const h = (variantId: string, sku: string, productId?: string): ManualOrderCatalogHit => ({
+    variantId, productId, sku, title: '', brand: '', spec: '', unitPrice: null, listUnitPrice: null, dealerPriceUntaxed: null,
+  });
+
+  it('料號整串相等(忽略連字號、空白、大小寫、全形)排第一', () => {
+    const out = rankCatalogHits('pedgpevo', [], [h('a', 'PED-GP', 'p1'), h('b', 'PED-GP EVO', 'p2')], ['p1', 'p2']);
+    expect(out.map((x) => x.sku)).toEqual(['PED-GP EVO', 'PED-GP']);
+    expect(rankCatalogHits('ＰＥＤ－ＧＰ ＥＶＯ', [], [h('b', 'PED-GP EVO', 'p2')], ['p2'])[0]?.sku).toBe('PED-GP EVO');
+  });
+
+  it('其次照商品搜尋的相關度順序;只有料號比對才找到的排後面;同一件商品內照料號', () => {
+    const out = rankCatalogHits(
+      '排氣管',
+      [h('z', 'AAA-1', 'p9')],
+      [h('c', 'B-2', 'p1'), h('d', 'B-1', 'p1'), h('e', 'A-1', 'p2')],
+      ['p2', 'p1'],
+    );
+    expect(out.map((x) => x.sku)).toEqual(['A-1', 'B-1', 'B-2', 'AAA-1']);
+  });
+
+  it('兩條路都找到同一個規格 ⇒ 只列一次', () => {
+    const out = rankCatalogHits('PED', [h('a', 'PED-1', 'p1')], [h('a', 'PED-1', 'p1')], ['p1']);
+    expect(out).toHaveLength(1);
   });
 });
