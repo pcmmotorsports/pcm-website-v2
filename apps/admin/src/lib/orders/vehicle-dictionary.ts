@@ -1,3 +1,4 @@
+import { filterVehicleOptions, looseVehicleKey } from '@pcm/domain';
 // vehicle-dictionary.ts — 後台建單「車種」一格的純函式層(#956 乙, 2026-09-14):
 //   · 員工打的一串字(例 `2021 CBR`)⇒ 拆年份 + 關鍵字
 //   · 字典命中列 ⇒ 顯示字面 / 送 RPC 的 {kind:'dict'} 形狀
@@ -14,6 +15,42 @@ export type VehicleDictionaryHit = {
 export type ManualOrderVehicleInput =
   | { kind: 'dict'; brand: string; model: string; year?: number }
   | { kind: 'free'; raw: string; year?: number };
+
+/**
+ * 2026-10-02 Sean:後台車種搜尋要跟顧客站一樣聰明 ⇒ 比對共用顧客站的 vehicle-match(@pcm/domain), 不另寫一份:
+ *   大小寫、連字號、空格、全形半形都忽略(looseVehicleKey);開頭命中排前、中段命中其次(filterVehicleOptions)。
+ * 本函式只多做兩件事:同品牌同車型去重、同一組裡「越短越接近」排前(GSX 先列 GSX-8T 再列 GSX1300R Hayabusa), 最多 max 筆。
+ * 字典沒有的車 ⇒ 空陣列(畫面照舊只剩「照打」)。
+ */
+export function rankVehicleHits(all: readonly VehicleDictionaryHit[], query: string, max: number): VehicleDictionaryHit[] {
+  const seen = new Set<string>();
+  const uniq: VehicleDictionaryHit[] = [];
+  for (const h of all) {
+    const k = `${h.brand}|${h.model}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(h);
+  }
+  uniq.sort(
+    (a, b) =>
+      looseVehicleKey(a.model).length - looseVehicleKey(b.model).length ||
+      a.model.localeCompare(b.model) ||
+      a.brand.localeCompare(b.brand),
+  );
+  return filterVehicleOptions(uniq, query, (h) => h.model).slice(0, max);
+}
+
+/**
+ * 資料庫那一頭的粗篩(PostgREST 的 ilike 不能先去掉連字號):查詢折疊後的每個字元之間都插 %,
+ * 例「gsx8s」⇒ `%g%s%x%8%s%`, 對得到「GSX-8S」。它是超集, 真正的比對與排序在 rankVehicleHits。
+ * 折疊後不到 2 個字 ⇒ null(不查)。
+ */
+export function looseIlikePattern(query: string, anchored = false): string | null {
+  const key = looseVehicleKey(query).replace(/[%_\\]/g, '');
+  if ([...key].length < 2) return null;
+  // anchored = 開頭命中那一組(例「mt」⇒ `m%t%`):短查詢的中段命中可能超過 1000 列, 開頭命中另撈一次, 保證排最前的那些不會被截掉。
+  return `${anchored ? '' : '%'}${[...key].join('%')}%`;
+}
 
 /** 員工打的字 ⇒ {year?, q}:開頭 4 碼年份(1900-2100)拆出來, 其餘去頭尾空白當關鍵字。 */
 export function splitVehicleText(text: string): { year: number | undefined; q: string } {
