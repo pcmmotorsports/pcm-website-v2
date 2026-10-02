@@ -37,9 +37,16 @@
 指令 **`rpm-import --dry-run`**(顯式旗標,`scripts/rpm-import.ts:116`)。
 ⚠️ **兩個旗標都不帶會走寫入模式閘、第一道就 throw** ⇒ 拿不到完整報告。
 要落 handoff 一段 + 板列一格的:**checksum · 三堆 count · 值域異常 · 時點+分支+HEAD**。
-🔴 **checksum 不是只印,是要【綁定】**:dry-run 產 `(supplier_slug, sku, price_store)` 的 sha256,
+🔴 **checksum 不是只印,是要【綁定】**:dry-run 產 `(supplier_slug, sku, price_store)` 的核對碼,
    **給 `workflow_dispatch` 加一個 input 收它**,寫入前重算比對,不同就停那一家的經銷價那一半。
    📌 **沒有這一步,「Sean 核准的那批」與「真正寫進去的那批」沒有任何綁定。**
+🔴 **2026-10-02 起核對碼是帶金鑰的 HMAC-SHA256**(金鑰 = GitHub secret `DEALER_PRICE_CHECKSUM_KEY`;repo 公開,
+   舊版不帶金鑰的 sha256 可以列舉比例反推經銷價)。
+   · 乾跑請用 GitHub 的 `workflow_dispatch` 勾 `dry_run` 跑:它和正式那一發用同一把金鑰, 印出的完整核對碼才對得上。
+     在自己電腦跑 dry-run 要有同一把金鑰(GitHub secret 設了就讀不回來), 沒有就算不出來, 會直接說缺金鑰。
+   · 正式跑的紀錄只印前 8 碼;不符時期望值也只印前 8 碼。
+   · 沒設這個 secret ⇒ allowlist 裡的每一家都不寫新經銷價(走 A1 帶舊值), 而且那一輪退出碼非零(告警信會寄、備援排程會重跑)。
+   · 🔴 **順序:先在 GitHub 設好 `DEALER_PRICE_CHECKSUM_KEY`, 再把這顆碼推上 dev。**
 
 ### 門 4 · Sean 說了那一個字
 **「灌」** —— 他說了,A 才 `gh secret set DEALER_PRICE_SUPPLIERS=rpm`。

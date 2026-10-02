@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -124,6 +125,7 @@ describe('🔵 schedule 觸發 + 沒帶 checksum ⇒ 日常同步, 照常跟上�
     process.env.DEALER_PRICE_SUPPLIERS = 'rpm';
     process.env.DEALER_PRICE_DATABASE_URL = 'postgres://x';
     process.env.DEALER_PRICE_EXPECT_CHECKSUM = '';
+    process.env.DEALER_PRICE_CHECKSUM_KEY = 'test-key'; // 2026-10-02 起核對碼要金鑰;不設的話本格會靠本機環境決定紅綠
     const up = vi.fn(async () => ({
       ok: true as const,
       rows: Array.from({ length: 10 }, (_, i) => ({ supplier_slug: 'rpm', sku: `v${i}`, price_store: 87 })),
@@ -134,5 +136,38 @@ describe('🔵 schedule 觸發 + 沒帶 checksum ⇒ 日常同步, 照常跟上�
     const r = await decideDealerPrice(client, 'rpm', up as never);
     // 🔴 本站【一筆經銷價都沒有】而仍照常跟上游 —— 那正是「不再猜資料」的意思
     expect(r.dealerPrice.kind).toBe('from_upstream');
+  });
+});
+
+// 2026-10-02 資安:核對碼改成帶金鑰的 HMAC(Fable R1 M1/M2/N3)
+describe('🔴 schedule 觸發但沒設 DEALER_PRICE_CHECKSUM_KEY ⇒ 不寫新經銷價, 而且這一輪標成失敗', () => {
+  it('carry_old + process.exitCode = 1(否則 job 綠、告警信不寄, 經銷價凍住沒人知道)', async () => {
+    process.env.DEALER_PRICE_TRIGGER = 'schedule';
+    process.env.DEALER_PRICE_SUPPLIERS = 'rpm';
+    process.env.DEALER_PRICE_DATABASE_URL = 'postgres://x';
+    process.env.DEALER_PRICE_EXPECT_CHECKSUM = '';
+    delete process.env.DEALER_PRICE_CHECKSUM_KEY;
+    const before = process.exitCode;
+    process.exitCode = 0; // 🔴 同檔前面的格(A2 降級)會留下 1 ⇒ 不歸零的話本格不論修沒修都綠
+    const up = vi.fn(async () => ({
+      ok: true as const,
+      rows: Array.from({ length: 10 }, (_, i) => ({ supplier_slug: 'rpm', sku: `v${i}`, price_store: 87 })),
+    }));
+    const { decideDealerPrice } = await import('./rpm-import');
+    const variants = Array.from({ length: 10 }, (_, i) => ({ sku: `v${i}`, price_store: null }));
+    const { client } = mockClient({ variants, products: [{ external_id: 'G1', price_by_tier: { store: { amount: 1 } } }] });
+    try {
+      const r = await decideDealerPrice(client, 'rpm', up as never);
+      expect(r.dealerPrice.kind).toBe('carry_old');
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = before;
+    }
+  });
+
+  it('rpm-import.ts 把乾跑旗標與金鑰的 env 傳進 checksumVerdict(乾跑才印完整值)', () => {
+    const src = readFileSync(new URL('./rpm-import.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/dryRun:\s*DRY_RUN/);
+    expect(src).toMatch(/key:\s*process\.env\.DEALER_PRICE_CHECKSUM_KEY/);
   });
 });

@@ -5,7 +5,7 @@
  *   **讀漏一批** 與 **這些 sku 本來就沒經銷價**,在資料上**長得一模一樣、零紅**。
  *   ⇒ 沒有那兩個數就分不出來,而分不出來就會把「讀漏」寫成 `null` 清價。
  */
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseAmount, parseCount } from './dealer-price-parse.js';
 import type { DealerPriceGateReason } from './dealer-price-gate';
@@ -187,13 +187,69 @@ export async function fetchUpstreamDealerPrices(
  * 這一批的 checksum —— **dry-run 印它、寫入前重算比對,不同就停**。
  * 🔴 沒有這一步,「Sean 核准的那批」與「真正寫進去的那批」**沒有任何綁定**
  *   (正式跑會重新讀來源,而來源每天在動)。
+ * 🔴 2026-10-02 改成帶金鑰的 HMAC-SHA256(主視窗 pcm-website-v2-ce 派, 資安):repo 公開, 核對碼印在 Actions 紀錄;
+ *   舊版是不帶金鑰的 sha256, 而部分供應商經銷價 = 一般價 × 固定比例 ⇒ 列舉比例就能從核對碼反推經銷價。
+ *   金鑰是 GitHub secret `DEALER_PRICE_CHECKSUM_KEY`;空的就丟錯, 不退回成沒有金鑰的雜湊。
  */
-export function dealerBatchChecksum(rows: readonly UpstreamDealerRow[]): string {
+export function dealerBatchChecksum(rows: readonly UpstreamDealerRow[], key: string): string {
+  if (key.trim() === '') throw new Error('dealerBatchChecksum: 缺金鑰 DEALER_PRICE_CHECKSUM_KEY');
   const body = [...rows]
     .map((r) => `${r.supplier_slug}\t${r.sku}\t${r.price_store ?? 'NULL'}`)
     .sort() // 🔵 排序後才雜湊:來源列序不保證穩定, 不排會讓同一批算出不同的 checksum
     .join('\n');
-  return createHash('sha256').update(body, 'utf8').digest('hex');
+  return createHmac('sha256', key).update(body, 'utf8').digest('hex');
+}
+
+/** 正式跑在紀錄裡只印核對碼前幾碼(夠人對照, 不夠拿來比對)。 */
+export const CHECKSUM_LOG_PREFIX = 8;
+
+/**
+ * 核對碼判定:這一輪可不可以寫新的經銷價(ok = false ⇒ gate 走 A1 帶舊值), 以及要印哪幾行。
+ * · 沒有金鑰 ⇒ 一律不放行(含排程), 印清楚要設哪個 secret;missingKey = true 讓呼叫端把這一輪標成失敗
+ *   (只走 A1 的話 job 是綠的、告警信不會寄 ⇒ 經銷價凍住而沒人知道;Fable R1 M1)。
+ * · 有期望值 ⇒ 必須相符(首灌用它綁 Sean 核准的那批)。
+ * · 沒期望值 ⇒ 只有排程(日常同步)放行;手動與本機一律要帶(首灌與中途失敗補跑都是手動)。
+ * · 印:乾跑印完整值(要貼回 workflow_dispatch);其餘只印前 8 碼, 不符時期望值也只印前 8 碼。
+ */
+export function checksumVerdict(args: {
+  rows: readonly UpstreamDealerRow[];
+  key: string | undefined;
+  expect: string;
+  trigger: string;
+  dryRun: boolean;
+}): { ok: boolean; missingKey: boolean; lines: { level: 'log' | 'error'; text: string }[] } {
+  const key = (args.key ?? '').trim();
+  if (key === '') {
+    return {
+      ok: false,
+      missingKey: true,
+      lines: [{
+        level: 'error',
+        text: '🔴 [dealer-price] 沒有設定 DEALER_PRICE_CHECKSUM_KEY ⇒ 算不出核對碼 ⇒ 不寫新經銷價(走 A1 帶舊值)。請到 GitHub repo Settings → Secrets and variables → Actions 新增這個 secret 後重跑。',
+      }],
+    };
+  }
+  const actual = dealerBatchChecksum(args.rows, key);
+  const short = (v: string) => `${v.slice(0, CHECKSUM_LOG_PREFIX)}…`;
+  const lines: { level: 'log' | 'error'; text: string }[] = [
+    args.dryRun
+      ? { level: 'log', text: `[dealer-price] 本批核對碼(完整, 貼進 workflow_dispatch 用):${actual}` }
+      : { level: 'log', text: `[dealer-price] 本批核對碼(前 ${CHECKSUM_LOG_PREFIX} 碼):${short(actual)}` },
+  ];
+  if (args.expect !== '') {
+    const ok = actual === args.expect;
+    if (!ok) lines.push({ level: 'error', text: `🔴 [dealer-price] 核對碼不符:期望 ${short(args.expect)} / 實際 ${short(actual)}` });
+    return { ok, missingKey: false, lines };
+  }
+  if (args.trigger !== 'schedule') {
+    lines.push({
+      level: 'error',
+      text: `🔴 [dealer-price] 觸發方式 [${args.trigger || '(本機)'}] 非 schedule ⇒ 必須帶 EXPECT_CHECKSUM ⇒ 不寫新值(走 A1 帶舊值)。請用 dry-run 印的完整核對碼貼進 workflow_dispatch。`,
+    });
+    return { ok: false, missingKey: false, lines };
+  }
+  lines.push({ level: 'log', text: '[dealer-price] schedule 觸發且未提供 EXPECT_CHECKSUM ⇒ 日常同步, 照常跟上游' });
+  return { ok: true, missingKey: false, lines };
 }
 
 

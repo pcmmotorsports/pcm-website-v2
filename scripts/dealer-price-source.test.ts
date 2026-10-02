@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { indexUpstream, dealerBatchChecksum, gateReasons, type UpstreamDealerRow } from './dealer-price-source';
+import { createHash, createHmac } from 'node:crypto';
+import { indexUpstream, dealerBatchChecksum, checksumVerdict, gateReasons, type UpstreamDealerRow } from './dealer-price-source';
 
 /**
  * 🔴 **N4(mail 快篩):plan 要的三種 fixture 缺兩種** ——「字串型別經銷價」與「原子 RPC 路徑」。
@@ -31,17 +32,19 @@ describe('鍵的合法性:拒收不是跳過', () => {
   });
 });
 
+const KEY = 'test-key-1';
+
 describe('checksum:排序後才雜湊', () => {
   it('🔴 同一批不同列序 ⇒ 同一個 checksum(來源列序不保證穩定)', () => {
-    const a = dealerBatchChecksum([row('A', 1), row('B', 2)]);
-    const b = dealerBatchChecksum([row('B', 2), row('A', 1)]);
+    const a = dealerBatchChecksum([row('A', 1), row('B', 2)], KEY);
+    const b = dealerBatchChecksum([row('B', 2), row('A', 1)], KEY);
     expect(a).toBe(b);
   });
   it('🔵 值變了 ⇒ checksum 一定變(不然它擋不住任何東西)', () => {
-    expect(dealerBatchChecksum([row('A', 1)])).not.toBe(dealerBatchChecksum([row('A', 2)]));
+    expect(dealerBatchChecksum([row('A', 1)], KEY)).not.toBe(dealerBatchChecksum([row('A', 2)], KEY));
   });
   it('🔵 null 與 0 是兩批不同的資料', () => {
-    expect(dealerBatchChecksum([row('A', null)])).not.toBe(dealerBatchChecksum([row('A', 0)]));
+    expect(dealerBatchChecksum([row('A', null)], KEY)).not.toBe(dealerBatchChecksum([row('A', 0)], KEY));
   });
 });
 
@@ -103,5 +106,73 @@ describe('🔴 收工審兩條:allowlist 空仍會改到既有值(合成資料�
     b.range = () => Promise.resolve({ data: [{ external_id: 'G1', price_by_tier: { store: { amount: 'abc' } } }], error: null });
     const m = await readLocalProductStore({ from: () => b } as never, 'rpm');
     expect(m?.get('G1')).toBeNull();
+  });
+});
+
+// 2026-10-02 資安(主視窗 pcm-website-v2-ce 派):repo 公開, 核對碼會印進 Actions 紀錄。
+// 舊版是 sha256(供應商, 料號, 經銷價), 部分供應商經銷價 = 一般價 × 固定比例 ⇒ 列舉比例就能反推。改成帶金鑰的 HMAC-SHA256。
+describe('核對碼改成帶金鑰的 HMAC', () => {
+  const rows = [row('A', 1800), row('B', 2100)];
+  const body = 'rpm\tA\t1800\nrpm\tB\t2100';
+
+  it('🔴 是 HMAC-SHA256(金鑰, 內容), 不是沒有金鑰的 sha256(沒有金鑰就算不出來、也猜不回去)', () => {
+    expect(dealerBatchChecksum(rows, KEY)).toBe(createHmac('sha256', KEY).update(body, 'utf8').digest('hex'));
+    expect(dealerBatchChecksum(rows, KEY)).not.toBe(createHash('sha256').update(body, 'utf8').digest('hex'));
+  });
+
+  it('同一批資料、不同金鑰 ⇒ 核對碼不同', () => {
+    expect(dealerBatchChecksum(rows, KEY)).not.toBe(dealerBatchChecksum(rows, 'test-key-2'));
+  });
+
+  it('金鑰是空的 ⇒ 不算(丟錯), 不會退回成沒有金鑰的雜湊', () => {
+    expect(() => dealerBatchChecksum(rows, '')).toThrow();
+    expect(() => dealerBatchChecksum(rows, '   ')).toThrow();
+  });
+});
+
+describe('checksumVerdict:要不要放行寫新經銷價, 以及印什麼', () => {
+  const rows = [row('A', 1800), row('B', 2100)];
+  const full = dealerBatchChecksum(rows, KEY);
+  const text = (v: ReturnType<typeof checksumVerdict>) => v.lines.map((l) => l.text).join('\n');
+
+  it('🔴 沒有金鑰 ⇒ 不放行(走 A1 帶舊值), 而且排程也一樣, 錯誤講清楚要設哪個 secret', () => {
+    for (const trigger of ['schedule', 'workflow_dispatch', '']) {
+      const v = checksumVerdict({ rows, key: '', expect: '', trigger, dryRun: false });
+      expect(v.ok).toBe(false);
+      expect(v.missingKey).toBe(true);
+      expect(text(v)).toContain('DEALER_PRICE_CHECKSUM_KEY');
+      expect(v.lines.some((l) => l.level === 'error')).toBe(true);
+    }
+    expect(checksumVerdict({ rows, key: undefined, expect: full, trigger: 'workflow_dispatch', dryRun: false }).ok).toBe(false);
+  });
+
+  it('🔴 正式跑(不是乾跑)⇒ 紀錄裡只有前 8 碼, 不含完整值', () => {
+    const v = checksumVerdict({ rows, key: KEY, expect: '', trigger: 'schedule', dryRun: false });
+    expect(v.ok).toBe(true);
+    expect(text(v)).toContain(full.slice(0, 8));
+    expect(text(v)).not.toContain(full);
+  });
+
+  it('乾跑 ⇒ 印完整值(人要把它貼進 workflow_dispatch)', () => {
+    expect(text(checksumVerdict({ rows, key: KEY, expect: '', trigger: 'workflow_dispatch', dryRun: true }))).toContain(full);
+  });
+
+  it('🔴 帶了期望值而不符 ⇒ 不放行, 紀錄裡期望值與實際值都只有前 8 碼', () => {
+    const wrong = dealerBatchChecksum(rows, 'other-key');
+    const v = checksumVerdict({ rows, key: KEY, expect: wrong, trigger: 'workflow_dispatch', dryRun: false });
+    expect(v.ok).toBe(false);
+    expect(text(v)).not.toContain(full);
+    expect(text(v)).not.toContain(wrong);
+    expect(text(v)).toContain(wrong.slice(0, 8));
+  });
+
+  it('帶了期望值而相符 ⇒ 放行', () => {
+    expect(checksumVerdict({ rows, key: KEY, expect: full, trigger: 'workflow_dispatch', dryRun: false }).ok).toBe(true);
+  });
+
+  it('沒帶期望值:排程 ⇒ 放行(日常同步);手動或本機 ⇒ 不放行(首灌一定要綁核准的那批)', () => {
+    expect(checksumVerdict({ rows, key: KEY, expect: '', trigger: 'schedule', dryRun: false }).ok).toBe(true);
+    expect(checksumVerdict({ rows, key: KEY, expect: '', trigger: 'workflow_dispatch', dryRun: false }).ok).toBe(false);
+    expect(checksumVerdict({ rows, key: KEY, expect: '', trigger: '', dryRun: false }).ok).toBe(false);
   });
 });
