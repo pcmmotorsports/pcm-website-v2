@@ -371,8 +371,11 @@ function RailCell({
           每項上下內距 7 → 11(一行的項目 ≈ 38 高)。
           ⛔ ~~2026-09-13 深夜照稿 v22 11.5px~~:那時 3428 截圖點名 13px 在 84px 軌裡「寄不出去的信」被切 —— 現在數字是 `.cnt` 徽章
           (「商品 99+」= 26 + 4 + 徽章 ≈ 54 放得下),六字那一項 `flex-wrap` 折成兩行,4f 裁可以。 */}
+      {/* 🔴 2026-10-03 Sean 截圖:「寄不出去的信」折成「寄不出去的 / 信」、第二行靠左。
+          ⇒ 名稱那個 span 加 `text-center`(真的折行時兩行都置中), 下面 cls 的左右內距改成 0、改用 2px 外距
+             ⇒ 軌內可用寬 84 − 1(右框線)− 4 = 79px;字距收 0.5px ⇒ 六字 ≈ 75px, 左右各留約 2px, 不必縮字(Sean 08-21 最小 13px)。 */}
       <span className='flex flex-wrap items-center justify-center gap-x-1 text-[13px] leading-[1.25]'>
-        <span>{item.label}</span>
+        <span className='text-center tracking-[-0.5px]'>{item.label}</span>
         {/*
           🔴 **這個 `<span>` 空的也要在** —— `app-sidebar-rail.test.tsx:220` 釘住「每一格都有數字位」,
           而它現在的角色從「22px 對齊位」變成「數字貼在中文右邊」:空的時候 `empty:hidden` 不佔寬,
@@ -429,7 +432,7 @@ function RailCell({
            📌 而它只有【聽】得出來:看的人完全正常 ⇒ 沒有人會在畫面上撞到它。 */
         <span
           aria-hidden='true'
-          className='text-muted-foreground block text-center text-[13px] leading-[1.25]'
+          className='text-muted-foreground mt-1 block text-center text-[13px] leading-[1.25]'
         >
           {qualifier}
         </span>
@@ -463,7 +466,9 @@ function RailCell({
   // 稿 `.rail a.on{color:var(--primary);font-weight:600}`:選中 = 主色 + 半粗,**沒有左邊那條 2px 線**。
   // 淡底那一格留給 `globals.css:2297-2303`(`#nav-rail nav a[aria-current="page"]`),這裡不重複給。
   // 稿 `.rail a{padding:7px 3px;color:var(--fg2)}` / `.on{color:primary;font-weight:600}`;上下 7 → 11(Sean 09-14「上下間隔大一些」)。
-  const cls = `block w-full px-[3px] py-[11px] ${
+  // 🔴 2026-10-03:⛔ ~~`w-full px-[3px]`~~ ⇒ `mx-[2px] px-0` —— 選中那格的淡藍底不再貼著左右邊(globals.css 的 8px 圓角這時才看得到),
+  //    而文字可用寬從 77 變 79(見上面名稱那段)。第二行小字(待下訂 / 缺貨)加 `mt-1`, 不再黏著上一行的數字。
+  const cls = `mx-[2px] block px-0 py-[11px] ${
     active ? 'text-primary font-semibold' : 'text-(--fg-2)'
   }`;
   // 🔴 2026-09-13 晚起每一項都有 href(「設定」改成群組表頭,不再經過本元件)⇒ 原本 `href === undefined` 那條
