@@ -3066,3 +3066,92 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 [data-batch-done] .next-step-empty {
   display: none;
 }
+
+/* ── 後台全站按鈕:滑過與按下的回饋(Sean 2026-10-02;跟訂單動作鈕 order-inline-head.css 382c2907c 同一套)──────────
+   滑過:框線變深、淡藍底、浮起 1px。按下:回到原位縮 0.97、底色再深一階。尺寸不變(transform 不動版面)。
+   對象 = 「長得像按鈕」的 button / a / [role=button]:有框線(Tailwind `border`)、實心(`bg-primary` / `bg-destructive`)、
+   shadcn Button(`data-slot=button`),以及後台自訂的按鈕 class。純文字的點擊(複製文字、行內連結、展開箭頭)不算按鈕, 不加。
+   不加:停用的、勾選框 / 開關 / 單選 / 分頁 / 下拉觸發器 / 選單項目、左側導覽、已經自己寫了位移回饋的(`hover:-translate…`)。
+   🔴 全部包在 :where() 裡 = 特異性 0 ⇒ 各區自己寫的同屬性規則(例 .oih-acts a:hover、.hb-btn)照樣贏;
+      不在 @layer 裡 ⇒ 會蓋過 Tailwind utilities 的 hover 底色, 全站回饋一致(實心與已選中的另外處理, 見下)。
+   🔴 不用陰影(Sean 2026-08-16;design-tokens.test.ts 守著),也不用 filter / opacity。 */
+:where(button, a, [role='button']):where(
+    .border, .bg-primary, .bg-destructive, [data-slot='button'],
+    .fchip, .refx-pill, .hb-btn, .costs-btn, .costs-bar-btn, .pcm-btn-p, .pcm-more-btn
+  ):where(:not(:disabled, [aria-disabled='true'], [data-disabled], .pcm-btn--off,
+    [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'],
+    [class*='hover:-translate'], #nav-rail *)) {
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
+}
+:where(button, a, [role='button']):where(
+    .border, .bg-primary, .bg-destructive, [data-slot='button'],
+    .fchip, .refx-pill, .hb-btn, .costs-btn, .costs-bar-btn, .pcm-btn-p, .pcm-more-btn
+  ):where(:not(:disabled, [aria-disabled='true'], [data-disabled], .pcm-btn--off,
+    [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'],
+    [class*='hover:-translate'], #nav-rail *)):where(:hover) {
+  transform: translateY(-1px);
+}
+:where(button, a, [role='button']):where(
+    .border, .bg-primary, .bg-destructive, [data-slot='button'],
+    .fchip, .refx-pill, .hb-btn, .costs-btn, .costs-bar-btn, .pcm-btn-p, .pcm-more-btn
+  ):where(:not(:disabled, [aria-disabled='true'], [data-disabled], .pcm-btn--off,
+    [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'],
+    [class*='hover:-translate'], #nav-rail *)):where(:active) {
+  transform: translateY(0) scale(0.97);
+}
+/* 一般(白底 / 透明底)的按鈕:框線加深、淡藍底;按下再深一階。已選中 / 按住的狀態鈕(aria-current、aria-pressed)保持自己的底色。 */
+:where(button, a, [role='button']):where(.border, [data-slot='button'], .fchip, .refx-pill, .costs-btn, .costs-bar-btn, .pcm-more-btn):where(
+    :not(:disabled, [aria-disabled='true'], [data-disabled], .bg-primary, .bg-destructive, .text-destructive,
+      [aria-current='true'], [aria-pressed='true'], [data-state='on'], [data-state='active'],
+      [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'],
+      [class*='hover:-translate'], #nav-rail *)):where(:hover) {
+  border-color: var(--input);
+  background-color: color-mix(in srgb, var(--primary) 6%, var(--card));
+}
+:where(button, a, [role='button']):where(.border, [data-slot='button'], .fchip, .refx-pill, .costs-btn, .costs-bar-btn, .pcm-more-btn):where(
+    :not(:disabled, [aria-disabled='true'], [data-disabled], .bg-primary, .bg-destructive, .text-destructive,
+      [aria-current='true'], [aria-pressed='true'], [data-state='on'], [data-state='active'],
+      [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'],
+      [class*='hover:-translate'], #nav-rail *)):where(:active) {
+  background-color: color-mix(in srgb, var(--primary) 12%, var(--card));
+}
+/* 紅字的按鈕(刪除、取消、退款):淡紅底、紅框 */
+:where(button, a, [role='button']):where(.border.text-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:hover) {
+  border-color: color-mix(in srgb, var(--destructive) 55%, var(--card));
+  background-color: color-mix(in srgb, var(--destructive) 6%, var(--card));
+}
+:where(button, a, [role='button']):where(.border.text-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:active) {
+  background-color: color-mix(in srgb, var(--destructive) 12%, var(--card));
+}
+/* 實心藍 / 實心紅:滑過與按下逐級加深(同訂單動作鈕的「新增收款」) */
+:where(button, a, [role='button']):where(.bg-primary, .pcm-btn-p):where(:not(:disabled, [aria-disabled='true'], [data-disabled], .pcm-btn--off)):where(:hover) {
+  background-color: color-mix(in srgb, var(--primary) 86%, black);
+  border-color: color-mix(in srgb, var(--primary) 86%, black);
+}
+:where(button, a, [role='button']):where(.bg-primary, .pcm-btn-p):where(:not(:disabled, [aria-disabled='true'], [data-disabled], .pcm-btn--off)):where(:active) {
+  background-color: color-mix(in srgb, var(--primary) 74%, black);
+  border-color: color-mix(in srgb, var(--primary) 74%, black);
+}
+:where(button, a, [role='button']):where(.bg-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:hover) {
+  background-color: color-mix(in srgb, var(--destructive) 86%, black);
+}
+:where(button, a, [role='button']):where(.bg-destructive):where(:not(:disabled, [aria-disabled='true'], [data-disabled])):where(:active) {
+  background-color: color-mix(in srgb, var(--destructive) 74%, black);
+}
+/* 鍵盤焦點:外框沿用全域 :focus-visible,只推離按鈕一點, 浮起時不會被切到 */
+:where(button, a, [role='button']):where(.border, .bg-primary, .bg-destructive, [data-slot='button'], .fchip):where(:focus-visible) {
+  outline-offset: 2px;
+}
+/* 系統設定「減少動態效果」:不浮起、不縮放、不漸變, 只留顏色與框線的變化 */
+@media (prefers-reduced-motion: reduce) {
+  :where(button, a, [role='button']):where(
+      .border, .bg-primary, .bg-destructive, [data-slot='button'],
+      .fchip, .refx-pill, .hb-btn, .costs-btn, .costs-bar-btn, .pcm-btn-p, .pcm-more-btn
+    ) {
+    transition: none;
+    transform: none;
+  }
+}
