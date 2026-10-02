@@ -401,6 +401,14 @@ function OrderGroup({
    *   但**三件事都在**:是固定限制、狀態這一格不可信、找誰。
    * ⚠️ 這與顧客站那兩處**放法不同**(那邊是整段 112 字):客人一頁只有幾張卡,員工一頁有幾十列。
    */
+  /** 2026-10-02 Sean 拍 Q46 乙:收起來的品項裡有沒出貨的 ⇒「另有 N 項」那一列加「還有未出貨」。
+   *  逐品項之後看得到的列可能都是「出貨完成」, 沒出貨的那一樣只剩這一列能交代。
+   *  只看【載進來的】收起來的品項(已取消 / 已退款的單 goodsAxis 是 null ⇒ 不算)。 */
+  const hiddenUnshipped = rows.slice(MAX_VISIBLE_LINES).some((l) => {
+    if (l === null) return false;
+    const axis = lineStatusView(order, l).goodsAxis;
+    return axis !== null && axis !== 'shipped';
+  });
   const truncatedReason = order.itemsTruncated
     ? '這張單的品項太多、系統一次載不完(固定限制,不會自己好)。左邊那格的狀態不能拿來判斷這張單的進度,請找負責人。'
     : null;
@@ -975,6 +983,12 @@ function OrderGroup({
                 而理由是給看畫面的人讀的。守門在 `orders-table.test.tsx`(截斷時這三件必須在畫面上)。 */}
             {truncatedReason !== null && (
               <span className='ml-2 opacity-90'>{truncatedReason}</span>
+            )}
+            {/* 灰字沿用這一格的 `text-muted-foreground`(不另加色)。 */}
+            {hiddenUnshipped && (
+              <span className='ml-2' data-testid='more-unshipped'>
+                還有未出貨
+              </span>
             )}
           </td>
         </tr>

@@ -3086,3 +3086,26 @@ describe('逐品項:狀態、下一步、金額每一列各自一格', () => {
     expect(pays[1]).toBe('');
   });
 });
+
+// 2026-10-02 Sean 拍 Q46 乙:超過 3 個品項時, 收起來的那幾樣裡有沒出貨的 ⇒「另有 N 項」那一列加一行灰字「還有未出貨」。
+//    理由:逐品項之後, 看得到的 3 列可能都印「出貨完成」, 沒出貨的那一樣只剩這一列能交代。
+describe('Q46:收起來的品項裡有沒出貨的 ⇒ 「另有 N 項」那一列印「還有未出貨」', () => {
+  const unshippedNote = (lines: AdminOrderLine[], over: Partial<OrderOverrides> = {}) => {
+    const { container } = render(<OrdersTable buildOpenHref={panelHref} orders={[order({ lines, ...over })]} />);
+    return container.querySelector('[data-testid="more-unshipped"]')?.textContent ?? null;
+  };
+  const shipped3 = [lineAt('s1', 1, 'shipped'), lineAt('s2', 1, 'shipped'), lineAt('s3', 1, 'shipped')];
+
+  it('前 3 樣出貨、第 4 樣還沒 ⇒ 印「還有未出貨」', () => {
+    expect(unshippedNote([...shipped3, lineAt('s4', 1, 'none')])).toBe('還有未出貨');
+  });
+  it('正向對照:4 樣全出貨 ⇒ 不印', () => {
+    expect(unshippedNote([...shipped3, lineAt('s4', 1, 'shipped')])).toBeNull();
+  });
+  it('收起來的那一樣已到貨但還沒出 ⇒ 仍算未出貨', () => {
+    expect(unshippedNote([...shipped3, lineAt('s4', 1, 'instock')])).toBe('還有未出貨');
+  });
+  it('整張單已取消 ⇒ 不印(不在流程裡了)', () => {
+    expect(unshippedNote([...shipped3, lineAt('s4', 1, 'none')], { cancelledAt: '2026-10-01T00:00:00.000Z' })).toBeNull();
+  });
+});
