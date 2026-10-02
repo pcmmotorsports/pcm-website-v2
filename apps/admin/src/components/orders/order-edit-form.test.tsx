@@ -24,6 +24,9 @@ import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import { INVOICE_STATUS_FIELD,
   INVOICE_ISSUED_AT_FIELD } from '../../lib/orders/workflow-form';
 
+// 貼板 264:車款那一塊用建單畫面的字典搜尋(server action)⇒ 與 manual-order-vehicle-field.test.tsx 同一個替身。
+vi.mock('server-only', () => ({}));
+vi.mock('../../lib/orders/vehicle-dictionary-action', () => ({ searchVehicleDictionaryAction: vi.fn(async () => []) }));
 vi.mock('../../lib/orders/order-actions', () => ({
   updateOrderWorkflowAction: async () => {},
 }));
@@ -198,5 +201,60 @@ describe('開立日期(2026-09-13 P2;Sean Q1 乙 手填 / Q5 甲 必填 / Q6 甲
   it('🔴 決定不開發票的單 ⇒ 這一格也不出現(與那三格同一個條件)', () => {
     const { container } = render(<OrderEditForm detail={notRequested} returnTo='/x' />);
     expect(container.querySelector(`[name="${INVOICE_ISSUED_AT_FIELD}"]`)).toBeNull();
+  });
+});
+
+describe('貼板 264(Sean 2026-10-02):車款 + 年份、要不要開發票', () => {
+  const money = (amount: number) => ({ amount, currency: 'TWD' });
+  const manual = {
+    ...detail,
+    orderSource: 'manual_phone',
+    subtotal: money(7700),
+    shippingFee: money(200),
+    discountTotal: money(0),
+    taxTotal: money(0),
+    vehicle: { kind: 'dict', brand: 'Yamaha', model: 'YZF-R6', year: 2019, source: 'manual_dict' },
+  } as unknown as AdminOrderDetail;
+
+  it('手動單:沒勾「改車款」⇒ 只顯示目前車款, 不送任何車輛欄位', () => {
+    const { container } = render(<OrderEditForm detail={manual} returnTo='/x' />);
+    expect(container.textContent).toContain('目前車款:2019 Yamaha YZF-R6');
+    expect(container.querySelector('[name="vehicle_text"]')).toBeNull();
+  });
+
+  it('勾「改車款」⇒ 帶入現在那台車(字典 hidden 一起帶, 存回去仍是字典帶入)', () => {
+    const { container, getByTestId } = render(<OrderEditForm detail={manual} returnTo='/x' />);
+    fireEvent.click(getByTestId('vehicle-edit-toggle'));
+    expect(container.querySelector<HTMLInputElement>('[name="vehicle_text"]')?.value).toBe('YZF-R6');
+    expect(container.querySelector<HTMLInputElement>('[name="vehicle_year"]')?.value).toBe('2019');
+    expect(JSON.parse(container.querySelector<HTMLInputElement>('[name="vehicle_pick"]')!.value)).toEqual({ brand: 'Yamaha', model: 'YZF-R6', display: 'YZF-R6' });
+  });
+
+  it('網站單:沒有車款那一塊(網站單的車記在品項上)', () => {
+    const { container } = render(<OrderEditForm detail={{ ...manual, orderSource: 'web' } as AdminOrderDetail} returnTo='/x' />);
+    expect(container.querySelector('[data-testid="order-edit-vehicle"]')).toBeNull();
+  });
+
+  it('沒開發票的手動單 ⇒ 「開發票」下拉預設不開, 並先講清楚改成要開後總額變多少', () => {
+    const off = { ...manual, invoiceRequested: false } as AdminOrderDetail;
+    const { container } = render(<OrderEditForm detail={off} returnTo='/x' />);
+    const sel = container.querySelector<HTMLSelectElement>('[name="invoice_requested"]');
+    expect(sel?.value).toBe('off');
+    expect(container.textContent).toContain('總額加 5% 營業稅 NT$ 395，變成 NT$ 8,295');
+    expect(container.textContent).not.toContain('作廢重開');
+  });
+
+  it('已登記發票號碼 ⇒「不開」不能選, 並說明原因', () => {
+    const issued = { ...manual, invoiceRequested: true, invoiceNumber: 'AB12345678', taxTotal: money(395) } as AdminOrderDetail;
+    const { container } = render(<OrderEditForm detail={issued} returnTo='/x' />);
+    expect(container.querySelector<HTMLOptionElement>('[name="invoice_requested"] option[value="off"]')?.disabled).toBe(true);
+    expect(container.textContent).toContain('已經登記發票號碼，不能改回不開');
+  });
+
+  it('蝦皮單 ⇒ 沒有「開發票」下拉(只開放電話 / LINE / 其他手動單)', () => {
+    const shopee = { ...manual, orderSource: 'manual_shopee', invoiceRequested: false } as AdminOrderDetail;
+    const { container } = render(<OrderEditForm detail={shopee} returnTo='/x' />);
+    expect(container.querySelector('[name="invoice_requested"]')).toBeNull();
+    expect(container.textContent).toContain('作廢重開');
   });
 });

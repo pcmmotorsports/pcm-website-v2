@@ -27,7 +27,7 @@
 
 import { orderTotal } from '@pcm/domain';
 import { NotificationEmailInput } from '@pcm/schemas';
-import { resolveManualOrderVehicle, type ManualOrderVehicleInput } from './vehicle-dictionary';
+import { parseVehicleYear, resolveManualOrderVehicle, type ManualOrderVehicleInput } from './vehicle-dictionary';
 import {
   readSingle,
   readSingleString,
@@ -48,6 +48,8 @@ export const MANUAL_ORDER_TIER_FIELD = 'tier_at_checkout';
 /** 🆕 #956 乙(2026-09-14):車種一格 —— 員工看到的字 + 選了字典列才有的 hidden(JSON {brand, model, display})。 */
 export const MANUAL_ORDER_VEHICLE_TEXT_FIELD = 'vehicle_text';
 export const MANUAL_ORDER_VEHICLE_PICK_FIELD = 'vehicle_pick';
+/** 2026-10-02 Sean:車種旁多一格「年份」(選填;有填就蓋過車種開頭打的年份)。 */
+export const MANUAL_ORDER_VEHICLE_YEAR_FIELD = 'vehicle_year';
 export const MANUAL_ORDER_PAYMENT_CHANNEL_FIELD = 'payment_channel';
 export const MANUAL_ORDER_SHIPPING_METHOD_FIELD = 'shipping_method';
 export const MANUAL_ORDER_SHIPPING_FEE_FIELD = 'shipping_fee';
@@ -943,10 +945,23 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
   }
 
   // 🆕 #956 乙:車種一格。空 = 沒填(合法);pick 只在「看到的字 = 選那列時的字」才採, 否則照打。
+  // 2026-10-02 Sean:年份一格(選填)。格式與 RPC 同一條(4 碼、1900-2100);只填年份沒填車種不收(年份不能單獨存)。
+  const vehicleYearRead = readOptional(form, MANUAL_ORDER_VEHICLE_YEAR_FIELD);
+  if (vehicleYearRead === 'invalid') {
+    return { ok: false, error: '車輛年份送出的資料壞掉了，請重新整理再試。' };
+  }
+  const vehicleYear = parseVehicleYear(vehicleYearRead);
+  if (vehicleYear === 'invalid') {
+    return { ok: false, error: '車輛年份請填 4 位數的西元年，例如 2021。', focusField: MANUAL_ORDER_VEHICLE_YEAR_FIELD };
+  }
   const vehicle = resolveManualOrderVehicle(
     readSingleString(form, MANUAL_ORDER_VEHICLE_TEXT_FIELD),
     readSingleString(form, MANUAL_ORDER_VEHICLE_PICK_FIELD),
+    vehicleYear,
   );
+  if (vehicle === null && vehicleYear !== undefined) {
+    return { ok: false, error: '填了車輛年份，請也填車種；不要記車就把年份清空。', focusField: MANUAL_ORDER_VEHICLE_TEXT_FIELD };
+  }
 
   const paymentMethod = readSingleString(form, MANUAL_ORDER_PAYMENT_CHANNEL_FIELD);
   if (

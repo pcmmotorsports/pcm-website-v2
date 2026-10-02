@@ -223,6 +223,40 @@ describe('🆕 #956 乙:車種一格 ⇒ RPC 的 p_vehicle 形狀', () => {
   });
 });
 
+describe('2026-10-02 Sean:車輛多一格「年份」(vehicle_year)', () => {
+  const YEAR = 'vehicle_year';
+
+  it('照打 + 年份格 ⇒ free 帶 year', () => {
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, 'CBR'], [YEAR, ' 2021 ']]))).vehicle).toEqual({ kind: 'free', raw: 'CBR', year: 2021 });
+  });
+
+  it('字典列 + 年份格 ⇒ dict 帶 year', () => {
+    const pick = JSON.stringify({ brand: 'Yamaha', model: 'YZF-R6', display: 'YZF-R6' });
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, 'YZF-R6'], [FIELDS.vehiclePick, pick], [YEAR, '2019']]))).vehicle)
+      .toEqual({ kind: 'dict', brand: 'Yamaha', model: 'YZF-R6', year: 2019 });
+  });
+
+  it('年份格有填 ⇒ 蓋過車種開頭打的年份', () => {
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, '2021 CBR'], [YEAR, '2020']]))).vehicle).toEqual({ kind: 'free', raw: 'CBR', year: 2020 });
+  });
+
+  it('年份格留白 ⇒ 照舊從車種開頭拆(舊習慣仍可用)', () => {
+    expect(ok(parseManualOrderForm(base([[FIELDS.vehicleText, '2021 CBR'], [YEAR, '']]))).vehicle).toEqual({ kind: 'free', raw: 'CBR', year: 2021 });
+  });
+
+  it.each(['21', '2021年', '1899', '2101', 'abcd'])('年份 %j ⇒ 拒, 游標跳到年份格', (raw) => {
+    const r = parseManualOrderForm(base([[FIELDS.vehicleText, 'CBR'], [YEAR, raw]]));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.focusField).toBe(YEAR);
+  });
+
+  it('只填年份、沒填車種 ⇒ 拒(年份不能單獨存)', () => {
+    const r = parseManualOrderForm(base([[YEAR, '2021']]));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.focusField).toBe(FIELDS.vehicleText);
+  });
+});
+
 describe('封閉值集:不在名單上就拒', () => {
   it.each([
     [FIELDS.source, 'manual_fax'],

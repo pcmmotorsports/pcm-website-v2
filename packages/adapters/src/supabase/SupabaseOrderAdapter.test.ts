@@ -598,7 +598,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     //    確實在該 view 的投影裡, 負對照 `zzz_not_a_real_column` = 0(⇒ 那把尺接得上)。
     // 🔴 📌 **而問法換過了**:`scripts/is-migration-applied.sh` 對那支 migration 抽不出物件、答不出來;
     //    真正查得到的問題是「**那一欄現在在不在 view 裡**」。**兩個問題, 不要當成同一個。**
-      'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, invoice_requested, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))'
+      'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, invoice_requested, customer_user_id, customers(name), shipping_address_snapshot, vehicle_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))'
     );
   });
 
@@ -904,6 +904,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           itemsTruncated: false,
           cancelledAt: null,
           tierAtCheckout: 'store',
+          vehicle: null, // 2026-10-02:列表多帶訂單級車輛(手動單);fixture 沒這個鍵 ⇒ null
           /* 🔴 `#24`:有值的那個世界 —— 三格逐一比對, 不是比「有沒有物件」。 */
           shippingAddress: { name: '林收件', phone: '0955000111', line: '桃園市中壢區中大路 300 號' },
           invoiceStatus: 'issued', // A9c:三態直送(非 DB 預設值 ⇒ 真的讀到了)
@@ -1062,6 +1063,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       displayPosition: 3,
       cancelledAt: '2099-05-02T00:00:00Z',
       tierAtCheckout: 'general',
+      vehicle: null, // 2026-10-02:同上
       /* 🔴 `#24`:【缺鍵】的那個世界 —— 本 fixture 刻意沒有 `shipping_address_snapshot` 這個鍵。
          量的是防禦解析:缺鍵 / 非物件 / 非字串 一律 → null, 而**不是** undefined、不是整個物件消失。
          ⇒ 與上面 `o1` 那格合起來, 這兩格才構成一組正負對照。 */
@@ -2141,6 +2143,19 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
     const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
     // toEqual = 零額外鍵:沒送的 invoice_number 等**不得**以 undefined / null 混進去
     expect(args.p_patch).toEqual({ invoice_title: '傑藝有限公司', invoice_tax_id: null });
+  });
+
+  // 貼板 264(Sean 2026-10-02):車款(物件 / null = 清掉)與要不要開發票, wire 名與 RPC 白名單同字面。
+  it('貼板 264:vehicle / invoiceRequested → vehicle / invoice_requested;null 原樣送(= 清掉車)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1', 5, { vehicle: { kind: 'dict', brand: 'Yamaha', model: 'YZF-R6', year: 2019 }, invoiceRequested: true }, 'sean', 'req-v',
+    );
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    expect(args.p_patch).toEqual({ vehicle: { kind: 'dict', brand: 'Yamaha', model: 'YZF-R6', year: 2019 }, invoice_requested: true });
+    rpc.mockClear();
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow('o1', 6, { vehicle: null }, 'sean', 'req-v2');
+    expect((rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> }).p_patch).toEqual({ vehicle: null });
   });
 
   it('🔴 D-2(Codex R1 must-fix 1):繞型別硬塞 workflowStatus → wire 絕不含 workflow_status(orders 層停寫、adapter 不映射)', async () => {

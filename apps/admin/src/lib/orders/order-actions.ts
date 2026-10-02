@@ -61,6 +61,15 @@ type ResultCode =
   | 'invoice_date_missing'
   | 'invoice_date_before_order'
   | 'invoice_date_future'
+  // 貼板 264(Sean 2026-10-02):車款 / 要不要開發票, RPC 第 6 代各帶一顆 SQLSTATE(P9V01–06)。
+  | 'vehicle_not_manual'
+  | 'vehicle_year_invalid'
+  | 'invoice_toggle_not_allowed'
+  | 'invoice_toggle_has_records'
+  | 'invoice_has_number'
+  | 'invoice_toggle_mismatch'
+  | 'invoice_toggle_overpaid'
+  | 'invoice_tax_not_reproducible'
   | 'error';
 
 /**
@@ -133,6 +142,14 @@ export async function updateOrderWorkflowAction(formData: FormData): Promise<voi
       e.code === 'P9I01' ? 'invoice_date_missing'
       : e.code === 'P9I02' ? 'invoice_date_before_order'
       : e.code === 'P9I03' ? 'invoice_date_future'
+      : e.code === 'P9V01' ? 'vehicle_not_manual'
+      : e.code === 'P9V02' ? 'vehicle_year_invalid'
+      : e.code === 'P9V03' ? 'invoice_toggle_not_allowed'
+      : e.code === 'P9V04' ? 'invoice_toggle_has_records'
+      : e.code === 'P9V05' ? 'invoice_has_number'
+      : e.code === 'P9V06' ? 'invoice_toggle_mismatch'
+      : e.code === 'P9V07' ? 'invoice_toggle_overpaid'
+      : e.code === 'P9V08' ? 'invoice_tax_not_reproducible'
       : null;
     redirectWith(parsed.returnTo, invoiceDateCode ?? (isCheckViolation ? 'invoice_blocked' : 'error'));
   }

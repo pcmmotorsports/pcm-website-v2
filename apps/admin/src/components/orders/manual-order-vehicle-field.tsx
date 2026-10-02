@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { searchVehicleDictionaryAction } from '../../lib/orders/vehicle-dictionary-action';
 import {
   MANUAL_ORDER_VEHICLE_PICK_FIELD,
+  MANUAL_ORDER_VEHICLE_YEAR_FIELD,
   MANUAL_ORDER_VEHICLE_TEXT_FIELD,
 } from '../../lib/orders/manual-order-form';
 import { splitVehicleText, vehicleHitDisplay, type VehicleDictionaryHit } from '../../lib/orders/vehicle-dictionary';
@@ -20,9 +21,23 @@ import { MANUAL_FIELD_INPUT, MANUAL_FIELD_LABEL } from './manual-order-field-cla
 
 const DEBOUNCE_MS = 250;
 
-export function ManualOrderVehicleField() {
-  const [text, setText] = useState('');
-  const [pick, setPick] = useState('');
+/**
+ * 2026-10-02(貼板 264):訂單頁「編輯個資」也用這一塊改車 ⇒ 可以帶入訂單上現在那台車。
+ * 字典帶入的車要連 hidden pick 一起帶, 否則存回去會變成「照打」(畫面上看到什麼就存什麼那條規則)。
+ */
+export function ManualOrderVehicleField({
+  initialText = '',
+  initialPick = '',
+  initialYear = '',
+  defaultOpen = false,
+}: {
+  initialText?: string;
+  initialPick?: string;
+  initialYear?: string;
+  defaultOpen?: boolean;
+} = {}) {
+  const [text, setText] = useState(initialText);
+  const [pick, setPick] = useState(initialPick);
   const [hits, setHits] = useState<VehicleDictionaryHit[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -67,16 +82,18 @@ export function ManualOrderVehicleField() {
   return (
     // 🆕 2026-10-01 建單簡化(Sean Q1 甲, 計畫 S2):預設收起, 點「車輛(選填)」才展開。
     //    🔴 收起的 `<details>` 裡的欄位照樣送出(text + hidden pick 兩格), 解析端看到的與改版前相同。
-    <details className='border-border rounded-lg border p-3' data-testid='manual-order-vehicle'>
+    <details className='border-border rounded-lg border p-3' data-testid='manual-order-vehicle' open={defaultOpen || undefined}>
       <summary className='text-muted-foreground cursor-pointer text-xs'>車輛(選填)</summary>
       <p className='text-muted-foreground mt-2 text-xs'>這張單一台車;照平常的寫法打,對到字典就帶入,沒有就照存。</p>
+      {/* 2026-10-02 Sean:車種旁多一格「年份」(選填)。有填就以它為準;沒填照舊從車種開頭拆(例「2021 CBR」)。 */}
+      <div className='grid grid-cols-[1fr_6.5rem] gap-x-2'>
       <label className={`${MANUAL_FIELD_LABEL} relative`}>
         車種
         <input
           autoComplete='off'
           name={MANUAL_ORDER_VEHICLE_TEXT_FIELD}
           value={text}
-          placeholder='例 2021 CBR'
+          placeholder='例 CBR1000RR-R'
           className={MANUAL_FIELD_INPUT}
           onChange={(e) => {
             setText(e.target.value);
@@ -133,6 +150,19 @@ export function ManualOrderVehicleField() {
           </ul>
         )}
       </label>
+      <label className={MANUAL_FIELD_LABEL}>
+        年份
+        <input
+          autoComplete='off'
+          name={MANUAL_ORDER_VEHICLE_YEAR_FIELD}
+          inputMode='numeric'
+          maxLength={4}
+          placeholder='例 2021'
+          defaultValue={initialYear}
+          className={MANUAL_FIELD_INPUT}
+        />
+      </label>
+      </div>
     </details>
   );
 }

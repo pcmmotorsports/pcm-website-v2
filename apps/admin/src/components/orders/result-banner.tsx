@@ -395,7 +395,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    ⇒ 📌 弄反的代價是可算的:唸成「請稍後再試」⇒ 員工一直按 ⇒
   //      而**他很可能已經在財政部平台開了一張真發票**(那正是這一片要防的事)。
   invoice_blocked: {
-    text: '此訂單建立時已選擇不開發票，無法登記發票資料。如需開立，請作廢後重新建單，勿重複送出。',
+    // 貼板 264(Sean 2026-10-02 Q2 甲):電話 / LINE / 其他手動單可以在「編輯個資」改成要開, 不必作廢重開。
+    text: '此訂單目前設定為不開發票，發票資料未儲存。電話、LINE、其他來源的手動單，請先在「編輯個資」把「開發票」改成「要開」並儲存，再登記發票資料；其他訂單請聯絡系統管理員。',
     tone: 'error',
   },
   // ── 2026-09-13 P2:開立日期三句 ────────────────────────────────────────────────
@@ -417,6 +418,30 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   invoice_date_future: {
     text: '開立日期不可晚於今天，發票資料未儲存。若尚未開立發票，請將開立狀態保留為「未開立」。',
     tone: 'warn',
+  },
+  // ── 貼板 264(Sean 2026-10-02):車款 / 要不要開發票 ────────────────────────────────
+  vehicle_not_manual: { text: '網站訂單的車記在每個品項上，這裡不能修改。資料未儲存。', tone: 'warn' },
+  vehicle_year_invalid: { text: '車輛年份要填 1900 到 2100 之間的西元年，例如 2021。資料未儲存。', tone: 'warn' },
+  invoice_toggle_not_allowed: {
+    text: '只有電話、LINE、其他來源的手動單可以修改要不要開發票。資料未儲存。',
+    tone: 'warn',
+  },
+  invoice_toggle_has_records: {
+    text: '這張訂單有取消或退款紀錄，不能修改要不要開發票。資料未儲存。如需調整，請聯絡系統管理員。',
+    tone: 'warn',
+  },
+  invoice_has_number: { text: '這張訂單已經登記發票號碼，不能改回不開發票。資料未儲存。', tone: 'warn' },
+  invoice_toggle_overpaid: {
+    text: '客人已付的金額比加稅後的總額還多，系統無法自動處理，資料未儲存。請聯絡系統管理員。',
+    tone: 'warn',
+  },
+  invoice_tax_not_reproducible: {
+    text: '這張訂單的營業稅是用含稅價換算的，系統無法自動調整要不要開發票，資料未儲存。請聯絡系統管理員。',
+    tone: 'warn',
+  },
+  invoice_toggle_mismatch: {
+    text: '修改發票後付款狀態對不上，這次修改已取消，資料未儲存。請聯絡系統管理員，不要重複送出。',
+    tone: 'error',
   },
   denied: { text: '權限不足或登入已過期，資料未儲存。請重新登入後再試；若仍失敗，請聯絡系統管理員。', tone: 'error' },
   // M-4b-01 P1(2026-09-14):改品項金額升管理者紅線(amount-actions.ts)。

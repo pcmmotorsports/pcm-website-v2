@@ -204,7 +204,7 @@ describe('P1 貨品軸判序:SQL admin_order_list_v ↔ TS goodsAxisOfLines', ()
   //    ①逐欄列出 41 欄(取代 `o.*`)②在**尾巴**附加 6 欄。
   //    `goods_axis` 那整段 CASE 一個字未動 ⇒ 兩側的配對序列不變(上面那格全綠即為證)。
   // 🛑 **而這一格【證不到】新 view 在正式庫長什麼樣** —— 它讀的是 repo 裡的檔。
-  it('§0 live 定位:候選清單=已知八支、live=20260930040000(新 migration 重定義本 view 時本格要紅=綁定要跟上)', () => {
+  it('§0 live 定位:候選清單=已知九支、live=20261002110000(新 migration 重定義本 view 時本格要紅=綁定要跟上)', () => {
     const { live, candidates } = locateLive('VIEW', P1_NAME);
     expect(
       candidates,
@@ -244,8 +244,13 @@ describe('P1 貨品軸判序:SQL admin_order_list_v ↔ TS goodsAxisOfLines', ()
       //    (它讀 order_item_procurement, 不含 bool_and、不含分母字面)。對側 `order-status-axes.ts` 零改。
       //    ⚠️ 這支還沒貼正式庫 —— 本格證的是 repo 裡的檔,不是正式庫。
       '20260930040000_m4b_admin_order_list_v_overdue_arrival.sql',
+      // 🔴 2026-10-02 加入:`20261002110000`(貼板 264,尾端附 `o.vehicle_snapshot`,🛑 寫好未貼)又重建了一次。
+      //    同上四輪的量法:只有 §0 紅的那一發裡, 本檔 P1 其餘各格全綠、期待值一個字未動 ⇒ `goods_axis` 那段 CASE 沒被動到;
+      //    view 本體只差 `has_overdue_arrival` 行尾多一個逗號與尾巴一欄 `o.vehicle_snapshot`。對側 `order-status-axes.ts` 零改。
+      //    ⚠️ 這支還沒貼正式庫 —— 本格證的是 repo 裡的檔,不是正式庫。
+      '20261002110000_m4b_order_edit_vehicle_and_invoice_toggle.sql',
     ]);
-    expect(live).toBe('20260930040000_m4b_admin_order_list_v_overdue_arrival.sql');
+    expect(live).toBe('20261002110000_m4b_order_edit_vehicle_and_invoice_toggle.sql');
   });
 
   it('SQL 側:空單早退(NOT EXISTS)在最前,且(量欄位→回傳值)配對序列正確', () => {

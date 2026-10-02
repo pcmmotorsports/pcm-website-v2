@@ -3,6 +3,7 @@ import { getAdminOrderRepository } from '../../../../../lib/orders/order-reposit
 import { isOrderId } from '../../../../../lib/orders/order-detail-view';
 import { PickingDoc } from '../../../../../components/print/picking-doc';
 import { loadPairNotesForItems } from '../../../../../lib/orders/pair-split-read';
+import { readOrderTierAtCheckout } from '../../../../../lib/orders/order-tier-read';
 
 // 相對 import(非 `@/`):根 `vitest.config.ts` 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話
 // 這一頁**完全沒辦法被單測載入**。同 `app/orders/[id]/page.tsx:1` 的既有慣例。
@@ -63,5 +64,7 @@ export default async function OrderPickingPrintPage({
 
   // Ilmberger「左右一對」拆件提示:沒有一對款不查;讀不到印保守句, 不擋列印。
   const pairNotes = await loadPairNotesForItems(detail.items);
-  return <PickingDoc detail={detail} pairNotes={pairNotes} />;
+  // 2026-10-02:會員等級只在螢幕上顯示(列印隱藏);另外讀, 不進明細投影(理由在 order-tier-read.ts)。
+  const tier = await readOrderTierAtCheckout(detail.id);
+  return <PickingDoc detail={detail} pairNotes={pairNotes} tier={tier} />;
 }

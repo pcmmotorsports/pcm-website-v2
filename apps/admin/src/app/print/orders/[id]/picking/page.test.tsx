@@ -20,10 +20,12 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const mocks = vi.hoisted(() => ({ findAdminOrderDetail: vi.fn() }));
+const mocks = vi.hoisted(() => ({ findAdminOrderDetail: vi.fn(), readOrderTierAtCheckout: vi.fn(async () => null) }));
 vi.mock('../../../../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ findAdminOrderDetail: mocks.findAdminOrderDetail }),
 }));
+// 2026-10-02:會員等級另外讀(不進明細投影);預設讀不到 ⇒ 不印那一格。
+vi.mock('../../../../../lib/orders/order-tier-read', () => ({ readOrderTierAtCheckout: mocks.readOrderTierAtCheckout }));
 
 import OrderPickingPrintPage from './page';
 import { pickableQuantity } from '../../../../../components/print/picking-doc';
@@ -613,6 +615,37 @@ describe("#10 片1 🔴 A3-3' 誤刪後【還原】的四格 —— 它們與勾
     // 🔴 而它現在【不得】再提一個已經不存在的合計
     expect(container.innerHTML).not.toContain('應揀');
     expect(container.innerHTML).not.toContain('本次應揀合計');
+  });
+
+  // 2026-10-02 Sean:訂單明細紙加車款年份、品項品牌、會員等級(等級只在螢幕上;紙會放進包裹, 車行 / 經銷常直接轉給他的客人)。
+  it('車款(年份 品牌 車型)、每個品項的品牌、會員等級(列印隱藏)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({
+        vehicle: { kind: 'dict', brand: 'Yamaha', model: 'YZF-R6', year: 2019, source: 'manual_dict' },
+        items: [{ ...detail().items[0]!, brand: 'Akrapovic' }],
+      } as unknown as Partial<AdminOrderDetail>),
+    );
+    mocks.readOrderTierAtCheckout.mockResolvedValueOnce('premiumStore' as never);
+    const { container } = await renderPage();
+    const vehicle = container.querySelector('[data-slot="order-vehicle"]');
+    expect(vehicle?.textContent).toContain('2019 Yamaha YZF-R6');
+    expect(container.querySelector('[data-slot="item-brand"]')?.textContent).toBe('Akrapovic');
+    const tier = container.querySelector('[data-slot="order-tier"]');
+    expect(tier?.textContent).toContain('經銷');
+    expect(tier?.className).toContain('print:hidden');
+    // 🔴 本機列印預覽量到:只靠 print:hidden 會被 .pd-field 的 display:flex(無層規則)蓋掉 ⇒ 要 .pd-screen-only 那條列印規則。
+    expect(tier?.className).toContain('pd-screen-only');
+    const css = readFileSync(join(SRC, 'app', 'print', 'print-a4.css'), 'utf8');
+    expect(css).toMatch(/@media print\s*\{\s*\.pd-field\.pd-screen-only\s*\{\s*display:\s*none;/);
+    // 🔴 品牌那一格不能用 .pd-brand(抬頭標誌那一塊的類名, display:flex ⇒ 撞名會把品牌撐成一整行)。
+    expect(container.querySelector('[data-slot="item-brand"]')?.className).toBe('pd-item-brand');
+  });
+
+  it('沒有車 / 沒有品牌(代購品)/ 讀不到等級 ⇒ 那一格不印, 不印「—」占位', async () => {
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-slot="order-vehicle"]')).toBeNull();
+    expect(container.querySelector('[data-slot="order-tier"]')).toBeNull();
+    expect(container.querySelector('[data-slot="item-brand"]')).toBeNull();
   });
 
   // 🔴 2026-10-02(TFJ2B5):沒動過的品項(沒採購、沒取消)⇒ 摘要列本來就不存在, 這不是「讀不到」。

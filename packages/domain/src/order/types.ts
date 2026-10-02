@@ -752,6 +752,8 @@ export type AdminOrderSummary = {
    * 絕不進非 admin client bundle(本讀模型只由 server component 用)。
    */
   tierAtCheckout: MemberTier;
+  /** 2026-10-02:訂單級車輛(`orders.vehicle_snapshot`, 手動單一台車);顧客站的單車在 `lines[].vehicle`, 這裡恆 null。可選:舊 fixture 不帶也合法。 */
+  vehicle?: OrderItemVehicleSnapshot | null;
   /**
    * 開票紀錄狀態(M-4b E10 **A9c**;`orders.invoice_status`,DB CHECK 三值 + NOT NULL DEFAULT
    * `'not_issued'`,migration `20260714120000_m4a_order_workflow_status.sql:108,117`)。
@@ -943,6 +945,19 @@ export type AdminOrderWorkflowPatch = {
    * 🔴 規則住在 RPC(`20260913050000`):變成 issued 那一次必須明確帶;issued 一定要有;範圍用台北日。
    */
   invoiceIssuedAt?: string | null;
+  /**
+   * 貼板 264(Sean 2026-10-02):訂單上的車(`orders.vehicle_snapshot`;只有手動單)。`null` = 清掉;省略 = 不動。
+   * 形狀與建單函式同一條;`source` 由 RPC 寫。不同步客人的「我的愛車」(Q30 甲)。
+   */
+  vehicle?:
+    | { kind: 'dict'; brand: string; model: string; year?: number }
+    | { kind: 'free'; raw: string; year?: number }
+    | null;
+  /**
+   * 貼板 264(Sean 2026-10-02 Q2 甲):要不要開發票(只有電話 / LINE / 其他手動單)。
+   * 不開 ⇒ 要開:RPC 加 5% 稅、重算總額與付款狀態;要開 ⇒ 不開:稅歸 0, 多收開待退款;已登記發票號碼不能改回(P9V05)。
+   */
+  invoiceRequested?: boolean;
 };
 
 /** 後台改單結果碼(RPC 回傳;UI 分流:成功 / 版本衝突重載 / 無變更)。 */

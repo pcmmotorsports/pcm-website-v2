@@ -10,7 +10,7 @@ import { subtotalLabelOf } from '@pcm/domain';
 import type { ShipmentRow } from '../../lib/shipping/shipment-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
-import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import { formatOrderAmount, formatOrderItemVehicle } from '../../lib/orders/order-list-view';
 import { cancelledQuantityOf, outstandingQuantity } from '../../lib/shipping/shipping-doc-quantities';
 import {
   lineAmount,
@@ -948,6 +948,13 @@ export function ShippingDoc({
                   )}
                 </div>
               </div>
+              {/* 2026-10-02 Sean:這張單的車款(年份 品牌 車型);沒有車就整格不印。 */}
+              {formatOrderItemVehicle(detail.vehicle ?? null) !== null && (
+                <div className='pd-field' data-slot='order-vehicle'>
+                  <div className='k'>車款</div>
+                  <div className='v'>{formatOrderItemVehicle(detail.vehicle ?? null)}</div>
+                </div>
+              )}
             </div>
 
           {/* ── 貨運資訊(#10 片3)──

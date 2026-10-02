@@ -518,7 +518,8 @@ function OrderGroup({
         const first = i === 0;
         // R2 F5:`formatOrderItemVehicle` 原本在同一列被呼叫兩次(一次判 `data-empty`、一次印值)。
         // 算一次存起來 —— 兩次呼叫之間沒有任何狀態變化,重算純粹是浪費,而且**兩處字面會漂**。
-        const vehicleText = (line && formatOrderItemVehicle(line.vehicle)) || null;
+        // 2026-10-02 Sean:手動單的車記在訂單上(#956 乙)⇒ 品項沒有車時改印訂單上那一台(含年份)。
+        const vehicleText = (line && formatOrderItemVehicle(line.vehicle)) || formatOrderItemVehicle(order.vehicle ?? null) || null;
         return (
           <tr
             key={line ? line.id : 'empty'}

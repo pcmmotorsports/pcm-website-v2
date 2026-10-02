@@ -1,8 +1,8 @@
 import { stripPictographs } from '@/lib/print/strip-pictographs';
-import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderDetailItem, MemberTier } from '@pcm/domain';
 import { subtotalLabelOf } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
-import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import { formatOrderAmount, formatOrderItemVehicle, MEMBER_TIER_LABEL } from '../../lib/orders/order-list-view';
 import { summaryOrUntouched } from '../../lib/orders/order-status-axes';
 import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
@@ -116,8 +116,11 @@ function Alert({ children, slot }: { children: React.ReactNode; slot?: string })
 export function PickingDoc({
   detail,
   pairNotes,
+  tier = null,
 }: {
   detail: AdminOrderDetail;
+  /** 2026-10-02:下單當下的會員等級(列印頁另外讀;null = 讀不到 / 沒傳 ⇒ 不印那一格)。 */
+  tier?: MemberTier | null;
   /** Ilmberger「左右一對」拆件提示 { 一對款 sku: 那一行字 }(lib/orders/pair-split-read;沒傳 = 不印)。 */
   pairNotes?: Record<string, string>;
 }) {
@@ -127,6 +130,7 @@ export function PickingDoc({
   //    ⚠️ 這裡是**真正的守門**;`order-detail.tsx` 那顆鈕改成已取消時不渲染只是 UX ——
   //    網址可以被貼、被書籤、或在分頁開著的時候訂單才被取消,那些路徑都繞過鈕。
   const cancelledAt = detail.cancelledAt;
+  const vehicleText = formatOrderItemVehicle(detail.vehicle ?? null);
 
   // 🔴 2026-10-02(TFJ2B5):摘要列由 A4a 惰性建立 ⇒ 還沒下訂、也沒取消過的品項本來就沒有那一列。
   //    那不是「讀不到」, 是「都還是 0」⇒ 用明細表同一支 summaryOrUntouched 補成 0(它對讀不完整的紀錄仍回 null)。
@@ -340,6 +344,13 @@ export function PickingDoc({
                     🛑 少了這一格, 出貨的紙與顧客站對帳單【兩張紙不一致】。 */}
                 <div className='v addr'>{detail.shippingAddress?.line || '—'}</div>
               </div>
+              {/* 2026-10-02 Sean:這張單的車款(年份 品牌 車型)。手動單記在訂單上;沒有車就整格不印(不印「—」占位)。 */}
+              {vehicleText !== null && (
+                <div className='pd-field' data-slot='order-vehicle'>
+                  <div className='k'>車款</div>
+                  <div className='v'>{vehicleText}</div>
+                </div>
+              )}
             </div>
             <div className='pd-col'>
               <span className='pd-label'>單據</span>
@@ -351,6 +362,14 @@ export function PickingDoc({
                 <div className='k'>下單</div>
                 <div className='v'>{formatOrderDateTime(detail.createdAt)}</div>
               </div>
+              {/* 2026-10-02:會員等級只在螢幕上給員工看, 列印隱藏 —— 這張紙會放進包裹,
+                  車行 / 經銷常把包裹直接轉給他自己的客人, 紙上印「經銷」等於告訴他的客人他拿的是經銷價。 */}
+              {tier !== null && (
+                <div className='pd-field pd-screen-only print:hidden' data-slot='order-tier'>
+                  <div className='k'>會員等級</div>
+                  <div className='v'>{MEMBER_TIER_LABEL[tier]}</div>
+                </div>
+              )}
               {/* 🔴 截斷時這個數字**只是已載入的子集**, 而它讀起來像總數(codex R2 舊 finding)
                   ⇒ 那句限定跟著搬過來, 不因為換版面而消失。 */}
               <div className='pd-field'>
@@ -461,6 +480,12 @@ export function PickingDoc({
                       <tr key={item.id} data-slot='picking-item' className={waiting ? 'pd-wait' : undefined}>
                         <td className='pd-sku'>{item.variantSku}</td>
                         <td className='pd-name'>
+                          {/* 2026-10-02 Sean:每個品項的品牌(代購品沒有品牌就不印)。 */}
+                          {item.brand && (
+                            <span className='pd-item-brand' data-slot='item-brand'>
+                              {item.brand}
+                            </span>
+                          )}
                           {stripPictographs(item.title) ?? '—'}
                           {item.spec && (
                             <span className='pd-spec'>

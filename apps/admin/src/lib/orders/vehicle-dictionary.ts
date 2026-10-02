@@ -67,16 +67,30 @@ export function parseVehiclePick(raw: string | null): { hit: VehicleDictionaryHi
 const squash = (s: string) => s.trim().replace(/\s+/g, ' ');
 
 /**
+ * 2026-10-02 Sean:「年份」一格(建單畫面與訂單頁「編輯個資」共用)。留白 ⇒ undefined;4 碼西元年 1900-2100 ⇒ 數字;其他 ⇒ 'invalid'。
+ * 範圍與 RPC 同一條(建單函式 263:251-257、編輯個資第 6 代)。
+ */
+export function parseVehicleYear(raw: string | null): number | undefined | 'invalid' {
+  const t = (raw ?? '').trim();
+  if (t === '') return undefined;
+  const y = Number(t);
+  return /^\d{4}$/.test(t) && y >= 1900 && y <= 2100 ? y : 'invalid';
+}
+
+/**
  * 表單兩欄 ⇒ RPC 形狀。
  * 🔴 `pick` 只在「員工看到的字 = 選那一列時的字」才算數 —— 選完又改字 ⇒ 以他改後的字為準(照打)。
  *    這一條讓「畫面上看到什麼就存什麼」成立, 不靠 island 記得清 hidden。
+ * 2026-10-02 Sean:多一格「年份」(`year`)。有填 ⇒ 蓋過車種開頭打的年份;沒填 ⇒ 照舊從車種開頭拆。
  */
-export function resolveManualOrderVehicle(text: string | null, pick: string | null): ManualOrderVehicleInput | null {
+export function resolveManualOrderVehicle(
+  text: string | null,
+  pick: string | null,
+  year?: number,
+): ManualOrderVehicleInput | null {
   const t = squash(text ?? '');
   if (t === '') return null;
   const p = parseVehiclePick(pick);
-  if (p !== null && squash(p.display) === t) {
-    return vehicleFromHit(p.hit, splitVehicleText(t).year);
-  }
-  return vehicleFromText(t);
+  const v = p !== null && squash(p.display) === t ? vehicleFromHit(p.hit, splitVehicleText(t).year) : vehicleFromText(t);
+  return v === null || year === undefined ? v : { ...v, year };
 }

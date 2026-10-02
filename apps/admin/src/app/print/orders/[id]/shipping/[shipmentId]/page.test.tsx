@@ -414,6 +414,15 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
 });
 
 describe('#10 片2b — 版面', () => {
+  // 2026-10-02 Sean:出貨單也印這張單的車款(年份 品牌 車型);沒有車就整格不印。
+  it('有車 ⇒ 印「車款 2019 Yamaha YZF-R6」;沒車 ⇒ 不印那一格', async () => {
+    expect((await renderPage()).container.querySelector('[data-slot="order-vehicle"]')).toBeNull();
+    cleanup();
+    setDetail(detail({ vehicle: { kind: 'dict', brand: 'Yamaha', model: 'YZF-R6', year: 2019, source: 'manual_dict' } } as Partial<AdminOrderDetail>));
+    const row = (await renderPage()).container.querySelector('[data-slot="order-vehicle"]');
+    expect(row?.textContent).toContain('2019 Yamaha YZF-R6');
+  });
+
   it('可以印時:收件人 / 料號 / 品名 / 本次出貨數量都在紙上', async () => {
     const t = (await renderPage()).container.textContent ?? '';
     expect(t).toContain('出貨明細單');

@@ -1,5 +1,6 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 import { ShipToEditFields } from './ship-to-edit-fields';
+import { OrderVehicleEditFields } from './order-vehicle-edit-fields';
 import { updateOrderWorkflowAction } from '../../lib/orders/order-actions';
 import {
   SHIPPING_METHOD_LABELS,
@@ -7,7 +8,7 @@ import {
 } from '../../lib/orders/order-detail-view';
 // 🔴 開立狀態三態中文**只有這一份來源**。該檔 `:285-286` 逐字寫著「**不要在任何一邊另抄一份
 //    三態中文**」,而本檔在 2026-08-21 之前正是那個「另一邊」——三個 <option> 的中文是硬寫的。
-import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
+import { formatOrderAmount, formatOrderItemVehicle, INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import {
   ORDER_ID_FIELD,
   VERSION_FIELD,
@@ -17,8 +18,44 @@ import {
   INVOICE_AMOUNT_FIELD,
   INVOICE_STATUS_FIELD,
   INVOICE_ISSUED_AT_FIELD,
+  INVOICE_REQUESTED_EDIT_FIELD,
   invoiceIssuedAtDefault,
 } from '../../lib/orders/workflow-form';
+
+/** 貼板 264:可以在這裡改要不要開發票的來源(蝦皮單金額由蝦皮決定、網站單的稅不走這條式子;RPC 也擋 P9V03)。 */
+const INVOICE_TOGGLE_SOURCES = new Set(['manual_phone', 'manual_line', 'manual_other']);
+
+/**
+ * 貼板 264(Sean 2026-10-02 Q2 甲):改要不要開發票的那一格。總額變化在畫面上先講清楚(與 RPC 同一條式子:
+ * 稅 = round((小計 + 運費 − 折扣) × 5%), 只是預覽;真的數由 RPC 算)。已登記發票號碼的不能改回不開。
+ */
+function InvoiceRequestedField({ detail }: { detail: AdminOrderDetail }) {
+  const base = detail.subtotal.amount + detail.shippingFee.amount - detail.discountTotal.amount;
+  const tax = Math.round(base * 0.05);
+  const hasNumber = detail.invoiceNumber !== null && detail.invoiceNumber !== '';
+  return (
+    <AdminFormField label='開發票'>
+      <select
+        name={INVOICE_REQUESTED_EDIT_FIELD}
+        defaultValue={detail.invoiceRequested ? 'on' : 'off'}
+        className={ADMIN_INPUT_CLASS}
+        data-testid='invoice-requested-select'
+      >
+        <option value='on'>要開</option>
+        <option value='off' disabled={detail.invoiceRequested && hasNumber}>
+          不開
+        </option>
+      </select>
+      <p className='text-muted-foreground mt-1 text-xs'>
+        {!detail.invoiceRequested
+          ? `改成要開：總額加 5% 營業稅 NT$ ${formatOrderAmount(tax)}，變成 NT$ ${formatOrderAmount(base + tax)}。已付款的單會變成部分付款，請再登記客人補的差額。儲存後下面會出現抬頭、統編等發票欄位。`
+          : hasNumber
+            ? '這張單已經登記發票號碼，不能改回不開。'
+            : `改成不開：總額拿掉營業稅 NT$ ${formatOrderAmount(detail.taxTotal.amount)}，變成 NT$ ${formatOrderAmount(base)}。已收的錢多出來的部分會列入待退款。`}
+      </p>
+    </AdminFormField>
+  );
+}
 import {
   ADMIN_INPUT_CLASS,
   AdminForm,
@@ -149,6 +186,14 @@ export function OrderEditForm({
         line={detail.shippingAddress?.line ?? ''}
       />
 
+      {/* 貼板 264(Sean 2026-10-02):車款 + 年份。只有手動單(網站單的車記在品項上)。勾「改車款」才送。 */}
+      {detail.orderSource !== 'web' && (
+        <OrderVehicleEditFields vehicle={detail.vehicle ?? null} current={formatOrderItemVehicle(detail.vehicle ?? null)} />
+      )}
+
+      {/* 貼板 264(Sean 2026-10-02 Q2 甲):電話 / LINE / 其他手動單可以改要不要開發票。 */}
+      {INVOICE_TOGGLE_SOURCES.has(detail.orderSource) && <InvoiceRequestedField detail={detail} />}
+
       {/* 🔴 label 用 `開立狀態`,不是 ~~`開票狀態`~~(2026-08-21 改)。
           **這不是兩個詞挑一個好聽的,是其中一個對不上自己的選項**:
           下面三個選項是「未開立 / 已開立 / 已作廢」,三個都含「開立」、沒有一個含「開票」。
@@ -171,9 +216,12 @@ export function OrderEditForm({
              鎖擋住了錯的資料, **而擋不住員工在紙本上寫下去那個動作** —— 擋那個的是這裡。
           ⚠️ **而反過來也要成立**:`true` 的單**一個字都不能變**(下面那三格原樣搬進來, 零修改)。 */}
       {!detail.invoiceRequested ? (
-        <AdminFormField label='發票'>
-          <p className='text-sm text-[--admin-ink-2]'>此單不開發票(建單時的決定)。要開請作廢重開。</p>
-        </AdminFormField>
+        INVOICE_TOGGLE_SOURCES.has(detail.orderSource) ? null : (
+          <AdminFormField label='發票'>
+            {/* 蝦皮 / 網站單不能在這裡改(貼板 264 只開放電話 / LINE / 其他手動單)⇒ 原句照舊。 */}
+            <p className='text-sm text-[--admin-ink-2]'>此單不開發票(建單時的決定)。要開請作廢重開。</p>
+          </AdminFormField>
+        )
       ) : (
         <>
       <AdminFormField label='開立狀態'>
