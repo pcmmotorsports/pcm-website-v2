@@ -129,6 +129,9 @@ export async function OrderInlineHead({
     <div className='order-inline-head' data-testid='order-inline-head'>
       <ResultBanner code={bannerCode} detail={{ orderCreatedMmDd: mmdd(d.createdAt) }} />
       {cancelPanel}
+      {/* 2026-10-02 Sean:灰色區切左右兩塊 —— 左邊單號等資訊、右邊動作按鈕兩排(主視窗定的版面);窄螢幕右塊掉到下面。 */}
+      <div className='oih-body'>
+      <div className='oih-info'>
       <div className='oih-line'>
         <span className='oih-k'>單號</span>
         <b className='font-mono'>{d.displayId}</b>
@@ -213,8 +216,8 @@ export async function OrderInlineHead({
           })}
         </div>
       ) : null}
-      <div className='oih-line oih-acts2'>
-        <span className='oih-acts'>
+      </div>
+      <nav className='oih-acts' aria-label='這張訂單的動作'>
           {!cancelled ? <Link href={links.pay} className='oih-p'>新增收款</Link> : null}
           {!cancelled ? (
             <Link href={links.cancel} className='oih-d'>
@@ -225,7 +228,7 @@ export async function OrderInlineHead({
           <Link href={links.invoice}>發票登記</Link>
           <Link href={links.note}>備註與客人聯繫</Link>
           <Link href={links.more}>更多</Link>
-        </span>
+      </nav>
       </div>
     </div>
   );
