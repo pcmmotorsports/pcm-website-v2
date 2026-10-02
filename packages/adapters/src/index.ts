@@ -80,3 +80,5 @@ export { mapSupabaseWalletEntryToDomain } from './supabase/mappers/wallet';
 //    給出不同的商品集合, **畫面上完全正常**(顧客站看到的是「搜尋結果跟篩選後不一樣」)。
 // 🔵 純函式:不持 client、不碰 service_role ⇒ 照本檔上面那條界線, 進 root export 沒問題。
 export { splitSearchTerms } from './supabase/helpers/product-query-support';
+// 2026-10-02 前台搜尋短字(Sean Q1 甲、Q2 甲):顧客站用這兩支, 後台照舊用 splitSearchTerms。
+export { splitStorefrontSearchTerms, isStorefrontQueryTooShort } from './supabase/helpers/product-query-support';

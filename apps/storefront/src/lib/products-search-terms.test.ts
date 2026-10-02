@@ -32,6 +32,8 @@ vi.mock('@pcm/adapters', async () => {
     SupabaseProductAdapter: class {},
     availabilityToBool: () => true,
     splitSearchTerms: real.splitSearchTerms,
+    // 2026-10-02 前台搜尋短字:前台改用 splitStorefrontSearchTerms(同樣餵真的那支)。
+    splitStorefrontSearchTerms: real.splitStorefrontSearchTerms,
   };
 });
 

@@ -159,7 +159,8 @@ describe('SearchOverlay', () => {
     );
     // 🟢 自檢:抽取邏輯要先證明它抓得到東西,否則下面那個 toEqual 對空集合也會過
     expect(kinds.size, '抽取結果是空的 ⇒ 正規式與檔案對不上,本格會恆真').toBeGreaterThan(0);
-    expect([...kinds].sort()).toEqual(['failed', 'ok', 'pending']);
+    // 2026-10-02 搜尋短字(Sean Q1 甲)多一支 `tooShort`(「再多打一個字」)⇒ 已同步加進 G1-g 的 bothShowing。
+    expect([...kinds].sort()).toEqual(['failed', 'ok', 'pending', 'tooShort']);
   });
 
   it('🔴 G1-g 不變式:任何一個世界裡,「熱門搜尋」與狀態訊息都不得同框', async () => {
@@ -168,7 +169,8 @@ describe('SearchOverlay', () => {
       screen.queryByText('熱門搜尋') !== null &&
       (screen.queryByText('搜尋中…') !== null ||
         screen.queryByText(/暫時無法使用/) !== null ||
-        screen.queryByText(/沒有找到/) !== null);
+        screen.queryByText(/沒有找到/) !== null ||
+        screen.queryByText('再多打一個字') !== null);
 
     // 世界①:空查詢 ⇒ 只有熱門搜尋
     mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
@@ -344,6 +346,36 @@ describe('SearchOverlay', () => {
     expect(screen.queryByText(/沒有找到/)).toBeNull();
   });
 
+  // 2026-10-02 Sean 拍搜尋短字 Q1 甲:只打一個英文字母或數字 ⇒ 先不查, 提示「再多打一個字」(中文單字照查)。
+  it('🔴 G4-a 只打一個英文字母 ⇒ 提示「再多打一個字」, 而且【不發】請求、不說「沒有找到」', async () => {
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<SearchOverlay />);
+    openWith('a');
+    await waitFor(() => expect(screen.getByText('再多打一個字')).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 400)); // 等過 debounce, 確定真的沒發
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+    expect(screen.queryByText('搜尋中…')).toBeNull();
+  });
+
+  it('🔴 G4-b server 說太短(例如「a -」拆完只剩 a)⇒ 一樣提示「再多打一個字」', async () => {
+    mockFetch(async () => new Response(JSON.stringify({ items: [], total: 0, tooShort: true }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('a -');
+    await waitFor(() => expect(screen.getByText('再多打一個字')).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+  });
+
+  it('G4-c 單一中文字照查(有發請求、不出現提示)', async () => {
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<SearchOverlay />);
+    openWith('管');
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(screen.queryByText('再多打一個字')).toBeNull();
+  });
+
   it('G2-b 成功但零筆 ⇒ 畫「沒有找到」,而**不是**「暫時無法使用」', async () => {
     mockFetch(async () => new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
     render(<SearchOverlay />);
@@ -361,7 +393,8 @@ describe('SearchOverlay', () => {
       total: 2,
     }), { status: 200 }));
     render(<SearchOverlay />);
-    openWith('x');
+    // 2026-10-02 搜尋短字:單打一個英文字母現在不查(G4-a), 這格測的是價格顯示不是查詢字 ⇒ 查詢字改成兩個字母。
+    openWith('xx');
     await waitFor(() => expect(screen.getByText('—')).toBeTruthy());
     expect(screen.getByText('NT$ 0')).toBeTruthy();
   });

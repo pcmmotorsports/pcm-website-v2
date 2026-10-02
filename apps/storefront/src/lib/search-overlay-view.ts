@@ -40,6 +40,8 @@ export type SearchResultState = {
    *   (那一區是子字串, 會讓 `R6` 跑出 `CBR600` —— Sean 2026-09-04 拍不顯示的原因)。
    */
   vehicleCapsule?: { href: string; label: string } | null;
+  /** 2026-10-02 搜尋短字(Sean Q1 甲):只剩一個英文字母或數字 ⇒ 沒有去查, 畫「再多打一個字」。 */
+  tooShort?: boolean;
 };
 
 /**
@@ -62,9 +64,10 @@ export type SearchResultState = {
 export function viewFor(
   result: SearchResultState | null,
   q: string,
-): { kind: 'pending' } | { kind: 'failed' } | { kind: 'ok'; items: SearchOverlayItem[] } {
+): { kind: 'pending' } | { kind: 'failed' } | { kind: 'tooShort' } | { kind: 'ok'; items: SearchOverlayItem[] } {
   // 沒有結果,或結果屬於別的查詢 ⇒ 一律當「還在路上」,不畫任何舊東西。
   if (result === null || result.q !== q) return { kind: 'pending' };
+  if (result.tooShort) return { kind: 'tooShort' };
   if (result.items === null) return { kind: 'failed' };
   return { kind: 'ok', items: result.items };
 }

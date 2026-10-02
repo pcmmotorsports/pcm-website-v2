@@ -47,7 +47,7 @@ import {
   //   🔴 `SupabaseProductAdapter.searchByKeyword` 內部打 `storefront_search_product_ids`
   //     用的就是它；而 RPC 的 `p_terms` 餵進去的也是同一支函式。
   //     → 兩邊各寫一份分詞 ⇒ 同一個字兩條路回不同的商品，而畫面完全正常。
-  splitSearchTerms,
+  splitStorefrontSearchTerms,
 } from '@pcm/adapters';
 import { computeEffectivePrice } from '@pcm/domain';
 import type { MemberTier, Product } from '@pcm/domain';
@@ -603,7 +603,7 @@ async function callCatalogRpcOnce(
   overrides?: { offset?: number; limit?: number },
 ): Promise<{ rows: CatalogRpcRow[]; total: number }> {
   // ⟦db-SEARCHFACETMUTEX⟧ 關鍵字與 facet 從此走**同一發 RPC** ⇒ 兩者同時生效。
-  const terms = query.search ? splitSearchTerms(query.search) : [];
+  const terms = query.search ? splitStorefrontSearchTerms(query.search) : [];
   const searchTerms = terms.length > 0 ? terms : null;
   const { data, error } = await client.rpc(rpcName, {
     p_brand: vehicle?.brand ?? null,
@@ -852,7 +852,7 @@ export async function fetchCatalogPage(
   // 🛑 **而 RPC 那一側是 fail-open 的**(`20260909010000:472` 那個 `NOT EXISTS`)
   //   ⇒ 若這裡不擋, 客人打了一個切不出詞的字串, 拿到的是**整張目錄**而他以為那是搜尋結果。
   // ⚪ **`search` 是空字串 / 沒給 ⇒ 不走這條** —— 那不是「搜尋切不出詞」, 那是「沒有搜尋」。
-  if (query.search && splitSearchTerms(query.search).length === 0) {
+  if (query.search && splitStorefrontSearchTerms(query.search).length === 0) {
     return { products: [], total: 0, error: false };
   }
 

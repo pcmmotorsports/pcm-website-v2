@@ -113,6 +113,45 @@ export function splitSearchTerms(q: string): string[] {
 }
 
 /**
+ * 前台搜尋專用的拆詞(2026-10-02 Sean 拍搜尋短字 Q2 甲;計畫 `~/pcm-mailbox/計畫-前台搜尋短字-20261002.md`)。
+ * 只給顧客站用 —— 後台建單查商品(`manual-order-catalog.ts`)照舊用 `splitSearchTerms`, Sean 說只改前台。
+ *
+ * 比 `splitSearchTerms` 多兩條:
+ * - 純符號詞(不含任何字母、數字、中日韓文字)不拿去比對:「-」「/」「+」幾乎每件商品名稱都有, 單打「-」正式庫要 1.1 秒。
+ * - 單一個英文字母或數字最多留 `MAX_SINGLE_CHAR_TERMS` 個:單打「a」正式庫每次 3 秒逾時回 500,「R」「2」1.5–2.4 秒,
+ *   8 個單字母每次逾時(2026-10-02 anon 打正式庫實測)。先打的先留。
+ * 🔴 先過濾再套 8 詞上限 ⇒ 被丟掉的符號詞不會佔掉 8 個名額。
+ * 🔴 回空陣列 = 呼叫端照既有規矩 fail-closed(回空結果、不送查詢),見 `splitSearchTerms` 的說明。
+ */
+export const MAX_SINGLE_CHAR_TERMS = 2;
+const HAS_WORD_CHAR = /[\p{L}\p{N}]/u;
+const isSingleAsciiAlnum = (t: string): boolean => /^[A-Za-z0-9]$/.test(t.normalize('NFKC'));
+
+export function splitStorefrontSearchTerms(q: string): string[] {
+  let singles = 0;
+  const kept = normalizeSearchInput(q)
+    .split(TERM_SEPARATORS)
+    .filter((t) => t !== '' && HAS_WORD_CHAR.test(t))
+    .filter((t) => !isSingleAsciiAlnum(t) || ++singles <= MAX_SINGLE_CHAR_TERMS);
+  if (kept.length > MAX_SEARCH_TERMS) {
+    console.warn(
+      `[searchByKeyword] 詞數 ${kept.length} 超過上限 ${MAX_SEARCH_TERMS}、只用前 ${MAX_SEARCH_TERMS} 個詞;` +
+        `結果會比使用者打的條件寬`,
+    );
+  }
+  return kept.slice(0, MAX_SEARCH_TERMS);
+}
+
+/**
+ * 整個查詢拆完只剩一個英文字母或數字 ⇒ 先不查(Sean 拍搜尋短字 Q1 甲, 畫面提示「再多打一個字」)。
+ * 單一中文字不算(正式庫 0.2–0.4 秒, 照查)。
+ */
+export function isStorefrontQueryTooShort(q: string): boolean {
+  const terms = splitStorefrontSearchTerms(q);
+  return terms.length === 1 && isSingleAsciiAlnum(terms[0]!);
+}
+
+/**
  * 為 PostgREST `.or()` 跨欄 ILIKE filter 組裝 sanitized pattern + filter string。
  *
  * 兩階段 sanitize:
