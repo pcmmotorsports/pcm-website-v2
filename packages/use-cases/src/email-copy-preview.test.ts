@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { EMAIL_PREVIEW_SAMPLES, emailCopyKeysInSample, renderEmailCopyPreview } from './email-copy-preview';
+import {
+  EMAIL_PREVIEW_SAMPLES,
+  emailCopyKeysInSample,
+  renderEmailCopyPreview,
+  renderEmailCopyPreviewMarked,
+} from './email-copy-preview';
 import { EMAIL_COPY, type EmailCopyKey } from './email-copy-catalog';
 
 // 信件文字第 3 片:後台預覽(與寄信同一支組信程式)。
@@ -50,5 +55,34 @@ describe('emailCopyKeysInSample', () => {
     const keys = emailCopyKeysInSample('paid');
     expect(keys).toContain('paidHeadlineWithId');
     expect(keys).not.toContain('shippedHeadline');
+  });
+});
+
+describe('renderEmailCopyPreviewMarked(整封信預覽, 句子可點)', () => {
+  const unmark = (html: string) => html.replace(/<mark data-copy-key="[A-Za-z]+" style="[^"]*">|<\/mark>/g, '');
+  it('每一封範例都標得出來(highlighted), 而且拿掉 <mark> 之後與一般預覽的 HTML 逐字相同', () => {
+    for (const s of EMAIL_PREVIEW_SAMPLES) {
+      const plain = renderEmailCopyPreview(s.id, new Map())!.html;
+      const marked = renderEmailCopyPreviewMarked(s.id, new Map())!;
+      expect(marked.highlighted, s.id).toBe(true);
+      expect(unmark(marked.html), s.id).toBe(plain);
+    }
+  });
+  it('信裡用到的句子有標出來;<head> 裡沒有 <mark>;記號不會殘留', () => {
+    const html = renderEmailCopyPreviewMarked('paid', new Map())!.html;
+    expect(html).toContain('<mark data-copy-key="paidNextStep"');
+    const bodyAt = html.search(/<body[^>]*>/i);
+    expect(html.slice(0, Math.max(bodyAt, 0))).not.toContain('<mark');
+    expect(/[-]/.test(html)).toBe(false);
+  });
+  it('用現在生效的字(員工改過的那句)', () => {
+    const html = renderEmailCopyPreviewMarked('paid', new Map([['paidNextStep', '改過的下一步。']]))!.html;
+    expect(html).toMatch(/<mark data-copy-key="paidNextStep"[^>]*>改過的下一步。<\/mark>/);
+  });
+  it('每一種信(多封共用除外)至少有一封範例信', () => {
+    const groups = new Set(EMAIL_PREVIEW_SAMPLES.map((s) => s.group));
+    const need = ['paid', 'bank_order_created', 'bank_amount_changed', 'shipped', 'tracking_corrected', 'unpaid_cancelled', 'cancelled', 'partially_refunded', 'partially_cancelled', 'return_received'] as const;
+    for (const g of need) expect(groups.has(g), g).toBe(true);
+    expect(groups.has('shared')).toBe(false);
   });
 });

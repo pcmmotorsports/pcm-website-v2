@@ -24,12 +24,28 @@ export default async function EmailCopyPage() {
 
   return (
     <div className='mx-auto space-y-4'>
-      <div className='space-y-1'>
+      <div className='space-y-2'>
         <h1 className='text-2xl font-semibold'>信件文字</h1>
-        <p className='text-muted-foreground text-sm'>
-          修改客人收到的訂單通知信裡的固定句子。金額、品項、單號、追蹤碼會依每張訂單自動帶入，不能在這裡改；信件主旨也不開放修改。
-          <br />
-          儲存前要先看過預覽。儲存後，之後排進寄送佇列的信會用新的文字；已經在排隊中的信仍用原本的文字。有綁定 LINE 的客人，LINE 通知也會用同一段文字。
+        <p className='text-muted-foreground text-sm'>修改客人收到的訂單通知信裡的固定句子。照下面三個步驟做：</p>
+        <ol className='grid gap-2 text-sm sm:grid-cols-3'>
+          <li className='rounded-md border p-3'>
+            <span className='font-semibold'>1. 選信件</span>
+            <br />
+            在下方那一排選要改哪一封信，右邊會顯示整封信的樣子。
+          </li>
+          <li className='rounded-md border p-3'>
+            <span className='font-semibold'>2. 點要改的句子、改字</span>
+            <br />
+            點左邊清單，或右邊信裡黃色底的句子，在「文字」框裡改字。
+          </li>
+          <li className='rounded-md border p-3'>
+            <span className='font-semibold'>3. 按「預覽」確認，再儲存</span>
+            <br />
+            看過預覽沒問題，按「儲存這一句」。沒按預覽不能儲存。
+          </li>
+        </ol>
+        <p className='text-muted-foreground text-xs'>
+          金額、品項、單號、追蹤碼會依每張訂單自動帶入，不能在這裡改；信件主旨也不開放修改。儲存後，之後排進寄送佇列的信會用新的文字；已經在排隊中的信仍用原本的文字。有綁定 LINE 的客人，LINE 通知也會用同一段文字。
         </p>
       </div>
       {versions === null ? (
@@ -40,6 +56,7 @@ export default async function EmailCopyPage() {
         <EmailCopyEditor
           rows={buildEmailCopyRows(versions, sampleKeys)}
           samples={EMAIL_PREVIEW_SAMPLES}
+          sampleKeys={Object.fromEntries(sampleKeys)}
           testConfigured={testConfigured}
         />
       )}

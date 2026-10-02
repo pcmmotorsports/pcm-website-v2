@@ -278,5 +278,5 @@ export {
   type NewProductSkipReason,
 } from './draft-new-product-posts';
 // 信件文字第 3 片:後台預覽(與寄信同一支組信程式)。
-export { EMAIL_PREVIEW_SAMPLES, emailCopyKeysInSample, renderEmailCopyPreview } from './email-copy-preview';
-export type { EmailCopyPreview } from './email-copy-preview';
+export { EMAIL_PREVIEW_SAMPLES, emailCopyKeysInSample, renderEmailCopyPreview, renderEmailCopyPreviewMarked } from './email-copy-preview';
+export type { EmailCopyPreview, EmailPreviewSample } from './email-copy-preview';

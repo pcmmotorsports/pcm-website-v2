@@ -1,7 +1,7 @@
 'use server';
 
 import { isEmailCopyKey, resolveEmailCopyOverrides, validateEmailCopyText, EMAIL_COPY_LOCKED } from '@pcm/domain';
-import { emailCopyKeysInSample, renderEmailCopyPreview, type EmailCopyPreview } from '@pcm/use-cases';
+import { emailCopyKeysInSample, renderEmailCopyPreview, renderEmailCopyPreviewMarked, type EmailCopyPreview } from '@pcm/use-cases';
 import { authorizeAdminMutation } from '../session/authorize';
 import { listEmailCopyVersions } from './email-copy-repository';
 
@@ -38,6 +38,27 @@ export async function previewEmailCopyAction(
     return { ok: true, preview, sentenceInSample: emailCopyKeysInSample(sampleId).includes(key) };
   } catch (err) {
     console.error('[email-copy] 預覽失敗', { name: (err as { name?: unknown })?.name });
+    return { ok: false, reason: 'error' };
+  }
+}
+
+export type PreviewWholeEmailResult =
+  | { ok: true; subject: string; html: string; highlighted: boolean }
+  | { ok: false; reason: 'denied' | 'error' };
+
+/** 整封信預覽(「先選信件」用):用現在生效的文字, 可改的句子標黃底, 點了就打開那一句。 */
+export async function previewWholeEmailAction(sampleId: string): Promise<PreviewWholeEmailResult> {
+  const auth = await authorizeAdminMutation();
+  if (!auth) return { ok: false, reason: 'denied' };
+  if (typeof sampleId !== 'string') return { ok: false, reason: 'error' };
+  try {
+    const versions = await listEmailCopyVersions();
+    const overrides = resolveEmailCopyOverrides(versions, new Date().toISOString()).overrides;
+    const out = renderEmailCopyPreviewMarked(sampleId, overrides);
+    if (out === null) return { ok: false, reason: 'error' };
+    return { ok: true, ...out };
+  } catch (err) {
+    console.error('[email-copy] 整封信預覽失敗', { name: (err as { name?: unknown })?.name });
     return { ok: false, reason: 'error' };
   }
 }

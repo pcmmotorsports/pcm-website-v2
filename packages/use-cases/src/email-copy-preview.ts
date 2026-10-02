@@ -2,7 +2,8 @@
 // 用寄信同一支組信程式(buildEmailContentForPreview)+ 一組固定的範例訂單, 套上員工的草稿字。
 // 預覽看到的 = 客人收到的(純文字、HTML、LINE 推播三份)。範例資料是假的, 只用來看排版與文字。
 import type { ClaimedEmailJob, PaidEmailContext, ShippedEmailContext } from '@pcm/ports';
-import { EMAIL_COPY, withEmailCopyOverrides, type EmailCopyKey } from './email-copy-catalog';
+import { EMAIL_COPY, withEmailCopyOverrides, type EmailCopyGroup, type EmailCopyKey } from './email-copy-catalog';
+import { EMAIL_COPY_LOCKED } from '@pcm/domain';
 import { paidEmailOrderUrl, renderPaidEmailHtml } from './paid-email-html';
 import { stripLineInviteForLinePush } from './order-email-copy';
 import { buildEmailContentForPreview } from './sweep-email-outbox';
@@ -68,7 +69,33 @@ const SAMPLES: readonly Sample[] = [
   { id: 'return_received', label: '退貨收回信', job: { eventType: 'order_return_received', subject: `我們已收到您寄回的商品(訂單 ${ID})`, payload: { display_id: ID, received_items: [{ title: '碳纖維隔熱片', quantity: 1 }] } } },
 ];
 
-export const EMAIL_PREVIEW_SAMPLES: readonly { id: string; label: string }[] = SAMPLES.map(({ id, label }) => ({ id, label }));
+/** 範例信屬於哪一種信(後台「先選信件」那一排用)。 */
+const SAMPLE_GROUP: Readonly<Record<string, EmailCopyGroup>> = {
+  paid: 'paid',
+  bank_created: 'bank_order_created',
+  bank_changed: 'bank_amount_changed',
+  shipped: 'shipped',
+  shipped_pickup: 'shipped',
+  tracking_corrected: 'tracking_corrected',
+  unpaid_cancelled: 'unpaid_cancelled',
+  cancelled_full: 'cancelled',
+  cancelled_partial: 'cancelled',
+  refund_active: 'partially_refunded',
+  refund_full: 'partially_refunded',
+  refund_cancelled: 'partially_refunded',
+  partially_cancelled_overpaid: 'partially_cancelled',
+  partially_cancelled_unpaid: 'partially_cancelled',
+  partially_cancelled_exact: 'partially_cancelled',
+  partially_cancelled_short: 'partially_cancelled',
+  return_received: 'return_received',
+};
+
+export type EmailPreviewSample = { id: string; label: string; group: EmailCopyGroup };
+export const EMAIL_PREVIEW_SAMPLES: readonly EmailPreviewSample[] = SAMPLES.map(({ id, label }) => ({
+  id,
+  label,
+  group: SAMPLE_GROUP[id] ?? 'shared',
+}));
 
 export type EmailCopyPreview = { subject: string; text: string; html: string; lineText: string };
 
@@ -118,4 +145,60 @@ export function emailCopyKeysInSample(sampleId: string): EmailCopyKey[] {
     if (out !== null && (out.text.includes(marker) || out.html.includes(marker))) used.push(key);
   }
   return used;
+}
+
+// 整封信預覽用的記號(私用區字元, 不會出現在真的文字裡;esc() 不會動到它們)。
+// 每一句只多 2 個字:開頭一個字(U+E100 + 第幾句)、結尾一個字(U+E0FF)。
+// 🔴 不能更長:部分取消信的「商品小計  NT$ …」要靠「標籤 1-8 個字」排成左右兩欄(customer-email-html.ts LABEL_VALUE),
+//    記號一長, 那幾行就被排成一般段落, 預覽就和客人收到的不一樣(5 個字的記號時實際發生過, 測試抓到)。
+const MARK_BASE = 0xe100;
+const MARK_CLOSE = '';
+const MARKED_SENTENCE = /([-])([^-]*)/g;
+const ANY_MARK = /[-]/g;
+
+/**
+ * 整封信預覽(後台「先選信件」):每一句可改的字都包一個 <mark data-copy-key>, 員工點了就打開那一句。
+ * 做法:每一句換成「記號 + 現在的字 + 記號」組一次信, 再把 <body> 裡文字部分成對的記號換成 <mark>;
+ * 標籤裡(屬性)、<head> 裡、沒有成對的記號一律拿掉。
+ * 拿掉 <mark> 之後若和一般預覽不是逐字相同(記號改變了排版)⇒ 改回一般預覽、highlighted = false, 不給員工看走樣的信。
+ */
+export function renderEmailCopyPreviewMarked(
+  sampleId: string,
+  overrides: ReadonlyMap<EmailCopyKey, string>,
+): { subject: string; html: string; highlighted: boolean } | null {
+  const keys = Object.keys(EMAIL_COPY) as EmailCopyKey[];
+  const marked = new Map(
+    keys.map(
+      (k, i) => [k, `${String.fromCharCode(MARK_BASE + i)}${overrides.get(k) ?? EMAIL_COPY[k].text}${MARK_CLOSE}`] as const,
+    ),
+  );
+  const plain = renderEmailCopyPreview(sampleId, overrides);
+  const out = renderEmailCopyPreview(sampleId, marked);
+  if (plain === null || out === null) return null;
+  const strip = (x: string) => x.replace(ANY_MARK, '');
+  const bodyAt = out.html.search(/<body[^>]*>/i);
+  const head = bodyAt < 0 ? '' : out.html.slice(0, bodyAt);
+  const body = bodyAt < 0 ? out.html : out.html.slice(bodyAt);
+  const html =
+    strip(head) +
+    body
+      .split(/(<[^>]*>)/)
+      .map((part, i) =>
+        i % 2 === 1
+          ? strip(part)
+          : strip(
+              part.replace(MARKED_SENTENCE, (_, open: string, text: string) => {
+                const key = keys[open.charCodeAt(0) - MARK_BASE];
+                if (key === undefined) return text;
+                const style = EMAIL_COPY_LOCKED.has(key)
+                  ? 'background:#ececec;border-radius:3px;cursor:pointer;color:inherit'
+                  : 'background:#fff1a8;border-radius:3px;cursor:pointer;color:inherit;outline:1px dashed #c99a00';
+                return `<mark data-copy-key="${key}" style="${style}">${text}</mark>`;
+              }),
+            ),
+      )
+      .join('');
+  const unmarked = html.replace(/<mark data-copy-key="[A-Za-z]+" style="[^"]*">|<\/mark>/g, '');
+  if (unmarked !== plain.html) return { subject: plain.subject, html: plain.html, highlighted: false };
+  return { subject: out.subject, html, highlighted: true };
 }

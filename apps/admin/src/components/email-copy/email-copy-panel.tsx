@@ -29,14 +29,20 @@ export function EmailCopyPanel({
   row,
   samples,
   testConfigured,
+  initialSampleId,
+  onBack,
 }: {
   row: EmailCopyRow;
   samples: readonly { id: string; label: string }[];
   testConfigured: boolean;
+  /** 從某一封信點進來 ⇒ 預覽先用那一封。 */
+  initialSampleId?: string;
+  /** 有給 ⇒ 最上面顯示「回到整封信」。 */
+  onBack?: () => void;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(row.currentText);
-  const [sampleId, setSampleId] = useState(row.defaultSampleId ?? samples[0]?.id ?? '');
+  const [sampleId, setSampleId] = useState(initialSampleId ?? row.defaultSampleId ?? samples[0]?.id ?? '');
   const [preview, setPreview] = useState<{ for: Draft; sampleId: string; data: EmailCopyPreview; inSample: boolean } | null>(null);
   const [tab, setTab] = useState<(typeof PREVIEW_TABS)[number]['id']>('html');
   const [notice, setNotice] = useState<Notice>(null);
@@ -102,6 +108,11 @@ export function EmailCopyPanel({
 
   return (
     <section className='space-y-4 rounded-lg border p-4'>
+      {onBack !== undefined && (
+        <button type='button' onClick={onBack} className='h-8 rounded-md border px-3 text-sm'>
+          ← 回到整封信
+        </button>
+      )}
       <div className='space-y-1'>
         <h2 className='text-lg font-semibold'>{row.label}</h2>
         <p className='text-muted-foreground text-sm'>{row.isDefault ? '目前使用預設文字。' : '目前使用修改過的文字。'}</p>
