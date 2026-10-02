@@ -65,6 +65,9 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   // 信件文字第 2 片(20261002200000 admin_save_email_copy):before/after 的 text / uses_default
   text: '信件文字',
   uses_default: '用預設文字',
+  // 信件文字第 3 片:寄測試信(send-test-email-copy-action.ts)
+  to: '寄到的信箱',
+  sample: '範例信',
   title: '品名',
   spec: '規格',
   availability: '下單時的庫存狀態',

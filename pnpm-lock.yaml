@@ -122,6 +122,9 @@ importers:
       '@pcm/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      '@pcm/use-cases':
+        specifier: workspace:*
+        version: link:../../packages/use-cases
       '@tabler/icons-react':
         specifier: ^3.40.0
         version: 3.44.0(react@19.2.6)

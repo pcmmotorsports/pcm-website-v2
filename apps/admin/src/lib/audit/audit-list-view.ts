@@ -50,6 +50,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'customer.password_reset.sent': '寄重設密碼信',
   // 信件文字第 2 片(20261002200000)
   'email_copy.save': '修改信件文字',
+  // 信件文字第 3 片(send-test-email-copy-action.ts)
+  'email_copy.test_send': '寄信件文字測試信',
   'dealer.brand_discount.change': '調整經銷品牌折扣',
   'customer.wallet.adjust': '調整儲值金',
   'order.cancel': '取消訂單',

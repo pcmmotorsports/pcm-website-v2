@@ -70,6 +70,8 @@ const SETTINGS_GROUP_ITEMS: readonly NavItem[] = [
   { key: 'suppliers', label: '供應商', icon: 'post', href: '/settings/suppliers' },
   { key: 'coupons', label: '優惠券', icon: 'billing', href: '/coupons' },
   { key: 'maildead', label: '寄不出去的信', icon: 'alertCircle', href: '/settings/mail' },
+  // 信件文字第 3 片(2026-10-02):員工修改訂單通知信的固定句子。
+  { key: 'emailCopy', label: '信件文字', icon: 'post', href: '/settings/email-copy' },
   // 2026-09-13 匯率(plan 2026-09-13-fx-rate-settings-plan.md;主視窗裁獨立一頁,入口在設定群組)。
   { key: 'fx', label: '匯率', icon: 'billing', href: '/settings/fx' },
   // 2026-09-15 事故紀錄(稽核 P2-7;plan 2026-09-15-admin-incident-list-plan.md)。🔴 放群組最後一格:

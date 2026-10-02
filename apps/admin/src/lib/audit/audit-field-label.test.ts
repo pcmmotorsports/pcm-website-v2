@@ -144,6 +144,9 @@ const APP_WRITER_KEYS = [
   // 🔴 2026-09-12 ⟦b4-AUDITNULLAMBIG⟧:app 層寫的(`manual-cancel-notice-actions.ts:110 / 243 / 412`),
   //    migrations 掃不到 —— 三個值 none / unreadable / 整列, 見 AUDIT_VALUE_LABEL 同名那一格。
   'order_cancelled_outbox_row',
+  // 信件文字第 3 片:寄測試信(`email-copy/send-test-email-copy-action.ts`)由 app 層寫。
+  'to',
+  'sample',
 ];
 
 describe('欄位名稱 → 中文', () => {
