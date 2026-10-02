@@ -32,7 +32,8 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('a', 'Slip-On 鈦合金排氣管',   'PED-GP EVO AC', 'fit', 'Ducati', 'Panigale V4'),
       ('b', 'Arrow 排氣管 碳纖維尾蓋', 'ARW-71',        'eff', 'Ducati', 'Monster 937'),
-      ('c', '煞車拉桿',               'BRK_77',        'fit', 'Honda',  'CBR1000RR')) v(k, title, ext, src, mb, mc) LOOP
+      ('c', '煞車拉桿',               'BRK_77',        'fit', 'Honda',  'CBR1000RR'),
+      ('d', '碳纖維腳踏翅膀（左）',   'WING-L',        'fit', 'Yamaha', 'YZF-R1')) v(k, title, ext, src, mb, mc) LOOP
     INSERT INTO public.products (handle, title, external_id, brand_id, category_id, price_by_tier)
       VALUES ('zz-' || r.k, r.title, r.ext, b, c, '{"general":1000,"store":null,"premiumStore":null}'::jsonb) RETURNING id INTO p;
     IF r.src = 'fit' THEN
@@ -51,7 +52,7 @@ $f$;
 CREATE TABLE public.zz_before (q text PRIMARY KEY, res text);
 SQL
 S() { Q "select public.zz_s('$1')"; }
-SINGLE=("a" "排氣管" "ducati" "panigale" "monster 937" "brk_77" "BRK\\_77" "*" "arw*71" "slip-on" "ped-gp" "%" "_")
+SINGLE=("a" "排氣管" "ducati" "panigale" "monster 937" "brk_77" "BRK\\_77" "*" "arw*71" "slip-on" "ped-gp" "%" "_" "（左）" "翅膀（左）")
 for q in "${SINGLE[@]}"; do Q "insert into public.zz_before values ('$q', public.zz_s('$q'))" >/dev/null; done
 cell "對照組:單詞「排氣管」貼前就有兩件(資料真的在)" "$(S '排氣管')" "a,b"
 run_cells() {
@@ -60,18 +61,20 @@ run_cells() {
   cell "「ducati arrow」⇒ 名稱 Arrow + 車款 Ducati" "$(S 'ducati arrow')" "b"
   cell "「排氣管 panigale」⇒ 只有 Panigale 那件" "$(S '排氣管 panigale')" "a"
   cell "全形「ＢＲＫ」⇒ 煞車拉桿" "$(S 'ＢＲＫ')" "c"
+  cell "從名稱複製「翅膀（左）」⇒ 照舊找得到(名稱有全形括號)" "$(S '翅膀（左）')" "d"
+  cell "半形「翅膀(左)」⇒ 也找得到全形括號的名稱" "$(S '翅膀(左)')" "d"
   cell "「ducati 煞車」⇒ 沒有" "$(S 'ducati 煞車')" "-"
 }
 echo "── 貼前(先紅)──"
 OB="$(run_cells 2>/dev/null)"; printf '%s\n' "$OB" | sed 's/^/  [貼前] /'
-cell "貼前紅的正好是:PEDGPEVO / ducati 排氣管 / ducati arrow / 排氣管 panigale / 全形" "$(printf '%s\n' "$OB" | grep FAIL | grep -c 'PEDGPEVO\|ducati 排氣管\|ducati arrow\|排氣管 panigale\|全形')/$(printf '%s\n' "$OB" | grep -c FAIL)" "5/5"
+cell "貼前紅的正好是:PEDGPEVO / ducati 排氣管 / ducati arrow / 排氣管 panigale / 全形 / 半形括號" "$(printf '%s\n' "$OB" | grep FAIL | grep -c 'PEDGPEVO\|ducati 排氣管\|ducati arrow\|排氣管 panigale\|全形「ＢＲＫ\|半形「翅膀')/$(printf '%s\n' "$OB" | grep -c FAIL)" "6/6"
 P -q -c "CREATE ROLE zz_paster LOGIN NOSUPERUSER; GRANT postgres TO zz_paster;" >/dev/null
 PN -f "$MIG" >/dev/null || { echo "🔴 migration 用非 superuser 貼不上"; exit 1; }
 echo "── 貼後 ──"
 run_cells
 # 料號去符號是新增的比對 ⇒ 帶符號的單詞可能多找到(例如「BRK\\_77」現在對得到 BRK_77), 不會少。
 LOST="$(Q "select coalesce(string_agg(q || '=' || res || '→' || public.zz_s(q), ' '), '') from public.zz_before where res <> '-' and not (string_to_array(res, ',') <@ string_to_array(public.zz_s(q), ','))")"
-cell "單詞 13 種(含 * 萬用字元、\\ % _ 字面):上一版找得到的, 現在都找得到" "$LOST" ""
+cell "單詞 15 種(含 * 萬用字元、\\ % _ 字面、全形括號):上一版找得到的, 現在都找得到" "$LOST" ""
 SAME_Q="q IN ('a', '排氣管', 'ducati', 'panigale', 'monster 937', '*', 'arw*71')"
 cell "逐筆相同那格真的比到 7 種(不是比了 0 種而假綠)" "$(Q "select count(*) from public.zz_before where $SAME_Q")" "7"
 SAME="$(Q "select coalesce(string_agg(q || '=' || res || '→' || public.zz_s(q), ' '), '') from public.zz_before where $SAME_Q and res <> public.zz_s(q)")"

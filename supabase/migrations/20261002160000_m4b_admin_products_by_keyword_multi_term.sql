@@ -3,7 +3,7 @@
 -- 計畫:~/pcm-mailbox/計畫-後台搜尋沿用前台-20261002.md(S5)、~/pcm-mailbox/計畫-S5商品管理搜尋-20261002.md
 --
 -- 改什麼:admin_products_by_keyword 換本體, 簽章、回傳(SETOF products)、SECURITY INVOKER、權限都不變。
---   · 先 NFKC(全形轉半形), 修剪。
+--   · 先 NFKC(全形轉半形), 修剪;商品名稱也轉一次再比(名稱常有全形括號, 只轉查詢字會少找到)。
 --   · 一個詞:照上一版比料號、商品名稱、員工改過的名稱、車款(* 照舊是萬用字元), 另外多比「料號去符號」
 --     (「PEDGPEVO」對得到「PED-GP EVO」)⇒ 結果只會比上一版多, 不會少。
 --   · 兩個詞以上:最多 8 個詞(只有標點的不算), 每個詞都要對到某一個來源。
@@ -74,8 +74,13 @@ AS $function$
     SELECT q.id, n.ord
       FROM public.products q
       JOIN n ON (   q.external_id ILIKE n.pat
+                 -- 名稱兩邊都轉:查詢字已經 NFKC 過, 名稱原字串與 NFKC 後各比一次。
+                 -- 正式庫 2026-10-02:30,787 件裡 7,677 件名稱有全形字(（左）、－、／…), 只比原字串會讓
+                 -- 「翅膀（左）」從上一版的 30 件變 0 件(Fable R1 F1)。料號與車款實查 0 件有全形字, 不用轉。
                  OR q.title ILIKE n.pat
+                 OR normalize(q.title, NFKC) ILIKE n.pat
                  OR (q.staff_overrides ->> 'title') ILIKE n.pat
+                 OR normalize(q.staff_overrides ->> 'title', NFKC) ILIKE n.pat
                  OR (n.fold IS NOT NULL
                      AND pg_catalog.upper(pg_catalog.regexp_replace(q.external_id, '[^A-Za-z0-9]', '', 'g'))
                          LIKE '%' || n.fold || '%'))
