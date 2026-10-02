@@ -2771,7 +2771,21 @@ body {font-size:14.5px;line-height:1.4}
       而畫面上的縫是 20px。**不要因為「列高只多 10」以為沒生效**,要量 `borderTopWidth`。
    ⚠️ 第一張單不加,否則表頭與第一列之間會多一條 20px 的縫。 */
 .orders-grid tbody.orders-group:not(:first-of-type) > tr:first-child > td {
-  border-top: 20px solid var(--background);
+  border-top: 12px solid var(--muted);
+}
+/* 🔴 2026-10-02 Sean(看逐品項截圖):「同一張單的品項之間空白太大, 訂單和訂單之間反而沒分開」⇒ 反過來:
+   · 單與單:上面那條原本是 20px `var(--background)` —— 稿的 `--bg` 是 #f8fafc(淡灰), 我們的 `--background` 是 #ffffff,
+     ⇒ 白底上一條白邊 = 只是空白、不是分隔。改成 12px 的 `--muted` 灰帶, 一眼看得出哪幾列是同一張單。
+   · 同一張單的第二列之後:不吃 `--od-row-h` 最低列高(那是給主列的), 上下 4px ⇒ 品項緊湊排在一起。
+     ⚠️ 展開列(`tr.orders-expanded`)有自己的內距, 排除在外。
+   · 收款格三行(還差 / 金額 / 共 X)原本每行 20px, 是主列最高的一格(量具 1440 實測 77 > 日期 70 > 客戶 69)⇒ 收成 16px。 */
+.orders-grid tbody.orders-group > tr:not(:first-child):not(.orders-expanded) > td {
+  height: auto;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.orders-grid td.col-pay {
+  line-height: 16px;
 }
 /* ↑ 🔴 2026-09-14 B2:選擇器從 `tbody … td` 收窄成 `> tr:first-child > td` —— 稿是 `tr.o td`(**主列**才有那 20px),
    原本寫法讓每一張單的**續列**也各多 20px(真瀏覽器量到續列 56.3 = 20 + 36,稿的 `tr.i` 是 52、border 0)。

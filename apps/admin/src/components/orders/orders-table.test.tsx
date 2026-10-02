@@ -1189,6 +1189,28 @@ describe('V11 — 發票三態各自可辨識,且住在客戶格裡', () => {
       expect(decls.has('max-width')).toBe(false);
     });
 
+    // 2026-10-02 Sean 看逐品項截圖:「同一張單的品項之間空白太大, 訂單和訂單之間反而沒分開」⇒ 反過來。
+    const rootDecls = (sel: string) => {
+      const d = new Map<string, string>();
+      ROOT2.walkRules((r) => {
+        if (r.parent?.type === 'root' && r.selector.replace(/\s+/g, ' ').trim() === sel) r.walkDecls((x) => { d.set(x.prop, x.value.trim()); });
+      });
+      return d;
+    };
+    it('🔴 單與單之間是看得見的灰色帶(不是白底上的白邊)', () => {
+      const gap = rootDecls('.orders-grid tbody.orders-group:not(:first-of-type) > tr:first-child > td');
+      expect(gap.get('border-top'), '單間距跟頁面同色 ⇒ 畫面上看不出哪幾列是同一張單').toBe('12px solid var(--muted)');
+    });
+    it('🔴 同一張單的第二列之後不吃最低列高、上下只留 4px ⇒ 品項緊湊排在一起', () => {
+      const cont = rootDecls('.orders-grid tbody.orders-group > tr:not(:first-child):not(.orders-expanded) > td');
+      expect(cont.get('height'), '續列還被最低列高撐開').toBe('auto');
+      expect(cont.get('padding-top')).toBe('4px');
+      expect(cont.get('padding-bottom')).toBe('4px');
+    });
+    it('🔴 收款格三行(尾款 / 金額 / 共 X)行距收緊, 不再是第一列最高的那一格', () => {
+      expect(rootDecls('.orders-grid td.col-pay').get('line-height')).toBe('16px');
+    });
+
     it('🔴 手機卡片:名字的固定寬只給表格用, 卡片裡退回「最多這麼寬」⇒ 等級 tag 還在名字旁邊, 不會掉到下一行', () => {
       const inCard = new Map<string, string>();
       ROOT2.walkAtRules('container', (at) => {
