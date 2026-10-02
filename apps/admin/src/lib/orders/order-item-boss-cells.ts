@@ -1,7 +1,6 @@
 import type { AdminOrderSummary } from '@pcm/domain';
 import { loadOrderItemCosts } from './item-costs-repository';
-import { computeItemCostTwd, trimAmount } from './item-costs-view';
-import { formatOrderAmount } from './order-list-view';
+import { itemCostTwdText, trimAmount } from './item-costs-view';
 
 // order-item-boss-cells.ts — 訂單列表「老闆:成本」六欄的【顯示端】型別 + 讀取入口(A1, 2026-09-14)。
 //
@@ -11,7 +10,8 @@ import { formatOrderAmount } from './order-list-view';
 //
 // 🔴 **成本型別不進 `packages/domain`**(plan §1-c 三條紅線是給顧客站也 import 的 domain 用的)⇒ 住 admin 這裡。
 // 🔴 **金額一律字串**:成本是 numeric(14,4)、匯率是 numeric;走 JSON number 會丟精度。這裡的字串已經是
-//    【顯示用】的樣子(算完、格式化完),表格不再算任何東西 —— 表格零 client、零算式(`orders-table.tsx` 守門)。
+//    【顯示用】的樣子(算完、格式化完),`orders-table.tsx` 不再算任何東西。唯一例外是老闆就地改成本時的輸入中試算
+//    (`item-costs-cells.tsx`),它與本檔共用 `item-costs-view.ts` 的 `itemCostTwdText`,不另寫公式。
 // 🔴 `loadOrderItemCostCells` 只准在頁層 **確認過 `isActiveManager` 之後** 呼叫(非管理者不發查詢, plan §1-d)。
 //    它吃整份 `orders`(不只 id):利潤 = `line_total − cost_twd`,而 `line_total` 就在 `AdminOrderLine.lineTotal`。
 // 🔴 檔名 / class 叫 `boss-*` 不叫 `cost-*`:`product-repository.test.ts` 的經銷價外洩守門用 `\bcost\b` 掃 admin 全樹 code 層,
@@ -54,15 +54,13 @@ export async function loadOrderItemCostCells(
   for (const line of lines) {
     const c = costs.get(line.id);
     if (c === undefined) continue;
-    const twd = computeItemCostTwd(c, { quantity: line.quantity, lineTotal: line.lineTotal.amount });
     out.set(line.id, {
       costPrice: trimAmount(c.costPrice),
       costShipping: trimAmount(c.costShipping),
       costTax: trimAmount(c.costTax),
       currency: c.currency,
       fxRate: trimAmount(c.fxRate),
-      totalTwd: twd === null ? '—' : formatOrderAmount(twd.costTwd),
-      profitTwd: twd === null ? '—' : formatOrderAmount(twd.profitTwd),
+      ...itemCostTwdText(c, { quantity: line.quantity, lineTotal: line.lineTotal.amount }),
     });
   }
   return out;

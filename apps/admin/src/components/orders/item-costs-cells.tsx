@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { setOrderItemCostsAction } from '../../lib/orders/item-costs-actions';
-import { COST_ROWS_FIELD } from '../../lib/orders/item-costs-view';
+import { COST_ROWS_FIELD, previewItemCostText } from '../../lib/orders/item-costs-view';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { NextStepDialog } from './next-step-dialog';
 import { NextStepCancelButton } from './next-step-cancel-button';
@@ -22,7 +22,10 @@ import {
 //   「✎ 已改 N 格,還沒存」+「取消變更」「確認全部」 · #confirm 560 列出 單 / 商品 / 欄 / 改成 +「回去再看」「確認(N 格)」(Sean Q17 甲)。
 //
 // 🔴 props 只有純量(`orders-table.tsx:66` 紅線:整包成本 / 金額不進 RSC payload):每格 `CostCellInputs` 只收字串;
-//    `item-costs-cells.test.tsx` 用正規式釘著這件事。**不做即時重算預覽**(要 line_total 進 client);總計 / 利潤存檔後 server 重繪。
+//    `item-costs-cells.test.tsx` 用正規式釘著這件事。
+// 🆕 2026-10-02 輸入中即時試算(Sean):一改格,同一列的總計 / 利潤馬上用 `previewItemCostText` 算(淡色 = 尚未儲存),
+//    存檔後換回 server 算的正式字串。公式只有一份(`item-costs-view.ts`),`order-item-boss-cells.test.ts` 逐案比對兩邊相同。
+//    為此多收三個純量字串:數量、這一列的售價(同一位老闆在「金額」欄本來就看得到)、各幣別現行匯率(設定 › 匯率)。
 // 🔴 寫入 = 一發 `setOrderItemCostsAction`(隱形 <form>,`COST_ROWS_FIELD` JSON ≤200 列 + return_to);
 //    畫面上的「改了幾格」只是 dirty 狀態,存之前一律先跳確認框列出每一格。
 // 🔴 `orders-table.tsx` 零 use client:它只 import 本檔的元件,不碰狀態。
@@ -87,9 +90,16 @@ const INPUT = 'w-[52px] bg-transparent border-0 px-1 py-[2px] text-right text-[1
 const DIRTY = 'costs-dirty';  // 樣式在 globals(稿 td.dirty:inset 2px --boss-ink + 白底);arbitrary shadow class 在這裡量不到
 
 /**
- * 一列的四格可改(原價 / 運費 / 稅金 / 幣值)。**回傳四個 `<td>`**(由 orders-table 的 `CostCells` 放進列裡,總計 / 利潤那兩格仍是 server 畫)。
+ * 一列的四格可改(原價 / 運費 / 稅金 / 幣值)+ 總計 / 利潤兩格。**回傳六個 `<td>`**(由 orders-table 的 `CostCells` 放進列裡);
+ * 總計 / 利潤沒改時印 server 算好的字串,改了印試算(淡色)。
  * props 一律純量字串;`currencies` 用逗號串,不傳陣列。
  */
+/** 一列的試算(還沒存的值);`calc` 缺 ⇒ 算不出來。 */
+function previewOf(values: CostDraftValues, calc: CostDraft['calc']) {
+  if (calc === undefined) return { totalTwd: '—', profitTwd: '—', fxRate: null };
+  return previewItemCostText(values, calc.rates, { quantity: Number(calc.quantity), lineTotal: Number(calc.lineTotal) });
+}
+
 export function CostCellInputs({
   orderItemId,
   orderDisplayId,
@@ -101,6 +111,11 @@ export function CostCellInputs({
   fxRate,
   currencies,
   tdClass,
+  quantity,
+  lineTotal,
+  totalTwd,
+  profitTwd,
+  rates,
 }: {
   orderItemId: string;
   orderDisplayId: string;
@@ -113,18 +128,28 @@ export function CostCellInputs({
   fxRate: string;
   /** 可選幣別代碼,逗號串(例 `EUR,USD,TWD`)。 */
   currencies: string;
-  /** 四格共用的 td class(由 orders-table 給,含 `boss-cell` 與各欄 class 前綴)。 */
+  /** 六格共用的 td class(由 orders-table 給,含 `boss-cell` 與各欄 class 前綴)。 */
   tdClass: string;
+  /** 品項數量(整數字串)。 */
+  quantity: string;
+  /** 這一列售價(整數元字串;利潤 = 它 − 總計)。 */
+  lineTotal: string;
+  /** 存檔後 server 算好的總計 / 利潤(沒填過 = `—`)。 */
+  totalTwd: string;
+  profitTwd: string;
+  /** 各幣別現行匯率,`EUR:35.2,USD:31.5,TWD:1`(`formatCostRatesField`)。 */
+  rates: string;
 }) {
   const api = useCostEdit();
   const baseline = useMemo<CostDraftValues>(() => ({ costPrice, costShipping, costTax, currency }), [costPrice, costShipping, costTax, currency]);
+  const calc = useMemo(() => ({ quantity, lineTotal, rates }), [quantity, lineTotal, rates]);
   const [values, setValues] = useState<CostDraftValues>(baseline);
   const lastGen = useRef(api.generation);
   const { register, unregister } = api; // 兩支是 provider 的 useCallback([]),穩定 ⇒ 進 deps 不會重登記
   useEffect(() => {
-    register({ orderItemId, orderDisplayId, itemTitle, baseline, current: baseline });
+    register({ orderItemId, orderDisplayId, itemTitle, baseline, current: baseline, calc });
     return () => unregister(orderItemId);
-  }, [register, unregister, orderItemId, orderDisplayId, itemTitle, baseline]);
+  }, [register, unregister, orderItemId, orderDisplayId, itemTitle, baseline, calc]);
   useEffect(() => {
     if (api.generation !== lastGen.current) {
       lastGen.current = api.generation;
@@ -138,6 +163,19 @@ export function CostCellInputs({
   const draft = api.drafts.get(orderItemId);
   const dirty = new Set(draft ? dirtyFields(draft) : []);
   const codes = currencies.split(',').filter((c) => c !== '');
+  // 有改 ⇒ 試算(淡色);沒改 ⇒ 存檔的正式值。匯率同理:改了就印「存檔時會抄的那個」(該幣別現在生效的匯率)。
+  const preview = dirty.size > 0 ? previewOf(values, calc) : null;
+  const rateText =
+    values.currency === ''
+      ? ''
+      : preview === null
+        ? fxRate === '' ? '' : `×${fxRate}`
+        : preview.fxRate === null ? '未設匯率' : `×${preview.fxRate}`;
+  const result = (cls: string, label: string, saved: string, pending: string | undefined) => (
+    <td className={`${tdClass} ${cls} text-right tabular-nums`} data-l={label}>
+      {pending === undefined ? saved : <span className='costs-pending' title='尚未儲存'>{pending}</span>}
+    </td>
+  );
   // 🔴🔴 `relative z-10` 是承重的(Sean 09-14 線上「打字沒反應」的根因):訂單列的單號 <Link> 用 `after:absolute after:inset-0`
   //    把整列鋪成 stretched link,四格輸入框在它【底下】⇒ 滑鼠點到的是那條連結,不是 input(elementFromPoint 實測)。
   //    勾選格 / 下一步 / 收款那幾格都用同一招浮上來;Playwright 的 fill() 是程式化 focus,繞過了覆蓋層 ⇒ 鑽機 e2e 沒抓到。
@@ -171,10 +209,10 @@ export function CostCellInputs({
             <option key={c} value={c}>{c}</option>
           ))}
         </select>{' '}
-        <span className='text-[11.5px] text-(--fg-2)'>
-          {values.currency !== '' && values.currency === currency && fxRate !== '' ? `×${fxRate}` : values.currency === '' ? '' : '匯率存檔時帶'}
-        </span>
+        <span className='text-[11.5px] text-(--fg-2)'>{rateText}</span>
       </td>
+      {result('boss-total', '總計', totalTwd, preview?.totalTwd)}
+      {result('boss-profit', '利潤', profitTwd, preview?.profitTwd)}
     </>
   );
 }
@@ -200,9 +238,14 @@ export function CostUnsavedBar({ returnTo }: { returnTo: string }) {
     setProblem(null);
     dialogRef.current?.showModal();
   };
-  const changed = drafts.flatMap((d) =>
-    dirtyFields(d).map((k) => ({ key: `${d.orderItemId}:${k}`, order: d.orderDisplayId, item: d.itemTitle, field: COST_FIELD_LABEL[k], from: d.baseline[k] || '—', to: d.current[k] || (k === 'currency' ? '—' : '0') })),
-  );
+  // 確認框:每個商品一列(Sean 10-02:原本每改一格一列,同一個商品原價、幣值各一列太亂)。
+  const changed = drafts
+    .filter((d) => dirtyFields(d).length > 0)
+    .map((d) => {
+      const p = previewOf(d.current, d.calc);
+      const price = d.current.costPrice.trim() === '' ? '0' : d.current.costPrice.trim();
+      return { key: d.orderItemId, order: d.orderDisplayId, item: d.itemTitle, price, currency: d.current.currency || '—', rate: p.fxRate, total: p.totalTwd, profit: p.profitTwd };
+    });
   return (
     <>
       <div className='costs-unsaved' role='status' data-testid='costs-unsaved-bar'>
@@ -214,18 +257,30 @@ export function CostUnsavedBar({ returnTo }: { returnTo: string }) {
       <dialog ref={dialogRef} className='costs-confirm bg-card text-foreground m-auto w-[min(560px,calc(100vw-2rem))] rounded-xl border-0 p-0 backdrop:bg-[rgba(16,24,40,.45)]' aria-labelledby='costs-confirm-title'
         onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
         <div className='px-5 py-[18px]'>
-          <h3 id='costs-confirm-title' className='mb-1.5 text-base leading-[1.4] font-semibold'>要存這些成本嗎?</h3>
-          <p className='text-(--fg-2) mb-2 text-[12.5px] leading-[1.4]'>存了就重算總計 TWD 與利潤,並進老闆月報。</p>
+          <h3 id='costs-confirm-title' className='mb-1.5 text-base leading-[1.4] font-semibold'>要儲存這 {changed.length} 個商品的成本嗎？</h3>
+          <p className='text-(--fg-2) mb-2 text-[12.5px] leading-[1.4]'>儲存後以目前匯率計算總計與利潤，並列入老闆月報。</p>
           <div className='max-h-[320px] overflow-auto rounded-lg border'>
             <table className='w-full text-[13px] leading-[1.4]'>
-              <thead><tr><th className='px-2 py-1 text-left'>單</th><th className='px-2 py-1 text-left'>商品</th><th className='px-2 py-1 text-left'>欄</th><th className='px-2 py-1 text-left'>改成</th></tr></thead>
+              <thead>
+                <tr className='text-(--fg-2) text-[12px] whitespace-nowrap'>
+                  <th className='px-2 py-1 text-left font-medium'>單號</th>
+                  <th className='px-2 py-1 text-left font-medium'>商品</th>
+                  <th className='px-2 py-1 text-right font-medium'>原價(外幣)</th>
+                  <th className='px-2 py-1 text-right font-medium'>總計 TWD</th>
+                  <th className='px-2 py-1 text-right font-medium'>利潤 TWD</th>
+                </tr>
+              </thead>
               <tbody>
                 {changed.map((c) => (
-                  <tr key={c.key} className='border-t'>
-                    <td className='px-2 py-1 font-mono'>{c.order}</td>
+                  <tr key={c.key} className='border-t align-top'>
+                    <td className='px-2 py-1 font-mono whitespace-nowrap'>{c.order}</td>
                     <td className='px-2 py-1'>{c.item}</td>
-                    <td className='px-2 py-1'>{c.field}</td>
-                    <td className='px-2 py-1'><span className='text-(--fg-2)'>{c.from} → </span><b>{c.to}</b></td>
+                    <td className='px-2 py-1 text-right tabular-nums whitespace-nowrap'>
+                      {c.price} {c.currency}
+                      <span className='text-(--fg-2) block text-[11.5px]'>{c.rate === null ? '未設匯率' : `×${c.rate}`}</span>
+                    </td>
+                    <td className='px-2 py-1 text-right tabular-nums whitespace-nowrap'>{c.total}</td>
+                    <td className='px-2 py-1 text-right tabular-nums whitespace-nowrap font-semibold'>{c.profit}</td>
                   </tr>
                 ))}
               </tbody>
@@ -235,8 +290,8 @@ export function CostUnsavedBar({ returnTo }: { returnTo: string }) {
           <form ref={formRef} action={setOrderItemCostsAction} className='mt-3 flex justify-end gap-2'>
             <input type='hidden' name={COST_ROWS_FIELD} value={check.ok ? JSON.stringify(check.rows) : ''} />
             <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
-            <button type='button' className='costs-btn' onClick={() => dialogRef.current?.close()}>回去再看</button>
-            <button type='submit' className='costs-btn costs-btn--p'>確認({n} 格)</button>
+            <button type='button' className='costs-btn' onClick={() => dialogRef.current?.close()}>回去修改</button>
+            <button type='submit' className='costs-btn costs-btn--p'>確認儲存</button>
           </form>
         </div>
       </dialog>

@@ -2351,7 +2351,7 @@ body {font-size:14.5px;line-height:1.4}
 .orders-grid .boss-price {width:69px}
 .orders-grid .boss-shipping {width:69px}
 .orders-grid .boss-tax {width:77px}
-.orders-grid .boss-fx {width:93px}
+.orders-grid .boss-fx {width:132px}  /* 不照稿 93(2026-10-02):幣別下拉 52 + 「×35.123456」在 93 裡只剩「匯…」;132 = 下拉 + 六位小數匯率 + 內距 24 */
 /* 🔴 總計 / 利潤【不照稿 41】(codex R1 MF2):稿量到 41 是因為稿裡每一格都是「—」;真值是 TWD 整數元帶千分位,
    `128,000` 在 13px 等寬數字約 55px + 內距 14 ⇒ 41 一定裁(本檔 `.orders-grid td` 有 overflow:hidden + ellipsis)。
    ⇒ 74(七位數 + 負號 `-128,000` 約 60 + 14)。⚠️ 這個數字要真瀏覽器量, 不是估的;量到被裁就加寬並把理由補在這裡。 */
@@ -3029,6 +3029,7 @@ dialog[data-testid='next-step-dialog'] .next-step-ft button[type='submit']:not([
 .costs-unsaved .costs-bar-btn--ghost { background: transparent; color: var(--primary-foreground); border-color: color-mix(in oklab, var(--card) 35%, transparent); }
 .costs-confirm .costs-btn, dialog .costs-btn { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: 13px; line-height: 1.4; }
 .costs-confirm .costs-btn--p, dialog .costs-btn--p { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.orders-grid td.boss-cell .costs-pending { color: var(--fg-2); font-style: italic; }  /* 輸入中試算:還沒存的總計 / 利潤 */
 .orders-grid td.boss-cell.costs-dirty { box-shadow: inset 0 0 0 2px var(--boss-ink); background: var(--card); }  /* 稿 td.dirty */
 
 /* ═══ 商品頁工具列(2026-09-14,Sean「上方篩選欄位太佔空間」)—— 與 `.pcm-plist .pcm-head` 同一列;凍結同訂單頁 ═══ */

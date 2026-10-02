@@ -1,4 +1,5 @@
 import { FX_CURRENCIES } from '../fx/fx-rate-view';
+import { formatOrderAmount } from './order-list-view';
 
 // item-costs-view.ts — 「老闆:成本」的純函式層(admin-only;plan `docs/plans/2026-09-14-order-item-cost-columns-plan.md` §1-a / §1-c)。
 //
@@ -89,6 +90,53 @@ export function computeItemCostTwd(
   if (twd > BigInt(Number.MAX_SAFE_INTEGER)) return null;
   const costTwd = Number(twd);
   return { costTwd, profitTwd: item.lineTotal - costTwd };
+}
+
+/**
+ * 總計 / 利潤的【顯示字串】(千分位;算不出來 = `—`)。存檔後的列表(`order-item-boss-cells.ts`)與
+ * 輸入中試算(`previewItemCostText`)共用這一支 ⇒ 兩邊不會各算一份而漂開。
+ */
+export function itemCostTwdText(
+  row: Pick<OrderItemCost, 'costPrice' | 'costShipping' | 'costTax' | 'fxRate'>,
+  item: { quantity: number; lineTotal: number },
+): { totalTwd: string; profitTwd: string } {
+  const twd = computeItemCostTwd(row, item);
+  return twd === null
+    ? { totalTwd: '—', profitTwd: '—' }
+    : { totalTwd: formatOrderAmount(twd.costTwd), profitTwd: formatOrderAmount(twd.profitTwd) };
+}
+
+/** 各幣別「現在生效」的匯率 → 純量字串 `EUR:35.2,USD:31.5,TWD:1`(給 client island;沒設過的幣別不列)。 */
+export function formatCostRatesField(rates: readonly { code: string; rate: string | null }[]): string {
+  return rates.flatMap((r) => (r.rate === null ? [] : [`${r.code}:${r.rate}`])).join(',');
+}
+
+/** 從 `formatCostRatesField` 的字串取一個幣別的匯率;沒有 ⇒ null。 */
+export function costRateFor(ratesField: string, currency: string): string | null {
+  for (const part of ratesField.split(',')) {
+    const i = part.indexOf(':');
+    if (i > 0 && part.slice(0, i) === currency) return part.slice(i + 1);
+  }
+  return null;
+}
+
+/**
+ * 輸入中試算:照存檔那條路把輸入正規化(`parseCostAmountInput`:空 = 0、打壞 = 算不出來),
+ * 匯率用該幣別【現在生效】的那一列 —— RPC 每次存檔都重抄這一列(`20260914010000` 那支),所以存完就是這個數。
+ */
+export function previewItemCostText(
+  values: { costPrice: string; costShipping: string; costTax: string; currency: string },
+  ratesField: string,
+  item: { quantity: number; lineTotal: number },
+): { totalTwd: string; profitTwd: string; fxRate: string | null } {
+  const fxRate = values.currency === '' ? null : costRateFor(ratesField, values.currency);
+  const costPrice = parseCostAmountInput(values.costPrice);
+  const costShipping = parseCostAmountInput(values.costShipping);
+  const costTax = parseCostAmountInput(values.costTax);
+  if (fxRate === null || costPrice === null || costShipping === null || costTax === null) {
+    return { totalTwd: '—', profitTwd: '—', fxRate };
+  }
+  return { ...itemCostTwdText({ costPrice, costShipping, costTax, fxRate }, item), fxRate };
 }
 
 /**
