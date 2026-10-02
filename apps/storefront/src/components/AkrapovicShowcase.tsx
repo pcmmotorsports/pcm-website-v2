@@ -58,10 +58,10 @@ export function AkrapovicShowcase() {
             <span className="pd-eb-no">01</span>
             <span className="pd-eb-sep" aria-hidden="true" />
             <span className="pd-eb-logo">
-              <img src="/brands/akrapovic/logo.svg" alt="Akrapovič" />
+              <img src="/brands/akrapovic/logo.svg" alt="Akrapovic" />
             </span>
           </div>
-          <h2 className="pd-h2" id="pd-h-akra01">為什麼選 Akrapovič</h2>
+          <h2 className="pd-h2" id="pd-h-akra01">為什麼選 Akrapovic</h2>
           <p className="pd-lead">
             斯洛維尼亞的排氣系統世界霸主——自 1991 年起累計 200 座世界冠軍頭銜，從自有鈦合金鑄造廠到 MotoGP 賽道，聲浪與輕量一次到位。
           </p>
@@ -95,7 +95,7 @@ export function AkrapovicShowcase() {
           </div>
           <h2 className="pd-h2" id="pd-h-akra02">從鈦合金熔湯，到世界冠軍的聲浪</h2>
           <p className="pd-lead">
-            Akrapovič 把冶金、實驗室與賽道驗證全部留在自家——每一支消音器出廠前，材料就已經先贏過一輪。
+            Akrapovic 把冶金、實驗室與賽道驗證全部留在自家——每一支消音器出廠前，材料就已經先贏過一輪。
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export function AkrapovicShowcase() {
         {/* 材料實驗室段(桌機:圖左文右) */}
         <div className="pd-bona-brow">
           <div className="pd-bona-brow-media">
-            <img className="pd-bona-media-img" src="/brands/akrapovic/story-materials.webp" alt="Akrapovič 材料實驗室與碳纖維部件檢測" loading="lazy" />
+            <img className="pd-bona-media-img" src="/brands/akrapovic/story-materials.webp" alt="Akrapovic 材料實驗室與碳纖維部件檢測" loading="lazy" />
           </div>
           <div>
             <div className="pd-bona-step">01 — Materials &amp; Lab</div>
@@ -127,7 +127,7 @@ export function AkrapovicShowcase() {
         {/* 鑄造廠段(桌機:圖右文左、flip) */}
         <div className="pd-bona-brow pd-bona-brow-flip">
           <div className="pd-bona-brow-media">
-            <img className="pd-bona-media-img" src="/brands/akrapovic/story-foundry.webp" alt="Akrapovič 自有鈦合金鑄造廠澆鑄作業" loading="lazy" />
+            <img className="pd-bona-media-img" src="/brands/akrapovic/story-foundry.webp" alt="Akrapovic 自有鈦合金鑄造廠澆鑄作業" loading="lazy" />
           </div>
           <div>
             <div className="pd-bona-step">02 — Titanium Foundry</div>
