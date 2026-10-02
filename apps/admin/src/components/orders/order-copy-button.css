@@ -54,18 +54,19 @@
 }
 /* 品項複製鈕:勾選框正下方、跟勾選框一樣 16px 見方、只印「複」(Sean 2026-10-02 列表變窄)。
    可點範圍用 ::after 往左上下各多 4px(右邊是格子邊, 超出會被 td 的 overflow 切掉)。
-   動效跟同日的訂單動作鈕一致:滑過上浮 1px + 框線加深、按下縮 0.95;不加陰影(設計守門禁陰影)。 */
+   動效跟全站按鈕一致(globals.css 2cb9928b2):滑過上浮 1px、框線加深、淡藍底;按下縮 0.97、底色再深一階;不加陰影。 */
 .order-item-copy { display: block; margin-top: 4px; }
 .order-copy-glyph {
   display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; padding: 0;
   border: 1px solid var(--border); border-radius: 3px; background: var(--card);
   font-size: 10px; line-height: 1; font-weight: 600; color: var(--muted-foreground);
-  transition: transform 150ms, border-color 150ms, background-color 150ms, color 150ms;
+  transition: transform var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 .order-copy-glyph::after { content: ''; position: absolute; inset: -4px 0 -4px -4px; }
-.order-copy-glyph:hover { transform: translateY(-1px); border-color: var(--input); color: var(--foreground); }
-.order-copy-glyph:active { transform: scale(0.95); }
+.order-copy-glyph:hover { transform: translateY(-1px); border-color: var(--input); color: var(--foreground); background-color: color-mix(in srgb, var(--primary) 6%, var(--card)); }
+.order-copy-glyph:active { transform: translateY(0) scale(0.97); background-color: color-mix(in srgb, var(--primary) 12%, var(--card)); }
 .order-copy-glyph[data-copied] { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 @media (prefers-reduced-motion: reduce) {
   .order-copy-glyph { transition: none; }
