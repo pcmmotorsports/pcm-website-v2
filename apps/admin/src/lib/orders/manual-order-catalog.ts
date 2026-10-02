@@ -131,8 +131,9 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  *    (Sean 2026-08-29 逐字「網站售價都含稅沒問題, 但是經銷價都是未稅」)。
  *    ⇒ 顯示時**兩邊都要標稅基** —— 只標一邊, 讀的人會以為另一邊「沒標所以沒問題」。
  */
+// 2026-10-02 Sean:「同一款不同顏色看起來都一樣」⇒ 多讀規格(spec)與品牌名(products.brands.name)。都是公開商品資訊。
 export const MANUAL_ORDER_CATALOG_COLUMNS =
-  'id, sku, price_general, price_store, sale_price_general, products(title)' as const;
+  'id, sku, spec, price_general, price_store, sale_price_general, products(title, brands(name))' as const;
 
 /**
  * 商品頁乙 P13:客人實際付的一般價 = 一般價與特價取較低;一般價空 ⇒ 空。
@@ -177,6 +178,10 @@ export type ManualOrderCatalogHit = {
   sku: string;
   /** 商品名。🔴 關聯讀不到時給 `''` 而不是丟掉這一列 —— 見 `unitPrice` 那段的同款理由。 */
   title: string;
+  /** 品牌名;讀不到給 `''`(同上, 不丟列)。 */
+  brand: string;
+  /** 規格的值(例「經典-海軍藍」),多個用「 · 」接;不印英文鍵(color / version)。沒有規格給 `''`。 */
+  spec: string;
   /**
    * 建議單價(元,整數)。
    * 🔴 **`null` = 這個變體存在,但沒有定價** —— **不得因此把它從結果裡拿掉**。
@@ -202,6 +207,23 @@ function readTitle(products: unknown): string {
   if (typeof products !== 'object' || products === null || Array.isArray(products)) return '';
   const raw = (products as { title?: unknown }).title;
   return typeof raw === 'string' ? raw : '';
+}
+
+/** `products.brands.name`;任何一層讀不到給 `''`。 */
+function readBrand(products: unknown): string {
+  if (typeof products !== 'object' || products === null || Array.isArray(products)) return '';
+  const brands = (products as { brands?: unknown }).brands;
+  if (typeof brands !== 'object' || brands === null || Array.isArray(brands)) return '';
+  const raw = (brands as { name?: unknown }).name;
+  return typeof raw === 'string' ? raw : '';
+}
+
+/** 規格 jsonb → 給人看的字:只取字串值(值本來就是中文), 用「 · 」接。 */
+export function specText(spec: unknown): string {
+  if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) return '';
+  return Object.values(spec)
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+    .join(' · ');
 }
 
 /**
@@ -257,6 +279,8 @@ async function runCatalogQuery(
     variantId: row.id,
     sku: row.sku,
     title: readTitle(row.products),
+    brand: readBrand(row.products),
+    spec: specText(row.spec),
     unitPrice: effectiveGeneralPrice(row.price_general, row.sale_price_general),
     listUnitPrice:
       effectiveGeneralPrice(row.price_general, row.sale_price_general) !== row.price_general ? row.price_general : null,

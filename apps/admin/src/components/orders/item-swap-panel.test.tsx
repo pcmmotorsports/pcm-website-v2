@@ -12,7 +12,7 @@ afterEach(cleanup);
 
 const O = '0f9a3c2e-1b4d-4e6f-8a9b-0c1d2e3f4a5b';
 const I = '1f9a3c2e-1b4d-4e6f-8a9b-0c1d2e3f4a5b';
-const HIT = { variantId: '3f9a3c2e-1b4d-4e6f-8a9b-0c1d2e3f4a5b', sku: 'NEW-SKU', title: '新商品', unitPrice: 1000, dealerPriceUntaxed: 800 };
+const HIT = { variantId: '3f9a3c2e-1b4d-4e6f-8a9b-0c1d2e3f4a5b', sku: 'NEW-SKU', title: '新商品', brand: '', spec: '', unitPrice: 1000, dealerPriceUntaxed: 800 };
 
 type Search = NonNullable<ItemSwapPanelProps['searchAction']>;
 const okHits: Search = async () => ({ ok: true, hits: [HIT] });

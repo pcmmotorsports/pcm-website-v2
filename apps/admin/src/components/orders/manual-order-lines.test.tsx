@@ -607,3 +607,21 @@ describe('⟦tidy-Q84MOBILE390⟧ 390px 版面', () => {
     expect(spans).toEqual(['2', '3', '1', '2', '2', '2']);
   });
 });
+
+describe('2026-10-02 Sean:加成一列之後, 那一列下方顯示品牌與規格, 送出前可以核對', () => {
+  it('🔴 種子帶品牌與規格 ⇒ 那一列下方印「SAMCO · 經典-海軍藍」;不進任何送出的欄位', () => {
+    const { container } = render(<ManualOrderLines />);
+    fireEvent(window, new CustomEvent(MANUAL_ORDER_LINE_SEED_EVENT, {
+      detail: { sku: 'YAM-58-BU', title: '防爆水管 6件組', qty: '1', unitPrice: '4800', variantId: 'v-bu', brand: 'SAMCO', spec: '經典-海軍藍' },
+    }));
+    const meta = container.querySelectorAll('[data-testid="manual-order-line-meta"]');
+    expect([...meta].map((m) => m.textContent)).toEqual(['SAMCO · 經典-海軍藍']);
+    const sent = Object.values(submitted(container)).flat();
+    expect(sent, '品牌與規格只給人看, 不該變成送出的值').not.toContain('SAMCO');
+  });
+
+  it('手打的列沒有品牌規格 ⇒ 不印那一行', () => {
+    const { container } = render(<ManualOrderLines />);
+    expect(container.querySelectorAll('[data-testid="manual-order-line-meta"]')).toHaveLength(0);
+  });
+});

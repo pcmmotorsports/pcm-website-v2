@@ -24,10 +24,12 @@ import { MANUAL_ORDER_LINE_SEED_EVENT } from '@/lib/orders/manual-order-line-see
 
 afterEach(cleanup);
 
-const HIT: { variantId: string; sku: string; title: string; unitPrice: number; dealerPriceUntaxed: number | null; listUnitPrice?: number | null } = {
+const HIT: { variantId: string; sku: string; title: string; brand: string; spec: string; unitPrice: number; dealerPriceUntaxed: number | null; listUnitPrice?: number | null } = {
   variantId: 'v1',
   sku: 'SKU-1',
   title: '測試品名',
+  brand: 'SAMCO',
+  spec: '經典-海軍藍',
   unitPrice: 1050,
   dealerPriceUntaxed: 900,
 };
@@ -275,6 +277,9 @@ describe('🔴🔴 ⟦b4-點列即加⟧:整列可點, 而點下去要丟出【�
       qty: '1',
       unitPrice: '900',
       variantId: 'v1',
+      // 2026-10-02:品牌與規格跟著種子走, 只給那一列下方顯示用(不進送出的欄位)
+      brand: 'SAMCO',
+      spec: '經典-海軍藍',
     });
   });
 
@@ -317,5 +322,27 @@ describe('🔴🔴 ⟦b4-點列即加⟧:整列可點, 而點下去要丟出【�
     fireEvent.click(await screen.findByTestId('catalog-hit-row'));
     expect(seen).toHaveLength(1);
     outside.remove();
+  });
+});
+
+
+describe('2026-10-02 Sean:結果每一列要分得出同款不同色', () => {
+  it('🔴 每一列印品牌與規格;點下去種給品項列的也帶品牌與規格', async () => {
+    const seen: unknown[] = [];
+    const on = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(MANUAL_ORDER_LINE_SEED_EVENT, on);
+    await searchWith({ searchAction: ok([HIT]) });
+    const rowEl = await screen.findByTestId('catalog-hit-row');
+    expect(screen.getByTestId('catalog-hit-brand').textContent).toBe('SAMCO');
+    expect(screen.getByTestId('catalog-hit-spec').textContent).toBe('經典-海軍藍');
+    fireEvent.click(rowEl);
+    window.removeEventListener(MANUAL_ORDER_LINE_SEED_EVENT, on);
+    expect(seen[0]).toMatchObject({ sku: 'SKU-1', brand: 'SAMCO', spec: '經典-海軍藍' });
+  });
+
+  it('沒有規格 ⇒ 不印空的規格格(不是印一個空框)', async () => {
+    await searchWith({ searchAction: ok([{ ...HIT, spec: '' }]) });
+    await screen.findByTestId('catalog-hit-row');
+    expect(screen.queryByTestId('catalog-hit-spec')).toBeNull();
   });
 });

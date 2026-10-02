@@ -256,8 +256,9 @@ describe('⟦b4-PURCHTAX1⟧ ③ 含稅保證住在 UI 那條路徑上 —— �
     // 🔵 2026-09-28 商品頁乙 P13(計畫第八節,Sean 09-28 Q1 乙批價格併入):多讀 sale_price_general,
     //   單價改成「實際一般價」= 一般價與特價取較低(規則同資料庫 pcm_effective_general_price)。
     //   ⇒ 單價仍然【只來自含稅的一般價這一族】,不是經銷價;下面那格「不得變成 price_store」照舊。
+    // 2026-10-02:多讀 spec 與 products.brands(name)(查商品顯示品牌與規格;公開商品資訊, 不是價或成本)。單價來源不變。
     expect(catalog(), '目錄的 select 不再指名 price_general').toContain(
-      "'id, sku, price_general, price_store, sale_price_general, products(title)'",
+      "'id, sku, spec, price_general, price_store, sale_price_general, products(title, brands(name))'",
     );
     expect(catalog(), 'unitPrice 不再來自 price_general(含特價)').toContain(
       'unitPrice: effectiveGeneralPrice(row.price_general, row.sale_price_general)',
