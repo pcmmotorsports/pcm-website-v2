@@ -86,7 +86,8 @@ function readNonNegInt(form: HTMLFormElement, name: string): number | null {
  *    那個型別是**算式的結果**, 而「讀不到那顆勾選」是**讀的問題**, 兩件事不要混。 */
 type PreviewState = ManualOrderPreview | { readonly kind: 'unknown_invoice' };
 
-function readPreview(form: HTMLFormElement): PreviewState | null {
+/** 貼板 263:收款區塊(manual-order-payment-received.tsx)也讀同一份預覽, 不另算一份。 */
+export function readManualOrderPreview(form: HTMLFormElement): PreviewState | null {
   const lines: ManualOrderPreviewLine[] = [];
   for (let i = 0; i < MANUAL_ORDER_MAX_LINES; i += 1) {
     const qty = readNonNegInt(form, manualOrderLineField(MANUAL_ORDER_LINE_QTY_BASE, i));
@@ -139,7 +140,7 @@ export function ManualOrderTotalPreview() {
     const form = host.closest('form');
     if (form === null) return;
     const recompute = () => {
-      setState(readPreview(form));
+      setState(readManualOrderPreview(form));
     };
     recompute();
     // 🔵 `input` 抓打字、`change` 抓下拉與勾選 —— 兩個都要,少一個就有一種操作不會更新。

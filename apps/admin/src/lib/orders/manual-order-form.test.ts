@@ -158,6 +158,8 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       paymentChannel: 'bank_transfer',
       paymentInstrument: null,
       shopeePayout: null,
+      // 貼板 263:基準表單沒勾「客人已付款」⇒ null。
+      paymentAtCreate: null,
       shippingMethod: 'home',
       shipTo: { name: '王小明', phone: '0912345678', line: '台北市中正區某路 1 號' },
       invoice: { type: 'personal' },
@@ -1304,5 +1306,57 @@ describe('parseManualOrderForm:付款方式刷卡 / 蝦皮進帳(貼板 262, 報
     const r = parseManualOrderForm(pick('manual_shopee', 'shopee', raw));
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.focusField).toBe('shopee_payout');
+  });
+});
+
+describe('parseManualOrderForm:建單時登記收款(貼板 263;Sean 2026-10-02 Q1–Q4 甲)', () => {
+  // 手打欄名(同 FIELDS 的理由:從常數走訪會讓「少一欄」變成全綠)。
+  const pay = (channel: string, rows: Array<[string, string]>, source = 'manual_phone') =>
+    base([[FIELDS.source, source], [FIELDS.channel, channel], ...rows], [FIELDS.source, FIELDS.channel]);
+  const at = (r: ReturnType<typeof parseManualOrderForm>) => ok(r).paymentAtCreate;
+
+  it('沒勾「客人已付款」⇒ null(跟以前一樣, 不登記)', () => {
+    expect(at(parseManualOrderForm(base()))).toBeNull();
+  });
+
+  it('勾了、已收全額 ⇒ full;現金不帶單號', () => {
+    expect(at(parseManualOrderForm(pay('cash', [['paid_at_create', 'on'], ['paid_full', 'on']])))).toEqual({
+      amount: 'full', bankReference: null, note: null,
+    });
+  });
+
+  it('勾了、不是全額 ⇒ 填的金額(部分收款, Q3 甲);備註去頭尾空白', () => {
+    expect(at(parseManualOrderForm(pay('cash', [['paid_at_create', 'on'], ['paid_amount', '3000'], ['paid_note', ' 訂金 ']])))).toEqual({
+      amount: 3000, bankReference: null, note: '訂金',
+    });
+  });
+
+  it('刷卡 ⇒ 一樣收(不另填末四碼, Q4 甲)', () => {
+    expect(at(parseManualOrderForm(pay('card_terminal', [['paid_at_create', 'on'], ['paid_full', 'on']])))).toEqual({
+      amount: 'full', bankReference: null, note: null,
+    });
+  });
+
+  it.each(['', '0', '-5', '3,000', '30.5', '三千'])('部分金額 %j ⇒ 拒, 游標跳到金額', (raw) => {
+    const r = parseManualOrderForm(pay('cash', [['paid_at_create', 'on'], ['paid_amount', raw]]));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.focusField).toBe('paid_amount');
+  });
+
+  it('匯款 ⇒ 單號必填;有填就收(去頭尾空白)', () => {
+    const r = parseManualOrderForm(pay('bank_transfer', [['paid_at_create', 'on'], ['paid_full', 'on'], ['paid_bank_reference', '  ']]));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.focusField).toBe('paid_bank_reference');
+    expect(at(parseManualOrderForm(pay('bank_transfer', [['paid_at_create', 'on'], ['paid_full', 'on'], ['paid_bank_reference', ' 12345 ']])))).toEqual({
+      amount: 'full', bankReference: '12345', note: null,
+    });
+  });
+
+  it('現金送了單號 ⇒ 不帶過去(那一格只在匯款出現;帶過去 DB 會擋整張單)', () => {
+    expect(at(parseManualOrderForm(pay('cash', [['paid_at_create', 'on'], ['paid_full', 'on'], ['paid_bank_reference', '12345']])))?.bankReference).toBeNull();
+  });
+
+  it('蝦皮單 ⇒ 不走這一塊(蝦皮照舊用蝦皮進帳金額)', () => {
+    expect(at(parseManualOrderForm(pay('shopee', [['paid_at_create', 'on'], ['paid_full', 'on']], 'manual_shopee')))).toBeNull();
   });
 });

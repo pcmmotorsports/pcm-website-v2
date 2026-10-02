@@ -746,6 +746,13 @@ const ALLOWLIST = [
   //    v_channel(蝦皮來源收斂成 cash);單價、小計累加、order_items 那段一行沒動。
   // 🔬 由拋棄式 PG 行為測試背書(可重跑 bash scripts/20261001170000-verify.sh, 含回滾還原 md5 = 8e1005fa)。
   '20261001170000_m4b_payment_fee_and_card_terminal.sql',
+  // ── 2026-10-02 網站B agent/B-create-order-payment(貼板 263 建單時登記收款)──
+  // 🔴 **命中原因**:DROP 17 參、CREATE 21 參 `admin_create_manual_order`(貼板 262 之後本體逐字重發, prosrc md5 ae32a0bf…),
+  //    本體有 INSERT orders / order_items。
+  // ✅ **它改了什麼**:多四個選填參數(已收全額 / 部分金額 / 銀行單號 / 收款備註), 建單之後呼叫 admin_record_manual_payment
+  //    登記收款(同 G9 蝦皮進帳那一段);orders / order_items 的 INSERT、單價、小計累加一行沒動。
+  // 🔬 由拋棄式 PG 行為測試背書(可重跑 bash scripts/20261002100000-verify.sh, 含回滾還原 md5 = ae32a0bf)。
+  '20261002100000_m4b_manual_order_record_payment_at_create.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {

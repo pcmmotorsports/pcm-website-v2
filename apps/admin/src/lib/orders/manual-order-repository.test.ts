@@ -80,6 +80,7 @@ const VALUES: ManualOrderValues = {
   paymentChannel: 'bank_transfer',
   paymentInstrument: null,
   shopeePayout: null,
+  paymentAtCreate: null,
   shippingMethod: 'home',
   shipTo: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },
   invoice: { type: 'personal', carrier: '/ABC1234' },
@@ -222,6 +223,36 @@ describe('貼板 262:刷卡標記 / 蝦皮進帳(報價單Q1 2026-10-01)', () =>
 it('貼板 262:P2S04(蝦皮進帳大於訂單總額)⇒ shopee_payout_over_total', async () => {
   mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P2S04', message: 'admin_create_manual_order: 蝦皮進帳 8000 大於訂單總額 7900' } });
   await expect(createManualOrder(ARGS)).resolves.toMatchObject({ ok: false, code: 'shopee_payout_over_total', sqlstate: 'P2S04' });
+});
+
+describe('貼板 263:建單時登記收款', () => {
+  const sent = () => mocks.rpc.mock.calls[0]![1] as Record<string, unknown>;
+  const NEW = ['p_paid_full', 'p_paid_amount', 'p_bank_reference', 'p_payer_note'];
+
+  it('沒登記收款 ⇒ 四個新參數名都不送(碼比板先上線時照常建單)', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder(ARGS);
+    expect(NEW.filter((k) => k in sent())).toEqual([]);
+  });
+
+  it('已收全額 + 匯款單號 + 備註 ⇒ p_paid_full=true, 不送金額', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({ values: { ...VALUES, paymentAtCreate: { amount: 'full', bankReference: '12345', note: '10/1 匯款' } }, actor: 'sean' });
+    expect(sent()).toMatchObject({ p_paid_full: true, p_bank_reference: '12345', p_payer_note: '10/1 匯款' });
+    expect('p_paid_amount' in sent()).toBe(false);
+  });
+
+  it('部分收款 ⇒ 只送 p_paid_amount;沒填的單號 / 備註不送', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({ values: { ...VALUES, paymentChannel: 'cash', paymentAtCreate: { amount: 3000, bankReference: null, note: null } }, actor: 'sean' });
+    expect(sent()).toMatchObject({ p_paid_amount: 3000 });
+    expect(['p_paid_full', 'p_bank_reference', 'p_payer_note'].filter((k) => k in sent())).toEqual([]);
+  });
+
+  it('P2S05(收款金額大於訂單總額)⇒ paid_over_total', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P2S05', message: 'admin_create_manual_order: 收款金額 9000 大於訂單總額 7900' } });
+    await expect(createManualOrder(ARGS)).resolves.toMatchObject({ ok: false, code: 'paid_over_total', sqlstate: 'P2S05' });
+  });
 });
 
 describe('貼板 261:蝦皮帳號 / 蝦皮訂單編號', () => {

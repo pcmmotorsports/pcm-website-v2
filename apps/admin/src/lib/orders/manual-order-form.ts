@@ -128,6 +128,15 @@ export const MANUAL_ORDER_SHOPEE_USERNAME_FIELD = 'shopee_username';
 export const MANUAL_ORDER_SHOPEE_ORDER_NO_FIELD = 'shopee_order_no';
 /** 貼板 262(報價單Q1 2026-10-01):蝦皮進帳金額(選填, 只有蝦皮單才出現;抄蝦皮頁面上的「預估訂單進帳」)。 */
 export const MANUAL_ORDER_SHOPEE_PAYOUT_FIELD = 'shopee_payout';
+/**
+ * 貼板 263(Sean 2026-10-02「建單時登記收款」Q1–Q4 甲):收款區塊的五格。蝦皮單不用這幾格(照舊用蝦皮進帳金額)。
+ * 勾選框沒勾 ⇒ 瀏覽器不送 ⇒ 等於沒登記收款;其他四格只在勾了之後才出現。
+ */
+export const MANUAL_ORDER_PAID_AT_CREATE_FIELD = 'paid_at_create';
+export const MANUAL_ORDER_PAID_FULL_FIELD = 'paid_full';
+export const MANUAL_ORDER_PAID_AMOUNT_FIELD = 'paid_amount';
+export const MANUAL_ORDER_PAID_BANK_REFERENCE_FIELD = 'paid_bank_reference';
+export const MANUAL_ORDER_PAID_NOTE_FIELD = 'paid_note';
 export const MANUAL_ORDER_INVOICE_TYPE_FIELD = 'invoice_type';
 export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
@@ -547,6 +556,11 @@ export type ManualOrderValues = {
   paymentInstrument: ManualPaymentInstrument | null;
   /** 貼板 262:蝦皮進帳金額(只有蝦皮單;null = 沒填, 之後到收款明細登記)。 */
   shopeePayout: number | null;
+  /**
+   * 貼板 263:建單時一起登記的收款;null = 沒勾「客人已付款」。
+   * `amount: 'full'` = 已收全額, 金額由 RPC 用它自己算的訂單總額(畫面上的總額只是預覽)。
+   */
+  paymentAtCreate: { amount: 'full' | number; bankReference: string | null; note: string | null } | null;
   shippingMethod: ManualShippingMethod;
   shipTo: ManualOrderShipTo;
   invoice: ManualOrderInvoice;
@@ -1177,6 +1191,47 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       };
     }
   }
+  // 貼板 263(Sean 2026-10-02 Q1–Q4 甲):建單時一起登記收款。蝦皮單不走這裡(照舊用蝦皮進帳金額)。
+  //   金額不可大於訂單總額由 DB 擋(P2S05;總額含稅, 這裡只有預覽)。
+  let paymentAtCreate: ManualOrderValues['paymentAtCreate'] = null;
+  if (orderSource !== 'manual_shopee') {
+    const paidRead = readOptional(form, MANUAL_ORDER_PAID_AT_CREATE_FIELD);
+    const fullRead = readOptional(form, MANUAL_ORDER_PAID_FULL_FIELD);
+    const amountRead = readOptional(form, MANUAL_ORDER_PAID_AMOUNT_FIELD);
+    const refRead = readOptional(form, MANUAL_ORDER_PAID_BANK_REFERENCE_FIELD);
+    const noteRead = readOptional(form, MANUAL_ORDER_PAID_NOTE_FIELD);
+    if ([paidRead, fullRead, amountRead, refRead, noteRead].includes('invalid')) {
+      return { ok: false, error: '收款資料送出的內容壞掉了，請重新整理再試。' };
+    }
+    if (paidRead === 'on') {
+      let amount: 'full' | number = 'full';
+      if (fullRead !== 'on') {
+        const trimmed = (amountRead ?? '').trim();
+        if (!/^[1-9][0-9]{0,8}$/.test(trimmed)) {
+          return {
+            ok: false,
+            error: '收款金額請填大於 0 的整數（新臺幣元），不含逗號或小數點；收全額請勾「已收全額」。',
+            focusField: MANUAL_ORDER_PAID_AMOUNT_FIELD,
+          };
+        }
+        amount = Number(trimmed);
+      }
+      // 單號那一格只在匯款出現;現金與刷卡就算送了也不帶(帶過去 DB 會擋整張單)。
+      let bankReference: string | null = null;
+      if (paymentChannel === 'bank_transfer') {
+        bankReference = refRead === null || isBlank(refRead) ? null : refRead.trim();
+        if (bankReference === null) {
+          return {
+            ok: false,
+            error: '匯款請填銀行單號或帳號末五碼。',
+            focusField: MANUAL_ORDER_PAID_BANK_REFERENCE_FIELD,
+          };
+        }
+      }
+      const note = noteRead === null || isBlank(noteRead) ? null : noteRead.trim();
+      paymentAtCreate = { amount, bankReference, note };
+    }
+  }
   const optionalInvoice = [
     [MANUAL_ORDER_INVOICE_CARRIER_FIELD, 'carrier', '載具'],
     [MANUAL_ORDER_INVOICE_TITLE_FIELD, 'title', '抬頭'],
@@ -1245,6 +1300,7 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       paymentChannel,
       paymentInstrument,
       shopeePayout,
+      paymentAtCreate,
       shippingMethod: shippingMethod as ManualShippingMethod,
       shipTo: { name, phone, line },
       invoice,
