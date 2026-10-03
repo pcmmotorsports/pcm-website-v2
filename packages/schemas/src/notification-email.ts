@@ -1,3 +1,5 @@
+// 🔴 第一個 import:zod jitless 必須在任何 schema 建立前設定(見 zod-config.ts)。
+import './zod-config';
 import { z } from 'zod';
 
 export const NOTIFICATION_EMAIL_MAX_OCTETS = 254;
