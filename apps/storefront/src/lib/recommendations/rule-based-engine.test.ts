@@ -251,6 +251,60 @@ describe('RuleBasedRecommendationEngine — 決定性 / hasMore / 經銷價 stri
     expect(res).toEqual({ items: [], hasMore: false });
   });
 
+  // 🔴 2026-10-04 健檢(⟦front-RECOENGINESTOPPED⟧ 叫醒):失敗紀錄只印錯誤本身, 分不出是哪一步、要修哪支查詢。
+  //    紀錄要帶:哪一步、錯誤代碼、這一步與整次各花多久;不帶客人資料(網址、車款)。
+  describe('失敗紀錄要說出是哪一步', () => {
+    const failLog = (spy: { mock: { calls: unknown[][] } }) => {
+      const call = spy.mock.calls.find((c: unknown[]) => String(c[0]).includes('[RuleBasedRecommendationEngine] repository query failed'));
+      return call?.[1] as { step?: string; code?: string; stepMs?: number; totalMs?: number } | undefined;
+    };
+
+    it('🔴 品牌候選池撞 57014 ⇒ step=brand-pool、code=57014、有耗時、不帶商品網址', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const current = makeProduct({ id: 'cur', handle: 'secret-handle', brand: brand('b1'), category: CAT_A });
+      const repo = new FakeProductRepository([current]);
+      repo.listBrandPoolKeys = async () => {
+        throw Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+      };
+      await new RuleBasedRecommendationEngine(repo, freshPools()).recommend({ placement: 'pdp-related', context: { product: current }, limit: 8 });
+      const log = failLog(spy);
+      expect(log).toMatchObject({ step: 'brand-pool', code: '57014' });
+      expect(typeof log?.stepMs).toBe('number');
+      expect(typeof log?.totalMs).toBe('number');
+      expect(JSON.stringify(log)).not.toContain('secret-handle');
+      spy.mockRestore();
+    });
+
+    it('🔴 補完整資料那步逾時 ⇒ step=hydrate、code=TimeoutError', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const current = makeProduct({ id: 'cur', handle: 'cur', brand: brand('b1'), category: CAT_A });
+      const other = makeProduct({ id: 'p1', handle: 'p1', brand: brand('b1'), category: CAT_A });
+      const repo = new FakeProductRepository([current, other]);
+      repo.listByIds = async () => {
+        throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+      };
+      await new RuleBasedRecommendationEngine(repo, freshPools()).recommend({ placement: 'pdp-related', context: { product: current }, limit: 8 });
+      expect(failLog(spy)).toMatchObject({ step: 'hydrate', code: 'TimeoutError' });
+      spy.mockRestore();
+    });
+
+    it('🔴 選了車、車款池失敗 ⇒ step=vehicle-pool', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const current = makeProduct({ id: 'cur', handle: 'cur', brand: brand('b1'), category: CAT_A });
+      const repo = new FakeProductRepository([current]);
+      repo.listByFitment = async () => {
+        throw new Error('simulated DB failure');
+      };
+      await new RuleBasedRecommendationEngine(repo, freshPools()).recommend({
+        placement: 'pdp-related',
+        context: { product: current, vehicle: { motoBrand: 'Yamaha', modelCode: 'MT-09' } },
+        limit: 8,
+      });
+      expect(failLog(spy)).toMatchObject({ step: 'vehicle-pool' });
+      spy.mockRestore();
+    });
+  });
+
   it('hasMore=false 當候選數 <= limit', async () => {
     const current = makeProduct({ id: 'cur', handle: 'cur', brand: brand('b1'), category: CAT_A });
     const p1 = makeProduct({ id: 'p1', handle: 'p1', brand: brand('b1'), category: CAT_A });

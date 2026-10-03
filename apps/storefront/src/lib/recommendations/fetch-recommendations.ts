@@ -91,10 +91,15 @@ async function fetchRecommendedProductsUncached(
   limit: number,
 ): Promise<{ items: CatalogCardProduct[]; hasMore: boolean }> {
   await testOnlyRecoDelay();
+  // 🔴 2026-10-04 健檢(⟦front-RECOENGINESTOPPED⟧ 叫醒):失敗紀錄要說出是哪一步、錯誤代碼、花多久(不記網址)。
+  //    引擎自己的查詢失敗在引擎裡就接住了, 會丟到這裡的只剩讀目前商品那一步。
+  let step = 'find-product';
+  const t0 = performance.now();
   try {
     const client = createCatalogAnonClient();
     const adapter = new SupabaseProductAdapter(client);
     const product = await adapter.findByHandle(handle); // domain Product(含 brand.id)
+    step = 'engine';
     if (!product) return { items: [], hasMore: false };
 
     // 計畫-商品頁推薦查詢逾時 §7-5:量車款池那一段(listByFitment 兩步合計)花多久、回幾件。
@@ -126,7 +131,16 @@ async function fetchRecommendedProductsUncached(
     );
     return { items: result.items.map((i) => i.product), hasMore: result.hasMore };
   } catch (err) {
-    console.error('[fetchRecommendedProducts] recommendation fetch failed:', err);
+    const e = err as { code?: unknown; name?: unknown } | null;
+    console.error(
+      '[fetchRecommendedProducts] recommendation fetch failed:',
+      {
+        step,
+        code: typeof e?.code === 'string' && e.code ? e.code : typeof e?.name === 'string' ? e.name : 'unknown',
+        ms: Math.round(performance.now() - t0),
+      },
+      err,
+    );
     return { items: [], hasMore: false };
   }
 }
