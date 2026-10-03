@@ -882,7 +882,8 @@ echo "ledger-gate: 平台帳本來源 project=$LINKED" >&2
 
 PL=$(mktemp) || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
 trap 'rm -f "$PL"' EXIT
-if ! supabase migration list --linked < /dev/null > "$PL" 2>/dev/null; then
+# 2026-10-04:CLI 2.119 偵測到 AI 代理環境時預設改輸出 JSON ⇒ 明確指定 text, 讓人跑與代理跑讀到同一種表格。
+if ! supabase migration list --linked --output-format text < /dev/null > "$PL" 2>/dev/null; then
   echo "🔴 supabase migration list --linked 失敗(未 link / 未登入 / 連不上)" >&2
   echo "   ⇒ 量不到平台帳本,exit 1。查不到不等於沒問題 —— 那正是 #795 的病。" >&2
   exit 1
