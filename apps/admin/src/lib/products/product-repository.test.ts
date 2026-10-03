@@ -24,7 +24,11 @@ const q = vi.hoisted(() => ({
    *    而餵不進資料就只驗得到「它有沒有呼叫 `.select()`」,那等於沒驗。
    */
   rows: null as unknown[] | null,
+  /** 讓個別測試指定這一發回錯誤。 */
+  error: null as { message: string } | null,
 }));
+/** 搜尋符合超過上限(KEYWORD_ID_CAP + 1 筆)。 */
+const overCapRows = () => Array.from({ length: KEYWORD_ID_CAP + 1 }, (_, i) => ({ id: `p-${i}` }));
 vi.mock('@pcm/adapters/server', () => {
   const builder: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'limit', 'maybeSingle', 'abortSignal']) {
@@ -34,7 +38,7 @@ vi.mock('@pcm/adapters/server', () => {
     };
   }
   (builder as { then: unknown }).then = (f: (v: unknown) => unknown) =>
-    Promise.resolve({ data: q.rows ?? [], error: null, count: 0 }).then(f);
+    Promise.resolve({ data: q.error ? null : (q.rows ?? []), error: q.error, count: 0 }).then(f);
   return {
     createSupabaseServiceClient: () => ({
       from: (...args: unknown[]) => {
@@ -54,6 +58,7 @@ import {
   ATTENTION_CONDITION,
   countProductAttention,
   findProductNeighbors,
+  KEYWORD_ID_CAP,
   listProductFilterOptions,
   listProductsForAdmin,
   resolveListingState,
@@ -644,17 +649,15 @@ describe('D2 搜尋接到 admin_products_by_keyword', () => {
     q.calls.length = 0;
   });
 
-  it('🔴 有搜尋詞 ⇒ 資料來源是 rpc(admin_products_by_keyword, p_term), 不再組 .or() 的料號 / 名稱條件', async () => {
+  it('🔴 有搜尋詞 ⇒ 用 rpc(admin_products_by_keyword, p_term)解出符合的商品, 不再組 .or() 的料號 / 名稱條件', async () => {
     await listProductsForAdmin(20, 0, { keyword: 'panigale' });
-    expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'panigale' }, { count: 'exact', head: false }]);
+    expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'panigale' }]);
     expect(q.calls.filter((c) => c[0] === 'or')).toEqual([]);
-    // 商品列表不從 products 表讀(規格表那兩次是 P15 的特價標記,另外查)
-    expect(q.calls.filter((c) => c[0] === 'from' && c[1] === 'products')).toEqual([]);
   });
 
   it('S6:品牌俗名「阿卡」換成 Akrapovic 再送(其他詞與空白原樣)', async () => {
     await listProductsForAdmin(20, 0, { keyword: '阿卡 排氣管' });
-    expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'Akrapovic 排氣管' }, { count: 'exact', head: false }]);
+    expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'Akrapovic 排氣管' }]);
   });
 
   it('🔴 其他篩選照樣疊在搜尋結果上(品牌、要處理、排序、分頁同一段程式)', async () => {
@@ -664,18 +667,23 @@ describe('D2 搜尋接到 admin_products_by_keyword', () => {
     expect(q.calls).toContainEqual(['range', 40, 59]);
   });
 
-  it('🔴 「要處理」件數在有搜尋詞時也走同一個來源(只算數)', async () => {
+  it('🔴 符合超過上限時,「要處理」件數照舊走 rpc 這個來源(只算數)', async () => {
+    q.rows = overCapRows();
     await countProductAttention({ keyword: 'panigale' });
-    const rpcs = q.calls.filter((c) => c[0] === 'rpc');
+    const rpcs = q.calls.filter((c) => c[0] === 'rpc' && c[3] !== undefined);
     expect(rpcs).toHaveLength(6);
     expect(rpcs.every((c) => (c[3] as { head: boolean }).head === true)).toBe(true);
+    q.rows = null;
   });
 
   // 🔴 2026-09-28 本機真 PostgREST 14.16 實撞「商品列表載入失敗」(column products.created_at does not exist):
   //    /rpc 的結果 PostgREST 先只留 select= 列出的欄(pgrst_source), 排序在外層 ⇒ 排序欄沒選就找不到。
   //    ⇒ 搜尋那條路的 select 要補上排序會用到的欄, 而且不能重複(重複會讓外層排序「欄名不明確」)。
-  it('🔴 搜尋那條路:select 補上排序用的欄(created_at / updated_at 等), 已經有的不重複', async () => {
+  it('🔴 搜尋那條路(符合超過上限):select 補上排序用的欄(created_at / updated_at 等), 已經有的不重複', async () => {
+    q.rows = overCapRows();
     await listProductsForAdmin(20, 0, { keyword: 'panigale', sort: 'updated' });
+    q.rows = null;
+    q.calls.splice(0, q.calls.findIndex((c, i) => i > 0 && c[0] === 'rpc'));
     const sel = q.calls.find((c) => c[0] === 'select')![1] as string;
     const names = sel.split(',').map((x) => x.trim());
     for (const col of ['created_at', 'updated_at', 'price_general', 'external_id', 'id']) {
@@ -697,8 +705,26 @@ describe('D2 搜尋接到 admin_products_by_keyword', () => {
 // ⇒ D3 釘的就是這個前提:換掉資料來源之後,送出去的篩選、排序、分頁、計數要一模一樣。
 //   哪天有人把某個篩選寫進 `if (keyword)` 的其中一邊,這裡就會紅。
 describe('D3 一般列表與搜尋兩條路:同一組篩選送出一模一樣的條件', () => {
+  /**
+   * 2026-10-04 起搜尋先解出符合的商品編號(rpc → select id → range), 再查商品表並在 select 後面加 in(id)。
+   * 拿掉這兩段之後, 搜尋那條路要跟一般列表逐步相同(符合超過上限那條路另外由 D2 那幾格釘)。
+   */
+  const stripKeywordIds = (calls: unknown[][]) => {
+    const out: unknown[][] = [];
+    for (let i = 0; i < calls.length; i++) {
+      const c = calls[i]!;
+      if (c[0] === 'rpc' && c[1] === 'admin_products_by_keyword' && c[3] === undefined) {
+        i += 2; // 跟著的 select('id') 與 range(0, 上限)
+        continue;
+      }
+      if (c[0] === 'in' && c[1] === 'id' && calls[i - 1]?.[0] === 'select') continue;
+      out.push(c);
+    }
+    return out;
+  };
   /** 拿掉資料來源那兩步(from/rpc + 第一個 select),其餘照順序比。select 另外比:搜尋那條路只能多補排序欄。 */
-  const afterSource = (calls: unknown[][]) => {
+  const afterSource = (raw: unknown[][]) => {
+    const calls = stripKeywordIds(raw);
     const i = calls.findIndex((c) => (c[0] === 'from' && c[1] === 'products') || c[0] === 'rpc');
     expect(i, '找不到資料來源那一步').toBeGreaterThanOrEqual(0);
     expect(calls[i + 1]?.[0], '資料來源後面第一步應該是 select').toBe('select');
@@ -742,7 +768,7 @@ describe('D3 一般列表與搜尋兩條路:同一組篩選送出一模一樣的
     const plain = afterSource(await run(() => listProductsForAdmin(20, 40, query)));
     const search = afterSource(await run(() => listProductsForAdmin(20, 40, { ...query, keyword: 'panigale' })));
     expect(plain.source).toEqual(['from', 'products']);
-    expect(search.source).toEqual(['rpc', 'admin_products_by_keyword', { p_term: 'panigale' }, { count: 'exact', head: false }]);
+    expect(search.source).toEqual(['from', 'products']);
     // 資料來源之前(料號解成 id、特價條件那幾發)與之後(篩選、排序、分頁、讀特價標記)逐步相同
     expect(search.before).toEqual(plain.before);
     expect(search.rest).toEqual(plain.rest);
@@ -767,9 +793,7 @@ describe('D3 一般列表與搜尋兩條路:同一組篩選送出一模一樣的
               ? ['abortSignal']
               : c,
       );
-    expect(strip(search)).toEqual(strip(plain));
-    // 搜尋那條路的件數同樣只算數、精確數
-    for (const c of search.filter((x) => x[0] === 'rpc')) expect(c[3]).toEqual({ count: 'exact', head: true });
+    expect(strip(stripKeywordIds(search))).toEqual(strip(plain));
   });
 
   it('上一件 / 下一件:搜尋時照搜尋結果那一份的順序走(同一段排序、同一個範圍)', async () => {
@@ -778,6 +802,57 @@ describe('D3 一般列表與搜尋兩條路:同一組篩選送出一模一樣的
     const search = afterSource(await run(() => findProductNeighbors('p-1', { ...query, keyword: 'panigale' }, 3, 20)));
     expect(search.rest).toEqual(plain.rest);
     expect(plain.rest).toContainEqual(['range', 39, 60]);
+  });
+});
+
+// 🔴 2026-10-04 Sean 回報後台商品搜尋、進編輯頁、快速編輯都很慢:正式庫 admin_products_by_keyword 每個詞要整表掃
+//    商品 3 萬筆加車款 51 萬列(閒置 1 秒), 而一次頁面載入原本跑它 7 次(列表 1 + 要處理件數 6;上一件/下一件再 1)。
+//    ⇒ 改成先解出符合的商品編號一次, 其餘都查商品表加 in(id);符合超過上限才照舊(編號塞進網址會太長)。
+describe('搜尋函式一次頁面載入只跑一次(2026-10-04)', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+    q.rows = null;
+  });
+  const rpcCalls = () => q.calls.filter((c) => c[0] === 'rpc');
+  const idFilters = () => q.calls.filter((c) => c[0] === 'in' && c[1] === 'id');
+
+  it('🔴 要處理件數:搜尋函式只叫一次(只取 id、最多上限加 1 筆), 六顆都改查商品表加編號條件', async () => {
+    q.rows = [{ id: 'p-1' }, { id: 'p-2' }];
+    await countProductAttention({ keyword: 'panigale' });
+    expect(rpcCalls()).toEqual([['rpc', 'admin_products_by_keyword', { p_term: 'panigale' }]]);
+    expect(q.calls).toContainEqual(['range', 0, KEYWORD_ID_CAP]);
+    expect(q.calls.filter((c) => c[0] === 'from' && c[1] === 'products')).toHaveLength(6);
+    expect(idFilters()).toEqual(Array(6).fill(['in', 'id', ['p-1', 'p-2']]));
+  });
+
+  it('🔴 列表與上一件/下一件也一樣走編號', async () => {
+    q.rows = [{ id: 'p-1' }];
+    await listProductsForAdmin(20, 0, { keyword: 'panigale' });
+    await findProductNeighbors('p-1', { keyword: 'panigale' }, 1, 20);
+    expect(rpcCalls()).toHaveLength(2);
+    expect(rpcCalls().every((c) => c[3] === undefined)).toBe(true);
+    expect(idFilters()).toEqual([['in', 'id', ['p-1']], ['in', 'id', ['p-1']]]);
+  });
+
+  it('沒有符合的商品 ⇒ in(id, []) = 0 件, 不是不篩', async () => {
+    await listProductsForAdmin(20, 0, { keyword: 'zzzz' });
+    expect(idFilters()).toEqual([['in', 'id', []]]);
+  });
+
+  it('🔴 符合超過上限 ⇒ 照舊用搜尋函式當資料來源, 不塞超長網址', async () => {
+    q.rows = overCapRows();
+    await countProductAttention({ keyword: 'ducati' });
+    expect(rpcCalls()).toHaveLength(7); // 解編號 1 + 件數 6
+    expect(idFilters()).toEqual([]);
+  });
+
+  it('🔴 解編號那一次失敗 ⇒ 照舊用搜尋函式當資料來源(列表不因此壞掉)', async () => {
+    q.error = { message: 'boom' };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await listProductsForAdmin(20, 0, { keyword: 'panigale' }).catch(() => {});
+    q.error = null;
+    err.mockRestore();
+    expect(rpcCalls().map((c) => c[3])).toEqual([undefined, { count: 'exact', head: false }]);
   });
 });
 
@@ -846,7 +921,9 @@ describe('🔴 品牌 / 分類篩選必須變成 DB 查詢條件(不是在頁面
     expect(fields).toContain('category_id');
     // 搜尋不是 `.eq` ⇒ 單獨驗它真的送出去了。商品頁乙 D2 起搜尋走 rpc(admin_products_by_keyword),
     //   原本這裡驗的是 `.or(...)`(料號 OR 商品名);意圖不變(搜尋條件真的送出), 改驗它帶著搜尋詞呼叫。
-    expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'brembo' }, { count: 'exact', head: false }]);
+    //   2026-10-04 起先解出符合的編號(rpc 不帶計數選項), 再疊 in(id)。
+    expect(q.calls).toContainEqual(['rpc', 'admin_products_by_keyword', { p_term: 'brembo' }]);
+    expect(q.calls).toContainEqual(['in', 'id', []]);
   });
 });
 

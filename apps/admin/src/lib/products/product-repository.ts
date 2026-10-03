@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { PRODUCT_ATTENTION_KEYS, type ProductAttention, type ProductSort } from './product-list-view';
 import type { ProductMediaRow } from './product-media';
@@ -414,18 +415,55 @@ function withSortColumns(columns: string): string {
   return missing.length === 0 ? columns : `${columns}, ${missing.join(', ')}`;
 }
 
-async function filteredProducts(columns: string, head: boolean, query: AdminProductQuery) {
+/**
+ * 搜尋符合的商品編號最多取幾件;超過就照舊把搜尋函式當資料來源。
+ * 500 個編號塞進網址約 18 KB, 再疊上「特價中」的編號條件會超過一般閘道的 16 KB 網址上限 ⇒ 取 250(約 9 KB)。
+ */
+export const KEYWORD_ID_CAP = 250;
+
+/**
+ * 搜尋詞 → 符合的商品編號(2026-10-04 Sean 回報後台商品搜尋、進編輯頁、快速編輯都很慢)。
+ * 正式庫 admin_products_by_keyword 每個詞要整表掃商品 3 萬筆加車款 51 萬列(閒置時 1 秒), 原本一次頁面載入跑它 7 次
+ * (列表 1 + 要處理件數 6, 同時跑互搶;編輯頁的上一件 / 下一件再 1)。先解出編號一次, 其餘都查商品表加 in(id)。
+ * 超過上限或解不出來 ⇒ 回 null, 呼叫端照舊用搜尋函式當資料來源(結果相同, 只是慢)。
+ * 🔵 React cache:同一次頁面請求裡(列表、件數、上一件 / 下一件)同一個搜尋詞只查一次。
+ */
+const keywordProductIds = cache(async (term: string): Promise<string[] | null> => {
+  const { data, error } = await createSupabaseServiceClient()
+    .rpc('admin_products_by_keyword' as never, { p_term: term } as never)
+    .select('id')
+    .range(0, KEYWORD_ID_CAP);
+  if (error) {
+    console.error('[admin/products] 搜尋編號解析失敗, 改用原本的查法', error);
+    return null;
+  }
+  const ids = ((data ?? []) as unknown as { id: string }[]).map((r) => r.id);
+  return ids.length > KEYWORD_ID_CAP ? null : ids;
+});
+
+async function filteredProducts(
+  columns: string,
+  head: boolean,
+  query: AdminProductQuery,
+  keywordIds?: string[] | null,
+) {
   const client = createSupabaseServiceClient();
   const fromProducts = () => client.from('products').select(columns, { count: 'exact', head });
+  const term = query.keyword ? applyBrandSynonyms(query.keyword) : undefined;
+  const ids = term === undefined ? null : keywordIds !== undefined ? keywordIds : await keywordProductIds(term);
   // 商品頁乙 D2:有搜尋詞 ⇒ 資料來源換成 admin_products_by_keyword(料號、供應商標題、員工改過的標題、車款;
   //   migration 20260928150000, 已貼), 下面其餘篩選、排序、分頁照舊疊上去 ⇒ 篩選規則只有一份。
   //   搜尋詞當函式參數送(不是篩選語法)⇒ 逗號、括號、引號不會被 PostgREST 拆成條件。
+  //   2026-10-04 起:符合的編號解得出來(上面 keywordProductIds)⇒ 改查商品表加 in(id), 其餘篩選同一段;解不出來才走這裡。
   //   🔴 型別轉換:這支函式還沒進 database.types(型別重產後拿掉);它回的是 products 整列, 與 from('products') 同形。
-  let q: ReturnType<typeof fromProducts> = query.keyword
-    ? (client
-        .rpc('admin_products_by_keyword' as never, { p_term: applyBrandSynonyms(query.keyword) } as never, { count: 'exact', head })
-        .select(withSortColumns(columns)) as unknown as ReturnType<typeof fromProducts>)
-    : fromProducts();
+  let q: ReturnType<typeof fromProducts> =
+    term !== undefined && ids === null
+      ? (client
+          .rpc('admin_products_by_keyword' as never, { p_term: term } as never, { count: 'exact', head })
+          .select(withSortColumns(columns)) as unknown as ReturnType<typeof fromProducts>)
+      : fromProducts();
+  // 空陣列 = 沒有符合的商品 ⇒ 0 件(不是不篩)。
+  if (ids !== null) q = q.in('id', ids);
 
   // 🔴 **篩選一定要走 DB,不能在頁面上過濾陣列。**
   //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
@@ -487,10 +525,12 @@ export const ATTENTION_COUNT_TIMEOUT_MS = 3000;
 export async function countProductAttention(
   query: AdminProductQuery,
 ): Promise<Record<ProductAttention, number | null>> {
+  // 搜尋編號先解一次, 六顆共用(不靠 React cache:六顆同時出發, 這裡明寫才保證只查一次)。
+  const keywordIds = query.keyword ? await keywordProductIds(applyBrandSynonyms(query.keyword)) : undefined;
   const entries = await Promise.all(
     PRODUCT_ATTENTION_KEYS.map(async (key) => {
       try {
-        const { q } = await filteredProducts('id', true, { ...query, attention: [key] });
+        const { q } = await filteredProducts('id', true, { ...query, attention: [key] }, keywordIds);
         // 件數有自己的期限:卡住的那一顆放棄、不顯示數字,不拖住整頁列表(A2 Codex 必修 2)。
         const { count, error } = await q.abortSignal(AbortSignal.timeout(ATTENTION_COUNT_TIMEOUT_MS));
         return [key, error ? null : (count ?? 0)] as const;
