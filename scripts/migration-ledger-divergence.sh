@@ -887,5 +887,8 @@ if ! supabase migration list --linked < /dev/null > "$PL" 2>/dev/null; then
   echo "   ⇒ 量不到平台帳本,exit 1。查不到不等於沒問題 —— 那正是 #795 的病。" >&2
   exit 1
 fi
+# 2026-10-04 新 mac mini 的 supabase CLI 2.119 把表格每格包成 `值`(markdown 反引號)⇒ 自檢判 Remote 欄不是 14 位數字而擋推。
+# 只剝掉反引號, 欄位與分隔不動;舊版 CLI 沒有反引號, 這行是 no-op。
+sed -i '' 's/`//g' "$PL"
 compare "$ROOT/supabase/migrations" "$ROOT/supabase/APPLIED.tsv" "$PL" "$REV"
 exit $?
