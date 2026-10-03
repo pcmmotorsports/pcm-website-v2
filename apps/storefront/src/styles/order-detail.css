@@ -175,6 +175,11 @@
 .od-step.is-done::before { background: var(--c-text); }
 /* 目前這一階:實心點外再加一圈,不用動畫也看得出「現在在這」 */
 .od-step.is-now::after { box-shadow: 0 0 0 4px var(--c-red-soft); border-color: var(--c-red); background: var(--c-red); }
+/* 退款那一站(Sean 2026-10-03):已走到(連接線深色)但用可區分的紅色實心點, 不與完成站的深色點混淆。
+   同時是「現在在這一站」時(未出貨的退款單), is-now 會再加一圈光暈。 */
+.od-step.is-refund::before { background: var(--c-text); }
+.od-step.is-refund::after { background: var(--c-red); border-color: var(--c-red); }
+.od-step.is-refund .od-step-t { color: var(--c-text); font-weight: 600; }
 .od-step-t {
   font-size: 13px;
   font-weight: 500;
