@@ -38,6 +38,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
   reconfirmExpiredOrphans,
+  sweepFailureCode,
   sweepSettlements,
   type ReconfirmExpiredOrphansResult,
   type SweepSettlementsDeps,
@@ -219,6 +220,7 @@ export async function GET(request: Request): Promise<Response> {
       noAttempt: 0,
       pending: 0,
       errors: 0,
+      failures: [],
     };
     const budgetLeftMs = maxDuration * 1000 - (Date.now() - startedAt);
     let reconfirm: ReconfirmReport;
@@ -279,13 +281,15 @@ export async function GET(request: Request): Promise<Response> {
     if (reconfirm.skipped === 'timeout') await recordHeartbeatFailure(CRON_JOB_NAME.settleSweep);
     else await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep);
     return Response.json({ ok: true, enabled: true, ...result, reconfirm }, { status: 200 });
-  } catch {
+  } catch (err) {
     // deps/env 缺(factory requireEnv throw)或非預期 throw → 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;codex K2 consider):payment 端點**不**把任意 err.message 入 log 縱深——
     //    雖現況 deps 建構子純存連線字串、buildPgConfig 延遲到呼叫才跑、PG adapter 已 sanitize(無 live 洩漏路徑),
     //    固定碼仍杜絕未來 err.message drift 把連線字串/密鑰帶進 log。需細分時改白名單 env 名(非 raw message)。
     console.error('[settle-sweep] 🔴 sweeper 無法執行(deps/env 缺或非預期 throw、回 503;不吞 200 偽裝成功)', {
       reason: 'deps_or_unexpected_throw',
+      // ⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04:只記錯誤代碼(SAFE_CODE 白名單格式), 照舊不記 err.message。
+      code: sweepFailureCode(err),
     });
     await recordHeartbeatFailure(CRON_JOB_NAME.settleSweep);
     return new Response(null, { status: 503 });

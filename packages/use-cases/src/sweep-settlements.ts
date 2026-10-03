@@ -1,6 +1,7 @@
 import type { IWebhookInbox } from '@pcm/ports';
 import type { DueWebhookEvent, StuckChargeAttempt } from '@pcm/domain';
 import { settleCharge, type SettleChargeDeps } from './settle-charge';
+import { pushSweepFailure, type SweepFailure } from './sweep-failure';
 
 /**
  * sweepSettlements:3DS 對帳兜底 sweeper use-case(M-3 3DS-4b-2;master plan v5 §2;plan §5.2)。
@@ -78,6 +79,8 @@ export type SweepSettlementsResult = {
   staleMarks: number;
   /** 單筆 throw 計數(fail-closed、不中斷整批)。 */
   errors: number;
+  /** 每一次失敗是哪一步、什麼錯誤代碼(最多 MAX_SWEEP_FAILURES 筆;只記代碼不記訊息, 見 sweep-failure.ts)。 */
+  failures: SweepFailure[];
 };
 
 /**
@@ -133,6 +136,7 @@ export async function sweepSettlements(
     flaggedNonUnpaid: 0,
     staleMarks: 0,
     errors: 0,
+    failures: [],
   };
 
   // ── ① 每輪無條件前置守衛(claim 前必呼;plan §5.2③ 不變式)──────────────────────
@@ -140,18 +144,21 @@ export async function sweepSettlements(
   //    ceiling/unpaid WHERE 濾,守衛失敗只是本輪不轉 manual、下輪重來,不丟資料、不熱迴圈)。
   try {
     result.expiredInboxAtCeiling = await inbox.expireEventsAtCeiling();
-  } catch {
+  } catch (err) {
     result.errors++;
+    pushSweepFailure(result.failures, 'expire_inbox_ceiling', err);
   }
   try {
     result.expiredStuckAtCeiling = await attempts.expireStuckAtCeiling();
-  } catch {
+  } catch (err) {
     result.errors++;
+    pushSweepFailure(result.failures, 'expire_stuck_ceiling', err);
   }
   try {
     result.flaggedNonUnpaid = await attempts.flagNonUnpaidActive(opts.stuckLimit);
-  } catch {
+  } catch (err) {
     result.errors++;
+    pushSweepFailure(result.failures, 'flag_non_unpaid', err);
   }
 
   // per-order 去重(Q4=A Phase I 降級:僅 in-memory 單 run;同 run inbox+stuck 撞同單只 settle 一次,
@@ -163,8 +170,9 @@ export async function sweepSettlements(
   let dueEvents: DueWebhookEvent[] = [];
   try {
     dueEvents = await inbox.claimDueEvents(opts.inboxLimit);
-  } catch {
+  } catch (err) {
     result.errors++;
+    pushSweepFailure(result.failures, 'claim_inbox', err);
   }
   result.inboxClaimed = dueEvents.length;
 
@@ -188,8 +196,9 @@ export async function sweepSettlements(
         result.inboxProcessed++;
         if (affected === 0) result.staleMarks++;
       }
-    } catch {
+    } catch (err) {
       result.errors++; // 🔴 fail-closed:單筆 throw 不中斷整批
+      pushSweepFailure(result.failures, 'settle_inbox', err, e.orderNumber);
     }
   });
 
@@ -197,8 +206,9 @@ export async function sweepSettlements(
   let stuck: StuckChargeAttempt[] = [];
   try {
     stuck = await attempts.claimStuckUnsettled(opts.stuckAgeSeconds, opts.stuckLimit);
-  } catch {
+  } catch (err) {
     result.errors++;
+    pushSweepFailure(result.failures, 'claim_stuck', err);
   }
   result.stuckClaimed = stuck.length;
 
@@ -221,22 +231,29 @@ export async function sweepSettlements(
         // paid / failed / no_attempt → settleCharge 已改 status 收斂(attempt 路徑無 processed 旗)。
         result.stuckSettled++;
       }
-    } catch {
+    } catch (err) {
       result.errors++; // 🔴 fail-closed
+      pushSweepFailure(result.failures, 'settle_stuck', err, a.orderId);
     }
   });
 
   // ── ④ 結構化告警(零 PII、counts only;durable 轉人工已由 RPC needs_manual_review 落)──────
   //    告警閾值 = ceiling 轉人工 / 非 unpaid 殘留 / 單筆失敗 > 0。reason 連續性告警(跨 run)需
   //    持久狀態 → Phase II 監控(master §9),Phase I 以 needs_manual_review durable 旗為準。
-  if (
-    result.expiredInboxAtCeiling > 0 ||
-    result.expiredStuckAtCeiling > 0 ||
-    result.flaggedNonUnpaid > 0 ||
-    result.errors > 0
-  ) {
+  //    ⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04(Sean QY 甲):分兩級。
+  //    · 有付款轉人工(ceiling / 非 unpaid 殘留)⇒ console.error「需人工關注」—— 真的有付款要人處理。
+  //    · 只有步驟失敗 ⇒ console.warn「下輪會重試」—— 正式站 7 天 11 次都是這種, 沒有任何付款轉人工,
+  //      而舊版也印「需人工關注」, 健檢因此誤判成可能有錢卡住。route 的 503 與心跳失敗不受影響。
+  const needsManual =
+    result.expiredInboxAtCeiling > 0 || result.expiredStuckAtCeiling > 0 || result.flaggedNonUnpaid > 0;
+  if (needsManual) {
     console.error(
-      '[sweepSettlements] 🔴 需人工關注(ceiling 轉人工 / 非 unpaid 殘留 / 單筆失敗;durable 旗見 needs_manual_review)',
+      '[sweepSettlements] 🔴 需人工關注(ceiling 轉人工 / 非 unpaid 殘留;durable 旗見 needs_manual_review)',
+      { ...result },
+    );
+  } else if (result.errors > 0) {
+    console.warn(
+      `[sweepSettlements] 本輪有 ${result.errors} 個步驟失敗, 下輪會重試(沒有付款轉人工;哪一步與錯誤代碼見 failures)`,
       { ...result },
     );
   }

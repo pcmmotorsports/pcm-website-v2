@@ -1,5 +1,6 @@
 import type { ExpiredOrphanAttempt } from '@pcm/domain';
 import { settleCharge, type SettleChargeDeps } from './settle-charge';
+import { pushSweepFailure, type SweepFailure } from './sweep-failure';
 
 /**
  * reconfirmExpiredOrphans:M-3 3DS 乙路 B1b — 12h 孤兒「專用人工列再確認路徑」use-case(canonical §8;master plan v5 §2)。
@@ -58,6 +59,8 @@ export type ReconfirmExpiredOrphansResult = {
   pending: number;
   /** 單筆 throw(fail-closed、不中斷整批)+ claim 失敗計數。 */
   errors: number;
+  /** 每一次失敗是哪一步、什麼錯誤代碼(claim_orphans / settle_orphan;最多 MAX_SWEEP_FAILURES 筆, 只記代碼)。 */
+  failures: SweepFailure[];
 };
 
 export async function reconfirmExpiredOrphans(
@@ -77,14 +80,18 @@ export async function reconfirmExpiredOrphans(
     noAttempt: 0,
     pending: 0,
     errors: 0,
+    failures: [],
   };
 
   let orphans: ExpiredOrphanAttempt[] = [];
   try {
     orphans = await attempts.claimExpiredPendingAttempts(opts.limit);
-  } catch {
+  } catch (err) {
     // claim 失敗 → 本輪空、下輪重來(throttle 未蓋=可重領);fail-closed、不 throw 中斷 cron。
     result.errors++;
+    pushSweepFailure(result.failures, 'claim_orphans', err);
+    // ⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04:原本直接回傳、一行 log 都沒有(正式站 09-27 / 10-01 兩次 503 只看得到 errors:1)。
+    console.warn('[reconfirmExpiredOrphans] 領取逾時孤兒失敗, 下輪會重試(哪一步與錯誤代碼見 failures)', { ...result });
     return result;
   }
   result.claimed = orphans.length;
@@ -103,8 +110,9 @@ export async function reconfirmExpiredOrphans(
         // paid / failed → settleCharge 已改 status 收斂。
         result.settled++;
       }
-    } catch {
+    } catch (err) {
       result.errors++; // 🔴 fail-closed:單筆 throw 不中斷整批
+      pushSweepFailure(result.failures, 'settle_orphan', err, o.orderId);
     }
   });
 

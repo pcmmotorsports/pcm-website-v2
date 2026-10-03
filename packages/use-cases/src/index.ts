@@ -66,6 +66,8 @@ export {
   type SweepSettlementsOptions,
   type SweepSettlementsResult,
 } from './sweep-settlements';
+// ⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04:失敗紀錄(哪一步 + 錯誤代碼, 只記代碼不記訊息)。
+export { sweepFailureCode, type SweepFailure } from './sweep-failure';
 
 // M-3 3DS 乙路 R2b-2:立即重刷 preflight use-case(preflightReleaseSibling、§2.3 狀態機;
 // siblingLookup → settle → release/hold/proceed;R3 chargePaymentAction placeOrder 前呼。

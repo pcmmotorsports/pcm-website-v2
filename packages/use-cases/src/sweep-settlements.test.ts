@@ -488,3 +488,88 @@ describe('🔴 M-4b 生命週期 L2 — reason 碼集 TS↔DB allowlist 對齊(�
     },
   );
 });
+
+// ⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04(Sean QY 甲, 計畫 ~/Projects/pcm-mailbox/計畫-settle-sweep-錯誤紀錄與告警-20261004.md):
+//   正式站 7 天 13 次 503 都只有 errors:1, 看不出哪一步、什麼錯;「需人工關注」在沒有付款轉人工時也會印。
+describe('sweepSettlements — ⑤ 失敗紀錄(哪一步 + 錯誤代碼)與告警分級', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const boom = (code?: string, message = 'x') => Object.assign(new Error(message), code ? { code } : {});
+  const ONE_EVENT = [{ recTradeId: 'D-rec-x', orderNumber: ORDER_X, attemptCount: 1 }];
+  const ONE_STUCK = [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 1, supersededAt: null }];
+
+  it.each([
+    ['expire_inbox_ceiling', () => deps({ inbox: makeInbox({ expireEventsAtCeiling: vi.fn(async () => { throw boom('ECONNRESET'); }) }) }), 'ECONNRESET', undefined],
+    ['expire_stuck_ceiling', () => deps({ attempts: makeAttempts({ expireStuckAtCeiling: vi.fn(async () => { throw boom('57014'); }) }) }), '57014', undefined],
+    ['flag_non_unpaid', () => deps({ attempts: makeAttempts({ flagNonUnpaidActive: vi.fn(async () => { throw boom('ETIMEDOUT'); }) }) }), 'ETIMEDOUT', undefined],
+    ['claim_inbox', () => deps({ inbox: makeInbox({ claimDueEvents: vi.fn(async () => { throw boom('08006'); }) }) }), '08006', undefined],
+    ['settle_inbox', () => deps({ inbox: makeInbox({ claimDueEvents: vi.fn(async () => ONE_EVENT), markProcessed: vi.fn(async () => { throw boom('40001'); }) }) }), '40001', ORDER_X],
+    ['claim_stuck', () => deps({ attempts: makeAttempts({ claimStuckUnsettled: vi.fn(async () => { throw boom('42703'); }) }) }), '42703', undefined],
+    ['settle_stuck', () => deps({
+      attempts: makeAttempts({ claimStuckUnsettled: vi.fn(async () => ONE_STUCK), markSettleRetry: vi.fn(async () => { throw boom('ECONNREFUSED'); }) }),
+      tappay: makeTapPay(async () => paidResultFor(ORDER_X, { recordStatus: 4, isCaptured: false })),
+    }), 'ECONNREFUSED', ORDER_X],
+  ] as const)('%s 失敗 ⇒ failures 記下那一步與錯誤代碼', async (step, mk, code, orderId) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await sweepSettlements(mk(), OPTS);
+    expect(res.errors).toBe(1);
+    expect(res.failures).toEqual([orderId ? { step, code, orderId } : { step, code }]);
+  });
+
+  it('錯誤代碼不合格式 ⇒ unknown;沒有代碼而訊息是 adapter 的 (transport) ⇒ transport;錯誤訊息不會被記下', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const secret = 'postgres://user:SUPERSECRETPW@host:6543/db';
+    const inbox = makeInbox({ expireEventsAtCeiling: vi.fn(async () => { throw boom('BAD CODE', secret); }) });
+    const attempts = makeAttempts({
+      expireStuckAtCeiling: vi.fn(async () => { throw boom(undefined, 'charge 簿記主軌失敗(transport)'); }),
+      flagNonUnpaidActive: vi.fn(async () => { throw boom('A'.repeat(41)); }),
+    });
+    const res = await sweepSettlements(deps({ inbox, attempts }), OPTS);
+    expect(res.failures).toEqual([
+      { step: 'expire_inbox_ceiling', code: 'unknown' },
+      { step: 'expire_stuck_ceiling', code: 'transport' },
+      { step: 'flag_non_unpaid', code: 'unknown' },
+    ]);
+    expect(JSON.stringify(res)).not.toContain('SUPERSECRETPW');
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('SUPERSECRETPW');
+  });
+
+  it('只有步驟失敗、沒有付款轉人工 ⇒ console.warn「下輪會重試」, 不印「需人工關注」', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await sweepSettlements(deps({ inbox: makeInbox({ claimDueEvents: vi.fn(async () => { throw boom('ECONNRESET'); }) }) }), OPTS);
+    expect(errSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain('下輪會重試');
+  });
+
+  it('有付款轉人工又有步驟失敗 ⇒ console.error「需人工關注」一次, 帶 failures', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const attempts = makeAttempts({ expireStuckAtCeiling: vi.fn(async () => 1) });
+    const inbox = makeInbox({ claimDueEvents: vi.fn(async () => { throw boom('ECONNRESET'); }) });
+    await sweepSettlements(deps({ inbox, attempts }), OPTS);
+    expect(errSpy).toHaveBeenCalledOnce();
+    expect(String(errSpy.mock.calls[0]?.[0])).toContain('需人工關注');
+    expect(errSpy.mock.calls[0]?.[1]).toMatchObject({ failures: [{ step: 'claim_inbox', code: 'ECONNRESET' }] });
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('失敗超過 10 筆 ⇒ failures 只留前 10 筆, errors 是實際次數', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events = Array.from({ length: 12 }, (_, i) => ({ recTradeId: `D-rec-${i}`, orderNumber: `order-${i}`, attemptCount: 1 }));
+    // 每筆不論走 processed 或 retry 都丟錯 ⇒ 12 筆都算失敗
+    const inbox = makeInbox({
+      claimDueEvents: vi.fn(async () => events),
+      markProcessed: vi.fn(async () => { throw boom('40001'); }),
+      markRetry: vi.fn(async () => { throw boom('40001'); }),
+    });
+    const res = await sweepSettlements(deps({ inbox }), OPTS);
+    expect(res.errors).toBe(12);
+    expect(res.failures).toHaveLength(10);
+  });
+
+  it('都沒有失敗 ⇒ failures 是空陣列', async () => {
+    const res = await sweepSettlements(deps(), OPTS);
+    expect(res.failures).toEqual([]);
+  });
+});

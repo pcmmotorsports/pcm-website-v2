@@ -46,7 +46,7 @@ describe('reconfirmExpiredOrphans', () => {
 
     const r = await reconfirmExpiredOrphans(deps, { limit: 50 });
 
-    expect(r).toEqual({ claimed: 3, settled: 2, noAttempt: 0, pending: 1, errors: 0 });
+    expect(r).toEqual({ claimed: 3, settled: 2, noAttempt: 0, pending: 1, errors: 0, failures: [] });
     expect(claimExpiredPendingAttempts).toHaveBeenCalledWith(50);
   });
 
@@ -78,7 +78,7 @@ describe('reconfirmExpiredOrphans', () => {
 
     const r = await reconfirmExpiredOrphans(deps, { limit: 10 });
 
-    expect(r).toEqual({ claimed: 0, settled: 0, noAttempt: 0, pending: 0, errors: 1 });
+    expect(r).toEqual({ claimed: 0, settled: 0, noAttempt: 0, pending: 0, errors: 1, failures: [{ step: 'claim_orphans', code: 'unknown' }] });
     expect(settleChargeMock).not.toHaveBeenCalled();
   });
 
@@ -88,7 +88,7 @@ describe('reconfirmExpiredOrphans', () => {
 
     const r = await reconfirmExpiredOrphans(deps, { limit: 10 });
 
-    expect(r).toEqual({ claimed: 0, settled: 0, noAttempt: 0, pending: 0, errors: 0 });
+    expect(r).toEqual({ claimed: 0, settled: 0, noAttempt: 0, pending: 0, errors: 0, failures: [] });
     expect(settleChargeMock).not.toHaveBeenCalled();
   });
 
@@ -102,7 +102,7 @@ describe('reconfirmExpiredOrphans', () => {
 
     const r = await reconfirmExpiredOrphans(deps, { limit: 10 });
 
-    expect(r).toEqual({ claimed: 3, settled: 2, noAttempt: 0, pending: 0, errors: 1 });
+    expect(r).toEqual({ claimed: 3, settled: 2, noAttempt: 0, pending: 0, errors: 1, failures: [{ step: 'settle_orphan', code: 'unknown', orderId: 'o2' }] });
   });
 
   it.each([
@@ -145,5 +145,30 @@ describe('reconfirmExpiredOrphans', () => {
 
     expect(settleChargeMock).toHaveBeenCalledTimes(1);
     expect(settleChargeMock).toHaveBeenCalledWith(deps, { orderId: 'o1' });
+  });
+});
+
+// ⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04(Sean QY 甲):領取失敗原本直接回傳、一行 log 都沒有(正式站 09-27 / 10-01 兩次 503 只看得到 errors:1)。
+describe('reconfirmExpiredOrphans — 失敗紀錄', () => {
+  it('領取失敗 ⇒ failures 記 claim_orphans 與錯誤代碼, 並印一行 log', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { deps, claimExpiredPendingAttempts } = makeDeps();
+    claimExpiredPendingAttempts.mockRejectedValue(Object.assign(new Error('postgres://u:SUPERSECRETPW@h/db'), { code: 'ECONNRESET' }));
+    const r = await reconfirmExpiredOrphans(deps, { limit: 10 });
+    expect(r.failures).toEqual([{ step: 'claim_orphans', code: 'ECONNRESET' }]);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('SUPERSECRETPW');
+    warnSpy.mockRestore();
+  });
+
+  it('單筆失敗 ⇒ failures 帶訂單編號與錯誤代碼, 不帶錯誤訊息', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { deps, claimExpiredPendingAttempts } = makeDeps();
+    claimExpiredPendingAttempts.mockResolvedValue([orphan('o1')]);
+    settleChargeMock.mockRejectedValue(Object.assign(new Error('secret detail'), { code: '57014' }));
+    const r = await reconfirmExpiredOrphans(deps, { limit: 10 });
+    expect(r.failures).toEqual([{ step: 'settle_orphan', code: '57014', orderId: 'o1' }]);
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain('secret detail');
+    errSpy.mockRestore();
   });
 });

@@ -23,7 +23,12 @@ const { sweepSpy, getDepsSpy, getInboxSpy, reconfirmSpy, hbOkSpy, hbFailSpy } = 
   hbFailSpy: vi.fn(),
 }));
 
-vi.mock('@pcm/use-cases', () => ({ sweepSettlements: sweepSpy, reconfirmExpiredOrphans: reconfirmSpy }));
+// sweepFailureCode 用真的(純函式、不碰 IO):route 最外層 catch 記錯誤代碼靠它(⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04)。
+vi.mock('@pcm/use-cases', async (orig) => ({
+  sweepFailureCode: (await orig<typeof import('@pcm/use-cases')>()).sweepFailureCode,
+  sweepSettlements: sweepSpy,
+  reconfirmExpiredOrphans: reconfirmSpy,
+}));
 // ⟦b4-CRON6⟧ 片1:心跳寫入端。**mock 掉的是 IO,不是判斷** —— 判斷(哪一條路寫、哪一條不寫)在 route 裡。
 vi.mock('@/lib/cron/heartbeat', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -298,6 +303,20 @@ describe('GET settle-sweep — enabled 執行 + 結果映射', () => {
     expect(logged).toContain('deps_or_unexpected_throw'); // 固定 reason code(非 raw err.message)
     expect(logged).not.toContain(SECRET); // 不洩 CRON_SECRET
     expect(logged).not.toContain('PAYMENT_CONFIRMER_DB_URL'); // 連 env 名都不入 log(零洩漏面、縱深、codex K2 consider)
+    errSpy.mockRestore();
+  });
+
+  // ⟦settle-sweep 錯誤紀錄與告警⟧ 2026-10-04(Sean QY 甲):最外層失敗也記錯誤代碼(只記代碼, 不記訊息)
+  it('🔴 getSettleChargeDeps throw 帶錯誤代碼 ⇒ log 記下代碼, 仍不記訊息', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    getDepsSpy.mockImplementation(() => {
+      throw Object.assign(new Error('postgres://u:SUPERSECRETPW@h/db'), { code: 'ECONNRESET' });
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    const logged = JSON.stringify(errSpy.mock.calls);
+    expect(logged).toContain('ECONNRESET');
+    expect(logged).not.toContain('SUPERSECRETPW');
     errSpy.mockRestore();
   });
 
