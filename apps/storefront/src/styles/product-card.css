@@ -221,12 +221,14 @@
   pointer-events: none;
 }
 .pcard-quick.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
-/* 🛑 2026-09-12:**這裡刻意【沒有】`@media (hover: none)` 那一條 —— 不要順手補上。**
-   本次手機走查我回報過「這顆鈕在手機永遠不出現」,而 `invisible-tap-targets.test.ts:118-142`
-   的既有研究**推翻了那個說法**:觸控會補發相容滑鼠事件 ⇒ 客人真的 tap 一下它就活了,
-   只是**那一下同時會把他帶去商品頁** ⇒ 實務上拿不到那個狀態,但它不是死的。
-   ⇒ 那支守門**刻意釘住今天的狀態**,並寫明「要不要讓它在手機上真的可用 = 產品決定(Sean 的)」,
-     板列 ⟦f3-CARDTAPUNMEASURED⟧ 在追。改它的正解是:先確認 Sean 拍了、更新板列,再改期望值。 */
+/* 🔴 Sean 2026-10-03 拍甲(⟦f3-CARDTAPUNMEASURED⟧):觸控裝置上「+ 加入購物車」【常駐顯示】,
+   跟愛心一樣(上面 `.pcard-heart` 的 `@media (hover: none)` 同款)。桌機仍照 design 的 hover 才浮出
+   ⇒ 基底的 `opacity:0` / `pointer-events:none` 不動, 只在觸控裝置覆寫。
+   🔵 鈕在商品圖下緣(`bottom:0`)、整張卡下方, 不蓋住圖片主體(手機截圖已確認)。
+   ⛔ ~~2026-09-12 這裡刻意沒有這條、由 invisible-tap-targets.test.ts 釘住~~ ⇒ Sean 已拍, 改行為不是為了過關。 */
+@media (hover: none) {
+  .pcard-quick { opacity: 1; transform: translateY(0); pointer-events: auto; }
+}
 .pcard-quick-btn {
   width: 100%;
   padding: 10px;
