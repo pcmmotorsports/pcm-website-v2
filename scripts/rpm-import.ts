@@ -78,6 +78,9 @@ import {
   indexUpstream,
   checksumVerdict,
   readLocalProductStore,
+  dealerPriceChangeCounts,
+  formatDealerPriceChangeLine,
+  formatDealerPriceChangeUnavailable,
   type UpstreamRead,
 } from './dealer-price-source';
 import { runAtomicGroups, installKillReporter } from './rpm-partial-report';
@@ -334,6 +337,7 @@ if (!dealerOn) {
     dealerPrice = { kind: 'untouched', oldBySku: oldRead.bySku, oldProductStoreByExternalId: oldProductStore };
   }
   console.log(`[dealer-price] ${SUPPLIER} 不在 allowlist ⇒ untouched(兩層各帶自己的舊值)`);
+  console.log(formatDealerPriceChangeUnavailable('not_in_list'));
 } else {
   const hasUpstreamUrl = Boolean(process.env.DEALER_PRICE_DATABASE_URL);
   const [oldReadRaw, oldProductStore] = await Promise.all([
@@ -375,6 +379,20 @@ if (!dealerOn) {
     // 沒設金鑰:A1 本身不算降級 ⇒ 不設退出碼的話 job 是綠的、告警信不寄, 經銷價每天凍住而沒人知道
     if (verdict.missingKey) process.exitCode = 1;
   }
+
+  // 🔵 2026-10-03 extreme 價目表全自動:只印件數、不印任何價格;乾跑與正式跑都印(報價單自動流程從 gh run log 讀這一行,
+  //    格式由 dealer-price-source.test.ts 釘住)。要不要真的寫由下面的 gate 決定, 送值來源另一行會印。
+  //    🔴 Fable R1 必修:一律印一行;算不出可信件數(上游讀不到 / 本站現值讀不完整)時印固定字樣, 不缺行、不印誤導的數字。
+  //    商品層讀不到也算「本站現值讀不完整」(那一輪 gate 判 A2、一筆不寫)⇒「印數字 ⇔ 非 A2」(Fable R2 建議 1)。
+  const localComplete =
+    oldReadRaw !== null && oldRead.got === oldRead.expected && oldRead.localKeyUnique && oldProductStore !== null;
+  console.log(
+    !upstream
+      ? formatDealerPriceChangeUnavailable('upstream_unreadable')
+      : !localComplete
+        ? formatDealerPriceChangeUnavailable('local_incomplete')
+        : formatDealerPriceChangeLine(dealerPriceChangeCounts(upstream.bySku, oldRead.bySku)),
+  );
 
   const missingCount = upstream
     ? [...oldRead.bySku.keys()].filter((sku) => !upstream!.bySku.has(sku)).length

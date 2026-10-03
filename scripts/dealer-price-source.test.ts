@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { createHash, createHmac } from 'node:crypto';
-import { indexUpstream, dealerBatchChecksum, checksumVerdict, gateReasons, type UpstreamDealerRow } from './dealer-price-source';
+import {
+  indexUpstream,
+  dealerBatchChecksum,
+  checksumVerdict,
+  gateReasons,
+  dealerPriceChangeCounts,
+  formatDealerPriceChangeLine,
+  formatDealerPriceChangeUnavailable,
+  type UpstreamDealerRow,
+} from './dealer-price-source';
 
 /**
  * 🔴 **N4(mail 快篩):plan 要的三種 fixture 缺兩種** ——「字串型別經銷價」與「原子 RPC 路徑」。
@@ -174,5 +183,67 @@ describe('checksumVerdict:要不要放行寫新經銷價, 以及印什麼', () =
     expect(checksumVerdict({ rows, key: KEY, expect: '', trigger: 'schedule', dryRun: false }).ok).toBe(true);
     expect(checksumVerdict({ rows, key: KEY, expect: '', trigger: 'workflow_dispatch', dryRun: false }).ok).toBe(false);
     expect(checksumVerdict({ rows, key: KEY, expect: '', trigger: '', dryRun: false }).ok).toBe(false);
+  });
+});
+
+// 2026-10-03 extreme 價目表全自動(網站那一半, Sean 批):報價單那邊的自動流程從 gh run log 讀這一行
+// 決定要不要停(單件 ±30%、改價件數 >20% 整批停)⇒ 格式要固定, 只印件數、不印任何價格。
+describe('經銷價變動件數(只印件數)', () => {
+  const m = (pairs: [string, number | null][]) => new Map<string, number | null>(pairs);
+
+  it('格式逐字固定(報價單自動流程照這一行解析)', () => {
+    expect(formatDealerPriceChangeLine({ changed: 3, added: 2, unchanged: 10, removed: 1, over30: 1 })).toBe(
+      '[dealer-price] 經銷價變動件數:改價 3 · 新設 2 · 不變 10 · 移除 1 · 單件漲跌超過 30% 1',
+    );
+  });
+
+  it('五種情況各自數對, 與寫入行為一致(上游明示 null = 清空;上游整列消失 = 沿用舊值, 算不變)', () => {
+    const upstream = m([
+      ['SAME', 1000], // 不變
+      ['UP10', 1100], // 改價, 漲 10%
+      ['UP31', 1310], // 改價, 漲 31% ⇒ 超過 30%
+      ['DOWN40', 600], // 改價, 跌 40% ⇒ 超過 30%
+      ['NEW', 500], // 新設(本站沒有這個料號)
+      ['NEWFROMNULL', 700], // 新設(本站原本是 null)
+      ['CLEAR', null], // 移除(本站原本有值)
+      ['BOTHNULL', null], // 不變
+    ]);
+    const old = m([
+      ['SAME', 1000],
+      ['UP10', 1000],
+      ['UP31', 1000],
+      ['DOWN40', 1000],
+      ['NEWFROMNULL', null],
+      ['CLEAR', 800],
+      ['BOTHNULL', null],
+      ['GONE', 900], // 上游沒有這一列 ⇒ 沿用舊值 ⇒ 不變
+    ]);
+    expect(dealerPriceChangeCounts(upstream, old)).toEqual({ changed: 3, added: 2, unchanged: 3, removed: 1, over30: 2 });
+  });
+
+  it('剛好 30% 不算超過;舊價 0 而新價大於 0 算超過', () => {
+    expect(dealerPriceChangeCounts(m([['A', 1300], ['B', 700]]), m([['A', 1000], ['B', 1000]])).over30).toBe(0);
+    expect(dealerPriceChangeCounts(m([['Z', 100]]), m([['Z', 0]]))).toEqual({ changed: 1, added: 0, unchanged: 0, removed: 0, over30: 1 });
+  });
+
+  it('印出來的那一行不含任何價格數字', () => {
+    const line = formatDealerPriceChangeLine(dealerPriceChangeCounts(m([['A', 98765]]), m([['A', 12345]])));
+    expect(line).not.toMatch(/98765|12345/);
+  });
+});
+
+// Fable R1 必修:算不出可信件數的時候也要印同前綴的一行, 不能缺行(下游 grep 缺行可能被當成 0 件放行)。
+describe('經銷價變動件數:算不出來時印固定字樣(不是數字)', () => {
+  it('三種情況逐字固定', () => {
+    expect(formatDealerPriceChangeUnavailable('upstream_unreadable')).toBe('[dealer-price] 經銷價變動件數:讀不到上游');
+    expect(formatDealerPriceChangeUnavailable('local_incomplete')).toBe('[dealer-price] 經銷價變動件數:本站現值讀不完整');
+    expect(formatDealerPriceChangeUnavailable('not_in_list')).toBe('[dealer-price] 經銷價變動件數:不在經銷價名單');
+  });
+  it('固定字樣與件數那一行同前綴, 但沒有「改價 N」這種數字欄(下游看到就要停)', () => {
+    for (const r of ['upstream_unreadable', 'local_incomplete', 'not_in_list'] as const) {
+      const line = formatDealerPriceChangeUnavailable(r);
+      expect(line.startsWith('[dealer-price] 經銷價變動件數:')).toBe(true);
+      expect(line).not.toMatch(/改價 \d/);
+    }
   });
 });
