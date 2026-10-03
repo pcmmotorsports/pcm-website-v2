@@ -16,14 +16,33 @@ const globalHeaders = async () => {
 };
 
 describe('後台安全標頭', () => {
-  it("全站有 nosniff、防嵌入('self')、權限與 CSP Report-Only", async () => {
+  // ⟦後台 CSP 改強制⟧ 2026-10-04(Sean 批 計畫-網站安全標頭與網域-20261004.md Q1 甲):
+  //   原本強制的只有 `frame-ancestors 'self'`, 完整清單是 Report-Only ⇒ 改成完整清單強制、只留一條 CSP 標頭。
+  //   清單內容逐字與改前的 Report-Only 相同(計畫 1-4「內容不變」);report-uri 保留, 繼續收被擋的回報。
+  it("全站有 nosniff、防嵌入('self')、權限與強制的 CSP(內容與改前的 Report-Only 逐字相同)", async () => {
     const headers = await globalHeaders();
     const valueOf = (key: string) => headers.find((h) => h.key === key)?.value;
     expect(valueOf('X-Content-Type-Options')).toBe('nosniff');
     expect(valueOf('X-Frame-Options')).toBe('SAMEORIGIN');
-    expect(valueOf('Content-Security-Policy')).toBe("frame-ancestors 'self'");
     expect(valueOf('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');
-    expect(valueOf('Content-Security-Policy-Report-Only')).toContain('report-uri https://www.pcmmotorsports.com/api/csp-report');
+    expect(valueOf('Content-Security-Policy')).toBe(
+      [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        "connect-src 'self'",
+        "frame-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'self'",
+        'report-uri https://www.pcmmotorsports.com/api/csp-report',
+      ].join('; '),
+    );
+    expect(headers.filter((h) => h.key.toLowerCase() === 'content-security-policy')).toHaveLength(1);
+    expect(valueOf('Content-Security-Policy-Report-Only')).toBeUndefined();
   });
 
   it('不送 X-Powered-By', () => {

@@ -12,6 +12,8 @@
 //
 // 對應 ADR-0001 §3.5、ADR-0002 §4.1。
 
+// 🔴 第一個 import:zod jitless 必須在任何 schema 建立前設定(見 zod-config.ts)。
+import './zod-config';
 import { z } from 'zod';
 
 export {

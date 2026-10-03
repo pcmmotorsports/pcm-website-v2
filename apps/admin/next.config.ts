@@ -76,7 +76,17 @@ const FONT_GLOBS = ['noto-sans', 'noto-sans-tc'].flatMap((pkg) => [
  *    而 Next 會以 next.config 的同名標頭為準、把路由的丟掉(R1 審查查 Next 16.3.6 `router-server.js:397`、
  *    `send-response.js:47-52`)。瀏覽器預設本來就是 strict-origin-when-cross-origin,不設不少任何保護。
  *    `src/lib/security-headers.test.ts` 掃「路由自己 set 的標頭 ∩ 這裡的標頭」必須是空的。 */
-const CSP_REPORT_ONLY = [
+/* ⟦後台 CSP 改強制⟧ 2026-10-04(Sean 批 ~/Projects/pcm-mailbox/計畫-網站安全標頭與網域-20261004.md Q1 甲:先後台、隔 2～3 天再前台與經銷站):
+ *   原本強制的只有 `frame-ancestors 'self'`、完整清單是 Report-Only ⇒ 改成完整清單強制, 內容逐字不變, 只留一條 CSP 標頭
+ *   (完整清單本來就含 frame-ancestors 'self')。report-uri 保留, 繼續收被擋的回報。
+ *   回報分析(正式站 10-01～10-04 後台 51 則):eval 28 則 = zod 的 eval 測試, 由 @pcm/schemas 的 zod-config.ts 關掉;
+ *   connect-src 23 則 = 票過期時背景請求被轉到報價單站登入(跨網域那一跳), 改前改後都會失敗、Next 改走整頁導航去登入。
+ *   ⚠️ 已知降級兩處(Fable R1):① 首頁大圖「下載圖片」(home-banner-social.tsx:19 跨網域 fetch Supabase Storage)被擋,
+ *      改走原本的備援 = 開新分頁、請員工右鍵另存;② 票過期時按商品篩選的 GET 表單, form-action 擋下轉去報價單站那一跳,
+ *      那一次按了沒反應(點任何連結仍會去登入)。
+ *   還原:key 改回 'Content-Security-Policy-Report-Only', 把 `frame-ancestors 'self'` 那條強制標頭加回來,
+ *      並一起還原 src/lib/security-headers.test.ts(它現在斷言只有強制的 CSP)。 */
+const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -93,9 +103,8 @@ const CSP_REPORT_ONLY = [
 const SECURITY_HEADERS = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-  { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-  { key: 'Content-Security-Policy-Report-Only', value: CSP_REPORT_ONLY },
+  { key: 'Content-Security-Policy', value: CSP },
   // HSTS 兩年 + includeSubDomains, 不加 preload(2026-10-04 Sean 批 Q2 甲;理由與上線前提同 storefront 那份註解)。
   { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
 ];
