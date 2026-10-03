@@ -42,7 +42,10 @@ const withBundleAnalyzer = bundleAnalyzer({
  *   🔴 防嵌入只能 'self' 不能 'none':BotID 替自己的路徑也設 'self'(推論它用同網域框架),設 'none' 可能讓註冊頁壞掉。
  * · CSP 其他規則只回報不擋(Report-Only),回報送到 www 的 /api/csp-report,跑 7 天照回報補清單。
  *   'unsafe-inline' 先留著:Next 的內嵌初始化腳本與 JSON-LD 要 nonce 才能拿掉,那是下一期。
- * · HSTS 不加:Vercel 已送 max-age=63072000,再送會重複。
+ * · HSTS(2026-10-04 Sean 批 Q2 甲,計畫 ~/pcm-mailbox/計畫-網站安全標頭與網域-20261004.md §二):
+ *   送 max-age=63072000; includeSubDomains,不加 preload。原本不送是怕和 Vercel 預設的重複;報價單站自己送時瀏覽器只收到一個,
+ *   推論這裡送也不會重複(上線後用真瀏覽器確認)。includeSubDomains 要由根網域送出才涵蓋全部子網域 ⇒ 見 redirects 的根網域轉址。
+ *   🔴 上線前要先確認所有子網域都能用 HTTPS(Sean 匯出 Cloud DNS);收過這個標頭的瀏覽器會記住兩年,撤不回。
  * · 🔴 路由自己 set 過的標頭,這裡不要再設同名的 —— Next 會以這裡為準、把路由的丟掉
  *   (後台 SSO 的 no-referrer 就是這樣差點被蓋掉)。`next.config.test.ts` 有一格掃這件事。 */
 const SUPABASE_ORIGIN = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin : '';
@@ -70,6 +73,7 @@ const SECURITY_HEADERS = [
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
   { key: 'Content-Security-Policy-Report-Only', value: CSP_REPORT_ONLY },
+  { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
 ];
 
 const nextConfig: NextConfig = {
@@ -290,6 +294,13 @@ const nextConfig: NextConfig = {
       { source: encodeURI('/原廠零件-pcm-重機零件販售-pcm-motor'), destination: '/', permanent: true },
       { source: '/category/brands', destination: '/brands', permanent: true },
       { source: '/category/brands/index.html', destination: '/brands', permanent: true },
+      // 根網域整站轉到 www(2026-10-04 Sean 批 Q2 甲)。原本由 Vercel 網域設定直接轉址、不經過程式 ⇒ 根網域收不到上面的安全標頭;
+      // 改由程式轉址, 根網域的 308 回應才帶得到 HSTS includeSubDomains。只限根網域(host 條件), www / b2b 不受影響。
+      // 🔴 要等 Sean 把 Vercel 網域設定裡根網域的「轉到 www」拿掉才會真的走到這條;先部署、再改 Vercel,
+      //    順序反過來的話根網域會直接顯示整個網站而沒有轉址。
+      // 🛑 本機 `next start` 量不到:Next 自己的路由在轉址回應上不送 headers(resolve-routes.js redirect 分支),
+      //    Vercel 才會(headers 路由 continue:true 排在 redirects 前)。驗收只能用真站真瀏覽器(R1 審查 2026-10-04)。
+      { source: '/:path*', has: [{ type: 'host', value: 'pcmmotorsports.com' }], destination: 'https://www.pcmmotorsports.com/:path*', permanent: true },
     ];
   },
 

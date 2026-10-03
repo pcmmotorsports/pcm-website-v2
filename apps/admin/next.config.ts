@@ -96,6 +96,8 @@ const SECURITY_HEADERS = [
   { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
   { key: 'Content-Security-Policy-Report-Only', value: CSP_REPORT_ONLY },
+  // HSTS 兩年 + includeSubDomains, 不加 preload(2026-10-04 Sean 批 Q2 甲;理由與上線前提同 storefront 那份註解)。
+  { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
 ];
 
 const nextConfig: NextConfig = {

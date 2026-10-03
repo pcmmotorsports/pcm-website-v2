@@ -127,7 +127,10 @@ describe('舊站 /index.html 轉址', () => {
   // 🛑 **所以這一格守的是【語法】,不是【命中】** —— 它擋得住所有把射程寫寬的寫法,
   //    而「這條規則會不會吃到某個網址」的真值,靠 plan §4 那幾發 curl。**講清楚它守不到什麼。**
   it('🔴 source 不得帶任何會讓射程變寬的語法(冒號參數 / 萬用字元 / 群組)', async () => {
-    const rules = await redirectsOf();
+    // 2026-10-04 Sean 批 Q2 甲:唯一例外是「只限根網域」的整站轉址(下面〈根網域轉址〉那組逐欄守它);
+    //   它的射程靠 host 條件收窄, 不靠 source。其他舊網址規則照舊一條都不准寬。
+    const rules = (await redirectsOf()).filter((r) => !r.has?.some((h) => h.type === 'host'));
+    expect(rules.length).toBeGreaterThan(0);
     for (const rule of rules) {
       for (const [token, why] of [
         [':', '冒號參數(例 /:path*/index.html)會吃到任意前綴'],
@@ -228,5 +231,30 @@ describe('安全標頭', () => {
     });
     expect(files.length).toBeGreaterThan(100);
     expect(clash).toEqual([]);
+  });
+
+  // 2026-10-04 Sean 批 Q2 甲(~/pcm-mailbox/計畫-網站安全標頭與網域-20261004.md §二):
+  //   HSTS 要帶 includeSubDomains 才涵蓋全部子網域;不加 preload(進了瀏覽器內建清單要幾個月才撤得回)。
+  it('🔴 HSTS 送兩年 + includeSubDomains, 不帶 preload', async () => {
+    expect(await valueOf('Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains');
+  });
+});
+
+// 2026-10-04 Sean 批 Q2 甲:根網域原本由 Vercel 網域設定直接轉到 www, 不經過網站程式 ⇒ 根網域收不到 HSTS。
+//   改成網站程式轉址, 根網域的 308 回應才會帶上 next.config 的安全標頭(含 includeSubDomains)。
+// 🛑 這組守的是設定物件;根網域實際有沒有走到這條規則, 要等 Sean 把 Vercel 網域設定的轉址拿掉後用真瀏覽器驗。
+describe('根網域轉址', () => {
+  const apexRules = async () =>
+    ((await nextConfig(PHASE_PRODUCTION_BUILD).redirects?.()) ?? []).filter((r) => r.has?.some((h) => h.type === 'host'));
+
+  it('🔴 只有一條 host 條件規則, 只限根網域, 整站永久轉到 www 並保留路徑', async () => {
+    expect(await apexRules()).toEqual([
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'pcmmotorsports.com' }],
+        destination: 'https://www.pcmmotorsports.com/:path*',
+        permanent: true,
+      },
+    ]);
   });
 });

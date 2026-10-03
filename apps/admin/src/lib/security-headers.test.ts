@@ -30,6 +30,12 @@ describe('後台安全標頭', () => {
     expect(nextConfig(PHASE_PRODUCTION_BUILD).poweredByHeader).toBe(false);
   });
 
+  // 2026-10-04 Sean 批 Q2 甲(~/pcm-mailbox/計畫-網站安全標頭與網域-20261004.md §二):不加 preload(撤回要幾個月)。
+  it('🔴 HSTS 送兩年 + includeSubDomains, 不帶 preload', async () => {
+    const headers = await globalHeaders();
+    expect(headers.find((h) => h.key === 'Strict-Transport-Security')?.value).toBe('max-age=63072000; includeSubDomains');
+  });
+
   it('🔴 SSO 與 session 路由的 no-referrer 不被蓋掉:沒有任何路由自己設了 next.config 也在設的標頭', async () => {
     const keys = (await globalHeaders()).map((h) => h.key.toLowerCase());
     const files = readdirSync(SRC, { recursive: true })
