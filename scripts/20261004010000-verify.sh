@@ -84,7 +84,10 @@ cell "對照組:DBK_3 原寫法只找到底線那一件(escape 有效)" "$(print
 cell "對照組:A-1 原寫法找得到 A-1X 那件" "$(OLD 'A-1' | tr ',' '\n' | grep -c '^[0-9a-f-]\{36\}$')" "1"
 cell "對照組:下架商品的料號原寫法(anon)也找不到" "$(OLD 'GONE-777')" "-"
 cell "比對有判別力:原寫法 9 組都沒有報錯" "$(for i in "${!PATS[@]}"; do printf '%s\n' "${BEFORE[$i]}"; done | grep -c ERR)" "0"
-P -q -c "CREATE ROLE zz_paster LOGIN NOSUPERUSER; GRANT postgres TO zz_paster; CREATE ROLE zz_nobody NOLOGIN;" >/dev/null
+# 🔴 貼的角色 search_path 照正式庫 postgres 的 rolconfig(2026-10-04 唯讀讀到 "$user", public, extensions)。
+#    少了這行, pg_get_indexdef 印 extensions.gin_trgm_ops, 而正式庫印 gin_trgm_ops ⇒ 前置閘①在這裡過、在正式庫擋(Sean 00:5x 實撞)。
+P -q -c "CREATE ROLE zz_paster LOGIN NOSUPERUSER; GRANT postgres TO zz_paster; CREATE ROLE zz_nobody NOLOGIN; ALTER ROLE zz_paster SET search_path = \"\$user\", public, extensions;" >/dev/null
+cell "貼的角色 search_path 與正式庫 postgres 相同" "$(PN -tA -c 'show search_path')" '"$user", public, extensions'
 echo "── 貼(非 superuser)──"
 PN -f "$MIG" >/dev/null || { echo "🔴 migration 用非 superuser 貼不上"; PN -f "$MIG" 2>&1 | tail -5; exit 1; }
 cell "函式在、owner = postgres、SECURITY DEFINER、STABLE、search_path 空字串" "$(Q "select pg_get_userbyid(proowner) || '|' || prosecdef::text || '|' || provolatile::text || '|' || array_to_string(proconfig, ',') from pg_proc where proname = 'storefront_variant_sku_product_ids'")" 'postgres|true|s|search_path=""'

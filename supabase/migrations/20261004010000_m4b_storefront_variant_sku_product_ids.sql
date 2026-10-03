@@ -25,6 +25,12 @@
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
+-- 🔴 search_path 清空(只在本交易內):pg_get_indexdef 印運算子類別時, 看得見的 schema 不加前綴 ——
+--    正式庫 postgres 的 search_path 含 extensions ⇒ 印 gin_trgm_ops, 唯讀帳號與拋棄式 PG 印 extensions.gin_trgm_ops
+--    ⇒ 前置閘①在正式庫誤擋(Sean 2026-10-04 00:5x 實撞, 交易已退回、沒有寫入)。清空後兩邊都印 extensions.gin_trgm_ops。
+--    本檔的表與自訂函式都寫了 schema;count / coalesce / substr / replace 這些內建函式沒寫,
+--    而 pg_catalog 在空 search_path 下照樣會被搜尋(拋棄式 PG 以正式庫的 search_path 實跑 30 格過)。
+SET LOCAL search_path TO '';
 
 DO $pre$
 BEGIN
