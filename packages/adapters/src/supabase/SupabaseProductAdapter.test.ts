@@ -2172,3 +2172,32 @@ describe('searchByKeyword — 列的順序由【上游】決定, 不由 PostgRES
   });
 });
 
+// ⟦搜尋-料號回查整表掃⟧ 2026-10-04(計畫 ~/Projects/pcm-mailbox/計畫-車款與商品查詢逾時-20261004.md 改法 B 的程式那半, Sean Q3 甲):
+//   1–2 個字的料號回查不打資料庫(正式站 10-03 18:57 四筆整表掃逾時)。
+describe('SupabaseProductAdapter.searchByVariantSku — 少於 3 個字不打資料庫', () => {
+  function makeVariantClient() {
+    const tables: string[] = [];
+    const ilikes: string[] = [];
+    const builder = {
+      select() { return builder; },
+      ilike(_col: string, pattern: string) { ilikes.push(pattern); return builder; },
+      limit() { return Promise.resolve({ data: [], error: null }); },
+    };
+    const client = { from(table: string) { tables.push(table); return builder; } };
+    return { client: client as unknown as SupabaseClient, tables, ilikes };
+  }
+
+  it.each(['a', 'ab', ' ab '])('「%s」⇒ 回空、一發都不打', async (q) => {
+    const { client, tables } = makeVariantClient();
+    const page = await new SupabaseProductAdapter(client).searchByVariantSku(q, { limit: 25 });
+    expect(page.items).toEqual([]);
+    expect(tables).toEqual([]);
+  });
+
+  it('3 個字 ⇒ 照常查 product_variants_public', async () => {
+    const { client, tables, ilikes } = makeVariantClient();
+    await new SupabaseProductAdapter(client).searchByVariantSku('abc', { limit: 25 });
+    expect(tables).toEqual(['product_variants_public']);
+    expect(ilikes).toEqual(['%abc%']);
+  });
+});
