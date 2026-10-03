@@ -69,4 +69,34 @@ describe('singleFlightStale', () => {
     s.setFail(false);
     await expect(s.get()).resolves.toEqual({ v: 2 });
   });
+
+  // 2026-10-04 健檢:包在 unstable_cache 的讀取函式【裡面】用時, ttl 要是 0(每次背景更新都真的去讀),
+  // 而舊值能沿用多久要另外指定 —— 預設的 2×ttl 在 ttl=0 時等於不沿用。
+  it('⑤ 另外指定 staleForMs:ttl 0 ⇒ 每發都重抓;失敗時舊值在 staleForMs 內照回, 超過就 throw', async () => {
+    let t = 0;
+    let calls = 0;
+    let fail = false;
+    const get = singleFlightStale(
+      async () => {
+        calls += 1;
+        if (fail) throw new Error('simulated timeout');
+        return { v: calls };
+      },
+      0,
+      'test',
+      () => t,
+      600_000,
+    );
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await get();
+    t += 1;
+    await get();
+    expect(calls, 'ttl 0 ⇒ 第二發也要真的去讀').toBe(2);
+    fail = true;
+    t += 599_000;
+    await expect(get(), '失敗、舊值未超過 staleForMs ⇒ 回上一份').resolves.toEqual({ v: 2 });
+    t += 2_000;
+    await expect(get(), '舊值超過 staleForMs ⇒ 照樣 throw').rejects.toThrow('simulated timeout');
+    errSpy.mockRestore();
+  });
 });

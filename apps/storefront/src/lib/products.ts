@@ -940,8 +940,20 @@ type CatalogBrandCountClient = {
  *   ⇒ 「熱請求零 DB」不成立。改與 `getCategoryTreeCached` 同慣例(60s + `catalog` tag)。
  *   失敗 throw 不進快取(在快取外 catch 回 `[]`,維持既有 fail-safe 行為)。
  */
+// 🔴 2026-10-04 健檢:這兩支(品牌分類、分類樹)的背景更新失敗 7 天 278／159 次, 理由同 `lib/home-banners.ts`
+//   `HOME_BANNER_STALE_FALLBACK_MS` 那段:Next 背景更新失敗不延長舊值 ⇒ 每個請求都再打一次慢查詢。
+//   讀取函式記住這台機器上一份成功的值, 失敗而未超過 10 分鐘就回它;從來沒成功過照舊 throw(不進快取)。
+// ponytail: 回的是這台機器記得的值, 最多舊 10 分鐘;目錄頁(catalog-page-v6)吃參數、每組參數一份, 這層記不了, 沒包。
+const CATALOG_STALE_FALLBACK_MS = 10 * 60_000;
+
 const getCatalogBrandTaxonomyCached = unstable_cache(
-  async (): Promise<MockBrand[]> => queryCatalogBrandTaxonomy(),
+  singleFlightStale(
+    async (): Promise<MockBrand[]> => queryCatalogBrandTaxonomy(),
+    0,
+    'catalogBrandTaxonomy',
+    Date.now,
+    CATALOG_STALE_FALLBACK_MS,
+  ),
   ['catalog-brand-taxonomy-v1'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
@@ -1042,12 +1054,19 @@ export async function fetchProductsByVehicle(vehicle: {
  *   每請求成本;失敗 throw 不進快取、外層 catch 回 [])。
  */
 const getCategoryTreeCached = unstable_cache(
-  async (): Promise<MockCategory[]> => {
-    const client = createCatalogAnonClient();
-    const adapter = new SupabaseProductAdapter(client);
-    const summaries = await adapter.listCategories();
-    return buildCategoryTree(summaries);
-  },
+  // 背景更新失敗時沿用上一份(理由見 `CATALOG_STALE_FALLBACK_MS` 上方)
+  singleFlightStale(
+    async (): Promise<MockCategory[]> => {
+      const client = createCatalogAnonClient();
+      const adapter = new SupabaseProductAdapter(client);
+      const summaries = await adapter.listCategories();
+      return buildCategoryTree(summaries);
+    },
+    0,
+    'categoryTree',
+    Date.now,
+    CATALOG_STALE_FALLBACK_MS,
+  ),
   ['category-tree-v1'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );

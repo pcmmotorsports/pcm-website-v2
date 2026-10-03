@@ -195,3 +195,21 @@ describe('🔴 排序鍵:starts_at 之後要有 id 當平手裁判', () => {
     expect(orders, '少了次要排序鍵 ⇒ 平手時顧客站回哪張不保證').toEqual(['starts_at', 'id']);
   });
 });
+
+// ══ 2026-10-04 健檢:背景更新逾時 7 天 897 次 ═════════════════════════════════
+// 🔴 病:快取過期後由 Next 在背景更新;更新失敗時 Next 回舊值給客人, 但【不延長】那份舊值
+//    ⇒ 之後每一個請求都再觸發一次更新、每一次都等滿 2.5 秒逾時、每一次都記一筆錯誤。
+// ✅ 修法:讀取函式記住同一台機器上一份成功的值;失敗而上一份未超過 10 分鐘 ⇒ 回那份
+//    (快取跟著延長 60 秒, 下一次重試在 60 秒後)。從來沒成功過 ⇒ 照舊 throw(首頁照舊不掛大圖)。
+// 🛑 本組放在檔尾:模組層記住的值會跨測試留著, 放前面會讓「查詢錯誤 ⇒ []」那格拿到舊值。
+describe('更新失敗時沿用上一份成功的大圖', () => {
+  it('🔴 成功一次之後查詢失敗 ⇒ 回上一份大圖, 不是空陣列', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    createCatalogAnonClient.mockReturnValue(fakeClient({ data: [{ ...ROW, id: 'keep-me' }], error: null }));
+    await expect(fetchLiveHomeBanners()).resolves.toMatchObject([{ id: 'keep-me' }]);
+    createCatalogAnonClient.mockReturnValue(fakeClient({ data: null, error: { code: '57014' } }));
+    await expect(fetchLiveHomeBanners()).resolves.toMatchObject([{ id: 'keep-me' }]);
+    expect(err, '沿用舊值時要留一行紀錄, 不能安靜吞掉').toHaveBeenCalledTimes(1);
+  });
+});

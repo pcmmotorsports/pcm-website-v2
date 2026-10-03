@@ -1,6 +1,7 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
+import { singleFlightStale } from '@/lib/single-flight-stale';
 import { HOME_BANNER_MAX_SLIDES } from '@pcm/domain';
 
 // home-banners.ts — 首頁輪播讀「已發布的新品大圖」(email 新品 → 首頁大圖 片 3;2026-09-16)
@@ -189,7 +190,20 @@ export async function loadLiveHomeBanners(
 //    拿到的是上一版存進去的【單一物件】**,而下游會把它當陣列用 ⇒ 首頁當場壞掉。
 //    📌 快取的 key 是那份資料的**形狀契約**;形狀變了而 key 沒變,是一個只在部署那一刻發作、
 //       而且在本機永遠重現不出來的 bug。
-const getLiveHomeBannersCached = unstable_cache(() => loadLiveHomeBanners(), ['home-banner-live-v2'], {
+// 🔴 2026-10-04 健檢:背景更新逾時 7 天 897 次(Vercel runtime errors「revalidating cache with key: …home-banner-live-v2」)。
+//   Next 背景更新失敗時會回舊值給客人, 但【不延長】舊值 ⇒ 之後每個請求都再更新一次、每次都等滿 2.5 秒、每次記一筆錯誤。
+//   ⇒ 讀取函式記住這台機器上一份成功的值:失敗而那份未超過 10 分鐘就回它(Next 把它存回快取, 下次重試在 60 秒後);
+//   從來沒成功過照舊 throw ⇒ 首頁照舊不掛大圖。2.5 秒上限不動(沒有快取時它護的是首頁不被拖慢)。
+// ponytail: 回的是「這台機器」記得的值, 可能比別台剛寫進快取的新值舊, 最多舊 10 分鐘;大圖很少變動, 要更精準得改成讀快取裡的舊值。
+export const HOME_BANNER_STALE_FALLBACK_MS = 10 * 60_000;
+const loadLiveHomeBannersOrLastGood = singleFlightStale(
+  () => loadLiveHomeBanners(),
+  0,
+  'homeBanner',
+  Date.now,
+  HOME_BANNER_STALE_FALLBACK_MS,
+);
+const getLiveHomeBannersCached = unstable_cache(loadLiveHomeBannersOrLastGood, ['home-banner-live-v2'], {
   revalidate: 60,
   tags: ['home-banner'],
 });
