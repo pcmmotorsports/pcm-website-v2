@@ -158,6 +158,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
         picks.push(k.id);
       }
       if (picks.length === 0) return;
+      enter('hydrate');
       for (const p of await this.repo.listByIds(picks)) {
         if (collected.length >= cap) break;
         if (p.brand.id !== product.brand.id || isTaken(p.handle, p.id)) continue;
@@ -166,6 +167,16 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
     };
 
     const enough = (): boolean => collected.length >= cap;
+
+    // 🔴 2026-10-04 健檢(⟦front-RECOENGINESTOPPED⟧ 叫醒):失敗紀錄要說出是哪一步、錯誤代碼、各花多久,
+    //    才知道 15 秒逾時與 57014 各是哪支查詢。只記步驟名稱與耗時, 不記網址、車款等客人資料。
+    const startAt = performance.now();
+    let step = 'start';
+    let stepAt = startAt;
+    const enter = (s: string): void => {
+      step = s;
+      stepAt = performance.now();
+    };
 
     // 🔴 hasMore 主池語意(codex R3 F1、supersede plan §2 full-stream 定義):
     //   「查看全部」CTA 連到主池對應 filter(Case A → /products?vehicle= / Case B → /products?brand=)。
@@ -181,6 +192,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
     try {
       if (context.vehicle) {
         // ── Case A:反查「選定車輛」的相容池 ─────────────────────────────
+        enter('vehicle-pool');
         const vehiclePool = await this.repo.listByFitment(vehicleToSpec(context.vehicle), RECOMMENDATION_POOL_SIZE);
         primaryPoolCount = countDistinctEligible(vehiclePool, excludes); // CTA=/products?vehicle=
         primaryPoolSaturated = vehiclePool.length >= RECOMMENDATION_POOL_SIZE;
@@ -189,6 +201,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
         addTier(sameCat, 100, 'same-vehicle-same-category', false); // 同車×同分類:最相關、決定性排序
         addTier(otherCat, 70, 'same-vehicle-other-brand', true); // 同車×其他:亂數
         if (!enough()) {
+          enter('vehicle-fallback-category');
           const catPool = await this.repo.listByCategory(product.category, RECOMMENDATION_POOL_SIZE);
           addTier(catPool, 40, 'fallback-category', true); // 不足 → 同分類(不限車)
         }
@@ -217,8 +230,10 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
           this.brandPools.get(brandPoolKey(brandId, categoryRaw, RECOMMENDATION_POOL_SIZE), () =>
             this.repo.listBrandPoolKeys(brandId, RECOMMENDATION_POOL_SIZE, categoryRaw),
           );
+        enter('brand-pool');
         const brandPool = await pool();
         primaryPoolSaturated = brandPool.length >= RECOMMENDATION_POOL_SIZE;
+        if (primaryPoolSaturated) enter('brand-pool-same-category');
         const sameCat = primaryPoolSaturated
           ? await pool(sameCategoryRaw)
           : brandPool.filter((k) => k.categoryRaw === sameCategoryRaw);
@@ -227,6 +242,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
         await addKeyTier(sameCat, 100, 'same-brand', false); // 同品牌×同分類:決定性排序
         await addKeyTier(otherCat, 80, 'same-brand', true); // 同品牌其他:亂數
         if (!enough()) {
+          enter('brand-fallback-category');
           const catPool = await this.repo.listByCategory(product.category, RECOMMENDATION_POOL_SIZE);
           addTier(catPool, 50, 'fallback-category', true); // 不足 → 同分類(不限品牌)
         }
@@ -234,11 +250,23 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
 
       // 兩 case 共用最後補位:通用款(fitments 空、設計上不綁車型)。
       if (!enough()) {
+        enter('general');
         const generalPool = await this.repo.listGeneral(RECOMMENDATION_POOL_SIZE);
         addTier(generalPool, 10, 'general', true);
       }
     } catch (err) {
-      console.error('[RuleBasedRecommendationEngine] repository query failed:', err);
+      const now = performance.now();
+      const e = err as { code?: unknown; name?: unknown } | null;
+      console.error(
+        '[RuleBasedRecommendationEngine] repository query failed:',
+        {
+          step,
+          code: typeof e?.code === 'string' && e.code ? e.code : typeof e?.name === 'string' ? e.name : 'unknown',
+          stepMs: Math.round(now - stepAt),
+          totalMs: Math.round(now - startAt),
+        },
+        err,
+      );
       return { items: [], hasMore: false };
     }
 

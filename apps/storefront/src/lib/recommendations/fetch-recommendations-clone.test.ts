@@ -26,10 +26,12 @@ vi.mock('next/cache', () => ({
 }));
 
 let findByHandleCalls = 0;
+let findByHandleFails = false;
 vi.mock('@pcm/adapters', () => ({
   SupabaseProductAdapter: class {
     async findByHandle() {
       findByHandleCalls += 1;
+      if (findByHandleFails) throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
       return { id: 'p-1', handle: 'h-1' };
     }
     async listByFitment() {
@@ -58,6 +60,23 @@ beforeEach(() => {
   cacheStore.clear();
   cacheReadFails = false;
   findByHandleCalls = 0;
+  findByHandleFails = false;
+});
+
+// 🔴 2026-10-04 健檢(⟦front-RECOENGINESTOPPED⟧ 叫醒):「recommendation fetch failed」7 天 29 次, 引擎外面只剩讀目前商品那一步會丟錯,
+//    紀錄要說出是哪一步、錯誤代碼、花多久;不帶網址。
+describe('推薦讀取失敗紀錄', () => {
+  it('🔴 讀目前商品逾時 ⇒ step=find-product、code=TimeoutError、有耗時、不帶網址', async () => {
+    findByHandleFails = true;
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(fetchRecommendedProducts('secret-handle', undefined)).resolves.toEqual({ items: [], hasMore: false });
+    const call = errors.mock.calls.find((c) => String(c[0]).includes('[fetchRecommendedProducts] recommendation fetch failed'));
+    const log = call?.[1] as { step?: string; code?: string; ms?: number } | undefined;
+    expect(log).toMatchObject({ step: 'find-product', code: 'TimeoutError' });
+    expect(typeof log?.ms).toBe('number');
+    expect(JSON.stringify(log)).not.toContain('secret-handle');
+    errors.mockRestore();
+  });
 });
 
 describe('PDP 推薦快取回副本', () => {
