@@ -27,6 +27,7 @@ import { unstable_cache } from 'next/cache';
 
 import { createCatalogAnonClient } from '@/lib/catalog-anon-client';
 import { CATALOG_REVALIDATE_SECONDS } from '@/lib/products';
+import { retryOnceOnStatementTimeout } from '@/lib/retry-on-statement-timeout';
 
 /**
  * 全 process 同時允許的冷查數上限;超過直接拒絕、不排隊。
@@ -132,7 +133,25 @@ export async function queryFacetCounts(
   selection: FacetSelection,
 ): Promise<VehicleFacetCounts> {
   const client = createCatalogAnonClient() as unknown as FacetRpcClient;
-  const { data, error } = await withTimeout(
+  // 🔴 2026-10-04 健檢:24 小時 503 兩次都是 anon 3 秒逾時(57014)⇒ 走全站共用的「57014 重試一次」。
+  //    57014 要帶著代碼丟出去 helper 才認得;其他錯照舊落到下面那行 throw。
+  const { data, error } = await retryOnceOnStatementTimeout('catalog_facet_counts', async () => {
+    const r = await runFacetRpc(client, vehicle, categoryKeys, brandSlugs, selection);
+    if ((r.error as { code?: unknown } | null)?.code === '57014') throw r.error;
+    return r;
+  });
+  if (error) throw new Error(error.message);
+  return toCounts(data);
+}
+
+function runFacetRpc(
+  client: FacetRpcClient,
+  vehicle: FacetVehicle | null,
+  categoryKeys: readonly string[],
+  brandSlugs: readonly string[],
+  selection: FacetSelection,
+) {
+  return withTimeout(
     client.rpc('catalog_facet_counts', {
       p_category_keys: [...categoryKeys],
       p_brand_keys: [...brandSlugs],
@@ -152,8 +171,9 @@ export async function queryFacetCounts(
     }),
     'catalog_facet_counts',
   );
-  if (error) throw new Error(error.message);
+}
 
+function toCounts(data: Awaited<ReturnType<typeof runFacetRpc>>['data']): VehicleFacetCounts {
   const categories: Record<string, number> = {};
   const brands: Record<string, number> = {};
   for (const row of data ?? []) {

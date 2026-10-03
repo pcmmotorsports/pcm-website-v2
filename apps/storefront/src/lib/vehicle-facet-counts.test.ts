@@ -133,6 +133,23 @@ describe('queryFacetCounts', () => {
     rpc.mockReturnValue(Promise.resolve({ data: null, error: { message: 'statement timeout' } }));
     await expect(queryFacetCounts(VEHICLE, ['a'], [], NONE)).rejects.toThrow('statement timeout');
   });
+
+  // 🔴 2026-10-04 健檢:/api/catalog/facet-counts 24 小時 503 兩次, 都是 anon 3 秒逾時(57014)。
+  //    原本把錯誤包成 `new Error(message)` ⇒ 代碼 57014 丟了 ⇒ 全站共用的「57014 重試一次」接不上。
+  it('🔴 第一發撞 57014 ⇒ 重試一次, 第二發成功就回件數', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    rpc
+      .mockReturnValueOnce(Promise.resolve({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }))
+      .mockReturnValueOnce(ok([{ facet: 'category', key: 'a', n: 7 }]));
+    await expect(queryFacetCounts(VEHICLE, ['a'], [], NONE)).resolves.toEqual({ categories: { a: 7 }, brands: {} });
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it('🟢 負對照:不是 57014 的錯不重試(權限、網路重試也不會變好)', async () => {
+    rpc.mockReturnValue(Promise.resolve({ data: null, error: { code: '42501', message: 'permission denied' } }));
+    await expect(queryFacetCounts(VEHICLE, ['a'], [], NONE)).rejects.toThrow('permission denied');
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('fetchFacetCounts(快取包裝 + 名額閘)', () => {
