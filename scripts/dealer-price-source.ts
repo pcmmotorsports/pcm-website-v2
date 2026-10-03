@@ -298,3 +298,63 @@ export async function readLocalProductStore(
     return null;
   }
 }
+
+/**
+ * 經銷價變動件數(2026-10-03 extreme 價目表全自動, 網站那一半)。**只算件數, 不碰任何價格輸出。**
+ * 對齊寫入行為(`rpm-transform.ts` 的 `from_upstream`):上游那一列存在就用它(明示 null = 清空), 整列消失就沿用舊值。
+ *   · 改價:兩邊都有值而不同 · 新設:本站沒值(沒這個料號或 null)而上游有 · 移除:本站有值而上游明示 null
+ *   · 不變:其餘(含兩邊都 null、上游整列消失而沿用舊值)
+ *   · 單件漲跌超過 30%:改價裡 |新 − 舊| > 舊 × 30%(整數比較, 剛好 30% 不算);舊價 0 而新價 > 0 一律算超過。
+ * 🔴 這裡算的是「上游對本站現值」的差;要不要真的寫入由 gate 決定, 送值來源另一行會印。
+ */
+export type DealerPriceChangeCounts = {
+  readonly changed: number;
+  readonly added: number;
+  readonly unchanged: number;
+  readonly removed: number;
+  readonly over30: number;
+};
+
+export function dealerPriceChangeCounts(
+  upstreamBySku: ReadonlyMap<string, number | null>,
+  oldBySku: ReadonlyMap<string, number | null>,
+): DealerPriceChangeCounts {
+  let changed = 0;
+  let added = 0;
+  let unchanged = 0;
+  let removed = 0;
+  let over30 = 0;
+  for (const [sku, next] of upstreamBySku) {
+    const prev = oldBySku.get(sku) ?? null;
+    if (prev === null && next === null) unchanged++;
+    else if (prev === null) added++;
+    else if (next === null) removed++;
+    else if (prev === next) unchanged++;
+    else {
+      changed++;
+      if (prev === 0 || Math.abs(next - prev) * 10 > prev * 3) over30++;
+    }
+  }
+  for (const sku of oldBySku.keys()) if (!upstreamBySku.has(sku)) unchanged++;
+  return { changed, added, unchanged, removed, over30 };
+}
+
+/** 🔴 格式固定:報價單自動流程從 gh run log 逐字解析這一行(測試釘住), 改字要兩邊一起改。 */
+export function formatDealerPriceChangeLine(c: DealerPriceChangeCounts): string {
+  return `[dealer-price] 經銷價變動件數:改價 ${c.changed} · 新設 ${c.added} · 不變 ${c.unchanged} · 移除 ${c.removed} · 單件漲跌超過 30% ${c.over30}`;
+}
+
+/**
+ * 🔴 算不出可信件數時印的固定字樣(Fable R1 必修)。與件數那一行同前綴, 但沒有數字欄 ⇒ 下游看到就停, 不會把「缺行」當成 0 件。
+ *   · upstream_unreadable:沒設上游連線或上游讀不到 · local_incomplete:本站現值(變體層或商品層)讀不到、讀漏或料號重複(這一輪是 A2)
+ *   · not_in_list:這一家不在 DEALER_PRICE_SUPPLIERS(本輪不碰經銷價)
+ */
+export type DealerPriceChangeUnavailable = 'upstream_unreadable' | 'local_incomplete' | 'not_in_list';
+const UNAVAILABLE_TEXT: Record<DealerPriceChangeUnavailable, string> = {
+  upstream_unreadable: '讀不到上游',
+  local_incomplete: '本站現值讀不完整',
+  not_in_list: '不在經銷價名單',
+};
+export function formatDealerPriceChangeUnavailable(reason: DealerPriceChangeUnavailable): string {
+  return `[dealer-price] 經銷價變動件數:${UNAVAILABLE_TEXT[reason]}`;
+}

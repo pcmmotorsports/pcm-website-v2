@@ -171,3 +171,70 @@ describe('🔴 schedule 觸發但沒設 DEALER_PRICE_CHECKSUM_KEY ⇒ 不寫新�
     expect(src).toMatch(/key:\s*process\.env\.DEALER_PRICE_CHECKSUM_KEY/);
   });
 });
+
+// 2026-10-03 extreme 價目表全自動:經銷價變動件數那一行要真的印出來(報價單自動流程讀 gh run log)。
+describe('經銷價變動件數那一行:讀到上游就印, 不論這一輪寫不寫', () => {
+  const run = async (
+    key: string | undefined,
+    opts: { upstreamFails?: boolean; localFails?: boolean; productsFail?: boolean; dupSku?: boolean; suppliers?: string } = {},
+  ) => {
+    process.env.DEALER_PRICE_TRIGGER = 'schedule';
+    process.env.DEALER_PRICE_SUPPLIERS = opts.suppliers ?? 'rpm';
+    process.env.DEALER_PRICE_DATABASE_URL = 'postgres://x';
+    process.env.DEALER_PRICE_EXPECT_CHECKSUM = '';
+    if (key === undefined) delete process.env.DEALER_PRICE_CHECKSUM_KEY;
+    else process.env.DEALER_PRICE_CHECKSUM_KEY = key;
+    const up = vi.fn(async () =>
+      opts.upstreamFails
+        ? { ok: false as const, why: 'timeout' }
+        : {
+            ok: true as const,
+            rows: Array.from({ length: 10 }, (_, i) => ({ supplier_slug: 'rpm', sku: `v${i}`, price_store: 87 })),
+          },
+    );
+    const { decideDealerPrice } = await import('./rpm-import');
+    const variants = Array.from({ length: 10 }, (_, i) => ({ sku: opts.dupSku && i === 1 ? 'v0' : `v${i}`, price_store: null }));
+    const { client } = mockClient({
+      variants: opts.localFails ? 'fail' : variants,
+      products: opts.productsFail ? 'fail' : [{ external_id: 'G1', price_by_tier: { store: { amount: 1 } } }],
+    });
+    const logs: string[] = [];
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void logs.push(a.map(String).join(' ')));
+    const before = process.exitCode;
+    try {
+      await decideDealerPrice(client, 'rpm', up as never);
+    } finally {
+      spy.mockRestore();
+      errSpy.mockRestore();
+      process.exitCode = before;
+    }
+    return logs.filter((l) => l.startsWith('[dealer-price] 經銷價變動件數:'));
+  };
+  const LINE = '[dealer-price] 經銷價變動件數:改價 0 · 新設 10 · 不變 0 · 移除 0 · 單件漲跌超過 30% 0';
+
+  it('會寫新值的那一輪(from_upstream)印出來, 數字對, 而且只印一行', async () => {
+    expect(await run('test-key')).toEqual([LINE]);
+  });
+
+  it('不寫新值的那一輪(沒金鑰 ⇒ A1 帶舊值)也印 —— 乾跑與正式跑都要看得到', async () => {
+    expect(await run(undefined)).toEqual([LINE]);
+  });
+
+  // Fable R1 必修:這三種情況原本整行不印或印出誤導的數字 ⇒ 一律印固定字樣
+  it('上游讀不到 ⇒ 印「讀不到上游」(不是缺行)', async () => {
+    expect(await run('test-key', { upstreamFails: true })).toEqual(['[dealer-price] 經銷價變動件數:讀不到上游']);
+  });
+  it('本站現值讀不到 ⇒ 印「本站現值讀不完整」(不是把全部當新設)', async () => {
+    expect(await run('test-key', { localFails: true })).toEqual(['[dealer-price] 經銷價變動件數:本站現值讀不完整']);
+  });
+  it('本站料號重複 ⇒ 印「本站現值讀不完整」(那一輪 A2)', async () => {
+    expect(await run('test-key', { dupSku: true })).toEqual(['[dealer-price] 經銷價變動件數:本站現值讀不完整']);
+  });
+  it('商品層讀不到 ⇒ 印「本站現值讀不完整」(那一輪 A2, 一筆不寫)', async () => {
+    expect(await run('test-key', { productsFail: true })).toEqual(['[dealer-price] 經銷價變動件數:本站現值讀不完整']);
+  });
+  it('這一家不在經銷價名單 ⇒ 印「不在經銷價名單」', async () => {
+    expect(await run('test-key', { suppliers: 'gbracing' })).toEqual(['[dealer-price] 經銷價變動件數:不在經銷價名單']);
+  });
+});
