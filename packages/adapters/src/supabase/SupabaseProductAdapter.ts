@@ -972,7 +972,12 @@ export class SupabaseProductAdapter implements IProductRepository {
     params: PaginationParams,
   ): Promise<Paginated<Product>> {
     const q = query.trim();
-    if (q === '') return { items: [] };
+    // ⟦搜尋-料號回查整表掃⟧ 2026-10-04(Sean Q3 甲, 計畫 ~/Projects/pcm-mailbox/計畫-車款與商品查詢逾時-20261004.md):
+    //   `sku ilike '%字%'` 會整張 product_variants 掃(正式站 10-03 18:57 四筆 3 秒逾時)。
+    //   1–2 個字的料號片段也找不到有意義的商品 ⇒ 直接回空, 不打資料庫。
+    //   ⚠️ 3 個字以上照舊整表掃:anon 走 product_variants 的資料列權限, 而 ilike 不是 leakproof
+    //      ⇒ 就算加三字索引也用不上(拋棄式 PG 以 anon 實測, 2026-10-04)。要再快得換成 SECURITY DEFINER 的查法。
+    if (q.length < 3) return { items: [] };
 
     // 🔴 `escapeIlikeWildcards` 少不得:料號裡真的會有 `_`(`DBK_3` 那種寫法),
     //    而 `_` 在 LIKE 裡是「任一個字元」⇒ 不轉義會**多撈**, 而畫面上看起來完全正常。
