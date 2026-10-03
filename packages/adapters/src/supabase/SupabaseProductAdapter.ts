@@ -25,7 +25,6 @@ import {
   SEARCHABLE_COLUMNS,
   assertPositiveIntegerPoolLimit,
   buildIlikeOrFilter,
-  escapeIlikeWildcards,
   splitStorefrontSearchTerms,
   fetchAllPaginated,
   findSingle,
@@ -973,20 +972,25 @@ export class SupabaseProductAdapter implements IProductRepository {
   ): Promise<Paginated<Product>> {
     const q = query.trim();
     // ⟦搜尋-料號回查整表掃⟧ 2026-10-04(Sean Q3 甲, 計畫 ~/Projects/pcm-mailbox/計畫-車款與商品查詢逾時-20261004.md):
-    //   `sku ilike '%字%'` 會整張 product_variants 掃(正式站 10-03 18:57 四筆 3 秒逾時)。
-    //   1–2 個字的料號片段也找不到有意義的商品 ⇒ 直接回空, 不打資料庫。
-    //   ⚠️ 3 個字以上照舊整表掃:anon 走 product_variants 的資料列權限, 而 ilike 不是 leakproof
-    //      ⇒ 就算加三字索引也用不上(拋棄式 PG 以 anon 實測, 2026-10-04)。要再快得換成 SECURITY DEFINER 的查法。
+    //   1–2 個字的料號片段找不到有意義的商品 ⇒ 直接回空, 不打資料庫。函式裡也再擋一次(anon 可以直接呼叫它)。
     if (q.length < 3) return { items: [] };
 
-    // 🔴 `escapeIlikeWildcards` 少不得:料號裡真的會有 `_`(`DBK_3` 那種寫法),
-    //    而 `_` 在 LIKE 裡是「任一個字元」⇒ 不轉義會**多撈**, 而畫面上看起來完全正常。
-    const pattern = `%${escapeIlikeWildcards(q)}%`;
-    const { data: vRows, error: vErr } = await this.supabase
-      .from('product_variants_public')
-      .select('product_id')
-      .ilike('sku', pattern)
-      .limit(VARIANT_SKU_ROW_CAP);
+    // ⟦搜尋-料號回查整表掃⟧ 2026-10-04(Sean Q2 甲, 計畫 ~/Projects/pcm-mailbox/計畫-料號回查改權限函式-20261004.md):
+    //   ⛔ ~~以 anon 查 product_variants_public 的 `sku ILIKE`~~ —— 資料列權限下 ILIKE 不是 leakproof ⇒ 用不上索引 ⇒
+    //   整張 product_variants 掃(1.8–4.6 秒, 正式站 10-03 18:57 四筆 3 秒逾時)。
+    //   ✅ 改叫 SECURITY DEFINER 函式(20261004010000):正規化料號走既有三字索引找候選、原始料號 ILIKE 複核、
+    //   自己擋已下架商品、LIMIT 500(= VARIANT_SKU_ROW_CAP)。結果與原寫法相同;去掉符號後不到 3 個字回 0 列(Sean Q1 甲)。
+    //   🔴 原字串照送, `_` `%` `\` 的 escape 由函式做 —— 這裡再 escape 一次會變成比對字面的反斜線。
+    //   🔴 回錯一律往上丟(含函式還沒貼的 PGRST202):呼叫端 lib/search.ts 會當成「不知道」, 不記成零筆語料。
+    //      上線順序是先貼 migration 再推程式(scripts/deploy-order-gate.sh 會擋), 正常不會遇到 PGRST202。
+    const { data: vRows, error: vErr } = await (
+      this.supabase as unknown as {
+        rpc: (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => PromiseLike<{ data: unknown; error: { code?: unknown } | null }>;
+      }
+    ).rpc('storefront_variant_sku_product_ids', { p_q: q });
     if (vErr) throw vErr;
 
     const raw = (vRows ?? []) as Array<{ product_id: string | null }>;

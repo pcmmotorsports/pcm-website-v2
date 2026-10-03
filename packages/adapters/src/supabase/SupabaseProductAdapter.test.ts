@@ -2172,32 +2172,61 @@ describe('searchByKeyword — 列的順序由【上游】決定, 不由 PostgRES
   });
 });
 
-// ⟦搜尋-料號回查整表掃⟧ 2026-10-04(計畫 ~/Projects/pcm-mailbox/計畫-車款與商品查詢逾時-20261004.md 改法 B 的程式那半, Sean Q3 甲):
-//   1–2 個字的料號回查不打資料庫(正式站 10-03 18:57 四筆整表掃逾時)。
-describe('SupabaseProductAdapter.searchByVariantSku — 少於 3 個字不打資料庫', () => {
-  function makeVariantClient() {
+// ⟦搜尋-料號回查整表掃⟧ 2026-10-04:
+//   ① 1–2 個字的料號回查不打資料庫(計畫 ~/Projects/pcm-mailbox/計畫-車款與商品查詢逾時-20261004.md 改法 B 的程式那半, Sean Q3 甲)
+//   ② 3 個字以上改叫 SECURITY DEFINER 函式 storefront_variant_sku_product_ids(20261004010000),
+//      不再以 anon 查 product_variants_public(資料列權限下 ILIKE 用不上索引 ⇒ 整表掃)
+//      (計畫 ~/Projects/pcm-mailbox/計畫-料號回查改權限函式-20261004.md, Sean Q2 甲)
+describe('SupabaseProductAdapter.searchByVariantSku — 少於 3 個字不打資料庫、3 個字以上叫函式', () => {
+  function makeVariantClient(rpcResult: { data: unknown; error: unknown } = { data: [], error: null }) {
     const tables: string[] = [];
-    const ilikes: string[] = [];
+    const rpcCalls: Array<{ fn: string; args: unknown }> = [];
     const builder = {
       select() { return builder; },
-      ilike(_col: string, pattern: string) { ilikes.push(pattern); return builder; },
+      ilike() { return builder; },
+      in() { return builder; },
       limit() { return Promise.resolve({ data: [], error: null }); },
+      order() { return Promise.resolve({ data: [], error: null }); },
     };
-    const client = { from(table: string) { tables.push(table); return builder; } };
-    return { client: client as unknown as SupabaseClient, tables, ilikes };
+    const client = {
+      from(table: string) { tables.push(table); return builder; },
+      rpc(fn: string, args: unknown) { rpcCalls.push({ fn, args }); return Promise.resolve(rpcResult); },
+    };
+    return { client: client as unknown as SupabaseClient, tables, rpcCalls };
   }
 
   it.each(['a', 'ab', ' ab '])('「%s」⇒ 回空、一發都不打', async (q) => {
-    const { client, tables } = makeVariantClient();
+    const { client, tables, rpcCalls } = makeVariantClient();
     const page = await new SupabaseProductAdapter(client).searchByVariantSku(q, { limit: 25 });
+    expect(page.items).toEqual([]);
+    expect(tables).toEqual([]);
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it('3 個字以上 ⇒ 叫 storefront_variant_sku_product_ids, 原字串照送(escape 由資料庫做), 不碰 product_variants_public', async () => {
+    const { client, tables, rpcCalls } = makeVariantClient();
+    await new SupabaseProductAdapter(client).searchByVariantSku(' DBK_3 ', { limit: 25 });
+    expect(rpcCalls).toEqual([{ fn: 'storefront_variant_sku_product_ids', args: { p_q: 'DBK_3' } }]);
+    expect(tables).not.toContain('product_variants_public');
+  });
+
+  it('函式回的商品編號 ⇒ 去重後讀 products_public', async () => {
+    const id = '11111111-1111-1111-1111-111111111111';
+    const { client, tables } = makeVariantClient({ data: [{ product_id: id }, { product_id: id }], error: null });
+    await new SupabaseProductAdapter(client).searchByVariantSku('PRN01', { limit: 25 });
+    expect(tables).toEqual(['products_public']);
+  });
+
+  it('函式回滿 500 列 ⇒ 不知道還有沒有 ⇒ 回空, 不讀商品', async () => {
+    const rows = Array.from({ length: 500 }, (_, i) => ({ product_id: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}` }));
+    const { client, tables } = makeVariantClient({ data: rows, error: null });
+    const page = await new SupabaseProductAdapter(client).searchByVariantSku('ZX0', { limit: 25 });
     expect(page.items).toEqual([]);
     expect(tables).toEqual([]);
   });
 
-  it('3 個字 ⇒ 照常查 product_variants_public', async () => {
-    const { client, tables, ilikes } = makeVariantClient();
-    await new SupabaseProductAdapter(client).searchByVariantSku('abc', { limit: 25 });
-    expect(tables).toEqual(['product_variants_public']);
-    expect(ilikes).toEqual(['%abc%']);
+  it('函式回錯(含函式還沒貼的 PGRST202)⇒ 往上丟, 由呼叫端當成「不知道」而不記零筆語料', async () => {
+    const { client } = makeVariantClient({ data: null, error: { code: 'PGRST202', message: 'not found' } });
+    await expect(new SupabaseProductAdapter(client).searchByVariantSku('PRN01', { limit: 25 })).rejects.toMatchObject({ code: 'PGRST202' });
   });
 });
